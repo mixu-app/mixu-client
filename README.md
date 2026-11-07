@@ -5,13 +5,13 @@
 > 帮读者记住线索，把推理留给读者。
 
 本仓库是公开仓库。产品定位、需求编号、架构决策都在
-[mixu-docs](https://github.com/mixu-app/mixu-docs)，本仓库只承载客户端实现与设备侧约束。
+`mixu-docs`（内部私有仓库），本仓库只承载客户端实现与设备侧约束。
 
 ## 现状
 
 **文档优先阶段，尚无产品代码。** 本仓库目前只包含仓库治理文件（`AGENTS.md`、
 `repo.toml`、`justfile`、CI、`SECURITY.md`）与规划中的模块边界。里程碑定义见
-[mixu-docs · 路线图](https://github.com/mixu-app/mixu-docs/blob/main/docs/roadmap-and-decisions.md)：
+`mixu-docs`（内部私有仓库）：
 M0 阅读内核、M1 案情板、M2 托管 AI 内测、M3 联网 beta、M4 打磨。
 
 计划中的模块布局（M0 首个任务落地时创建，此处只是契约，不是已实现）：
@@ -49,7 +49,7 @@ SQLite + SQLDelight 负责本地库与图查询。**不要用 Compose Text 手�
 
 | 需要 | 用途 | 检查 |
 |---|---|---|
-| JDK 21 | Gradle/Kotlin 编译 | `java -version` |
+| JDK 21 LTS | Gradle/Kotlin 编译（AGP 当前支持的 LTS；AGP 支持 JDK 25 后再升） | `java -version` |
 | Android SDK（platform + build-tools） | 设备构建 | `sdkmanager --list_installed` |
 | Gradle（M0 前通过 wrapper 固定版本） | 构建 | `./gradlew --version` |
 | `just` | 统一质量门禁入口 | `just --version` |
@@ -57,6 +57,10 @@ SQLite + SQLDelight 负责本地库与图查询。**不要用 Compose Text 手�
 
 Gradle wrapper 会在 M0 的第一个任务里加入并在仓库内固定版本；此前 `just check`
 会打印明确的阶段例外而不是静默通过。
+
+版本策略：**取当时最新稳定版**，由 Gradle version catalog（`gradle/libs.versions.toml`）
+一处固定，不在模块里写版本号。M0 开始时一次性定 Kotlin、Compose Multiplatform、
+Readium、SQLDelight、Ktor 的版本，并记录在 ADR 里；升级是独立任务，不顺手做。
 
 ## 质量门禁
 

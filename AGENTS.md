@@ -22,6 +22,25 @@
   lands the same recipe must fail on broken code. Never weaken a recipe to keep
   a broken tree green.
 
+## Submodule mounts (read-only)
+
+| Mount | Repository |
+|---|---|
+| `libs/mixu-graph` | temporal graph model, projection, queries |
+| `libs/mixu-spoiler` | knowledge-horizon filtering |
+| `libs/mixu-renderer` | Compose canvas, layout, E-Ink policy |
+| `contracts` | graph pack schemas, API contracts, error codes |
+
+- `git clone --recurse-submodules` must yield a complete tree: one repository to
+  learn, links for the rest.
+- **Never edit inside a mount.** Change the owning repository, then move the
+  gitlink (`git update-index --cacheinfo 160000,<sha>,<path>`). Never replace a
+  mount with a symlink, and never let a pin track a moving branch.
+- Mounted paths are excluded from this repository's lint gate; do not re-enable
+  them, or the same file is linted twice with two different configs.
+- The client **composes** these libraries: no forked projection logic, no
+  filtering inside a composable or a renderer.
+
 ## Module boundaries (planned)
 
 - `shared/domain`: models and pure logic; no Android or Readium types.
@@ -87,6 +106,7 @@ GPL/AGPL/SSPL dependency is rejected here.
 1. Guest reading still complete offline?
 2. Anything leaked past the horizon (label, count, slot, search hit)?
 3. A DTO diverged from `mixu-contracts`?
-4. A page number used where a locator is required?
-5. E-Ink path introduced animation or redundant redraw?
-6. Is there a test that fails without the change?
+4. Was a file edited inside a submodule mount instead of its owning repository?
+5. A page number used where a locator is required?
+6. E-Ink path introduced animation or redundant redraw?
+7. Is there a test that fails without the change?

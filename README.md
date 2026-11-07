@@ -43,13 +43,24 @@ SQLite + SQLDelight 负责本地库与图查询。**不要用 Compose Text 手�
 - **客户端零云凭证。** 不含 AWS key、Cognito app client secret、价格目录或计费逻辑。
 - **本地数据可导出。** 书签、笔记、个人叠加层的导出格式属于对外契约。
 
+## 测试环境（Android）
+
+| 环境 | 能验证什么 | 不能验证什么 |
+|---|---|---|
+| Waydroid（本机已装） | 常规 UI、导入/阅读流程、Compose 渲染、性能初测 | E-Ink 刷新语义、真实触控延迟、厂商 ROM 差异 |
+| redroid（本机 docker/podman 镜像） | 多版本 Android 行为、CI 式自动化、adb 驱动的回归 | 同上；且需要 binder 内核模块 |
+| 真机（必须至少一台） | E-Ink 刷新/残影、真实设备性能、Keystore、字体回退 | — |
+
+自动化入口是 `adb`（已装）。`sdkmanager`/Android SDK 尚需安装（见仓库 README 前置要求）。
+E-Ink 相关结论**只能**来自真机：Waydroid/redroid 没有 E-Ink 刷新模型。
+
 ## 本地开发前提
 
 工具链（缺什么补什么；用户环境允许用 pacman / uv / bun 自行安装）：
 
 | 需要 | 用途 | 检查 |
 |---|---|---|
-| JDK 21 LTS | Gradle/Kotlin 编译（AGP 当前支持的 LTS；AGP 支持 JDK 25 后再升） | `java -version` |
+| JDK 25 LTS | 运行 Gradle；编译目标由 `jvmToolchain` 固定到 AGP 支持的版本 | `java -version` |
 | Android SDK（platform + build-tools） | 设备构建 | `sdkmanager --list_installed` |
 | Gradle（M0 前通过 wrapper 固定版本） | 构建 | `./gradlew --version` |
 | `just` | 统一质量门禁入口 | `just --version` |

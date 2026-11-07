@@ -88,7 +88,11 @@
 just check      # markdownlint + gradle (phase exception until wrapper lands)
 ```
 
-Missing tooling is installed (pacman / sdkmanager / uv / bun), never skipped.
+A gate that cannot run fails loudly. A missing or broken tool runs from the pinned
+container (`just <tool>-docker`, e.g. `oven/bun`) instead of being installed
+system-wide or skipped; a documented phase exception is the only allowed skip.
+Android SDK pieces (platform-tools, platforms, build-tools) are the one thing
+installed with `sdkmanager`, because a container cannot provide the device link.
 Adding a dependency requires a `THIRD-PARTY.md` row in the same change; a
 GPL/AGPL/SSPL dependency is rejected here.
 

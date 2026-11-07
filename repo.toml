@@ -1,0 +1,18 @@
+# mixu-client: workspace identity descriptor (mirrors workspace.toml).
+[repo]
+name = "mixu-client"
+kind = "client"
+lang = "kotlin/kmp"
+role = "Android/KMP application: reader shell, case board, local graph packs"
+visibility = "public"
+owner = "mixu-core"
+docs = "mixu-docs"
+
+[contracts.consumes]
+graph-pack-schema = "mixu-contracts: schemas/graph/*.schema.json" # reveal-scoped graph pack format
+api-contracts = "mixu-contracts: api/openapi.yaml"                # /v1 request/response shapes
+error-envelope = "mixu-contracts: api/error.schema.json"         # machine-readable error codes
+spoiler-fixtures = "mixu-fixtures: fixtures/synthetic"           # regression corpus for projections
+
+[contracts.provides]
+navigation-entry = "shared/domain: NavigationEntry"              # proposed in docs 03, pending code

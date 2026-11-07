@@ -1,0 +1,19 @@
+mixu-client
+Copyright 2026 The Mixu (谜序) Authors
+
+This Source Code Form is subject to the terms of the Mozilla Public License,
+v. 2.0. If a copy of the MPL was not distributed with this file, You can obtain
+one at https://mozilla.org/MPL/2.0/.
+
+Why MPL-2.0 rather than a permissive license: the client is the part a fork
+could most easily turn into a competing closed product. File-level copyleft
+keeps modifications to existing files open, while still allowing new files,
+commercial distribution and app-store publication.
+
+Core libraries consumed by this client (narrative graph, spoiler firewall,
+graph renderer, contracts) are separate Apache-2.0 repositories, so another
+project can reuse them without inheriting the client's MPL terms.
+
+Third-party components remain under their own licenses; see THIRD-PARTY.md.
+"Mixu" and "谜序" are product names of the project owner: the MPL grants no
+trademark rights. See https://github.com/mixu-app/.github/blob/main/TRADEMARKS.md.

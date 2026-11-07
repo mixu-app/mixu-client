@@ -1,0 +1,14 @@
+/.gradle/
+/build/
+/local.properties
+/.idea/
+*.iml
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+/**/build/
+/.worktrees/
+.DS_Store
+.carryctx/config.local.toml
+.worktrees/

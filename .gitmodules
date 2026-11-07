@@ -1,0 +1,12 @@
+[submodule "libs/mixu-graph"]
+	path = libs/mixu-graph
+	url = https://github.com/mixu-app/mixu-graph.git
+[submodule "libs/mixu-spoiler"]
+	path = libs/mixu-spoiler
+	url = https://github.com/mixu-app/mixu-spoiler.git
+[submodule "libs/mixu-renderer"]
+	path = libs/mixu-renderer
+	url = https://github.com/mixu-app/mixu-renderer.git
+[submodule "contracts"]
+	path = contracts
+	url = https://github.com/mixu-app/mixu-contracts.git

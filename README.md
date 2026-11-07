@@ -85,10 +85,22 @@ Mixu is an offline-first, Android-first mystery reader with a read-progress-awar
 case board. This repository is the public KMP client. Documentation-first phase:
 no product code exists yet.
 
-## 依赖的核心库（Apache-2.0）
+## 依赖的核心库（Apache-2.0，Git submodule 挂载）
 
-客户端把可复用的技术拆成独立仓库，以 Gradle 依赖方式引入。它们不是本仓库的一部分，
-也不受本仓库 MPL-2.0 约束——别的项目可以单独复用它们：
+客户端把可复用的技术拆成独立仓库，用 **Git submodule** 挂在 `libs/` 与 `contracts/`，
+所以克隆一个仓库就能拿到完整可构建的树：
+
+```sh
+git clone --recurse-submodules https://github.com/mixu-app/mixu-client
+# 已经克隆过：
+git submodule update --init --recursive
+```
+
+挂载点只读：**不要在挂载点里改代码**。要改库就去库仓库提交，然后回来移动 gitlink
+（`git update-index --cacheinfo 160000,<sha>,libs/mixu-graph`，或等库的 release 后再升 pin）。
+这样"只了解一个仓库"的用户也能跑起来，而每个库仍然保留自己的 history、CI 与 CarryCtx。
+
+它们不受本仓库 MPL-2.0 约束——别的项目可以单独复用它们：
 
 | 仓库 | 内容 | 许可 |
 |---|---|---|

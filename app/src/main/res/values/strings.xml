@@ -94,4 +94,31 @@
     <string name="library_badge_reading">READING</string>
     <string name="library_badge_completed">COMPLETED</string>
     <string name="library_badge_new">NEW</string>
+
+    <!-- Account & Guest Mode -->
+    <string name="account_heading">Account and Privacy</string>
+    <string name="account_guest_title">Guest Mode</string>
+    <string name="account_guest_badge">GUEST (OFFLINE)</string>
+    <string name="account_guest_desc">Mixu operates in Guest Mode by default with zero account requirements. All narrative graphs, reading progress, and notes stay strictly on this device without cloud synchronization or external telemetry.</string>
+    <string name="account_session_id_label">Local Session ID</string>
+    <string name="account_cloud_sync_label">Cloud Sync</string>
+    <string name="account_cloud_sync_status">Disabled (Guest Mode)</string>
+
+    <!-- Reading Behavior Defaults -->
+    <string name="reading_defaults_heading">Reading Behavior Defaults</string>
+    <string name="reading_keep_screen_on">Keep Screen Awake</string>
+    <string name="reading_keep_screen_on_desc">Prevent display timeout while reading book chapters</string>
+    <string name="reading_auto_bookmark">Auto-record Reading Progress</string>
+    <string name="reading_auto_bookmark_desc">Automatically preserve last read chapter and position on navigation</string>
+
+    <!-- Import Defaults -->
+    <string name="import_defaults_heading">Book Import Defaults</string>
+    <string name="import_auto_detect_chapters">Auto-detect Chapter Structure</string>
+    <string name="import_auto_detect_chapters_desc">Automatically parse EPUB table of contents into distinct chapters</string>
+    <string name="import_auto_extract_graph">Extract Narrative Graph on Import</string>
+    <string name="import_auto_extract_graph_desc">Run local initial entity and timeline extraction when a book is added</string>
+
+    <!-- Generic Preference Toggles -->
+    <string name="setting_toggle_enabled">On</string>
+    <string name="setting_toggle_disabled">Off</string>
 </resources>

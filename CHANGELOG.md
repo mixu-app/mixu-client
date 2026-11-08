@@ -8,6 +8,9 @@ exists.
 
 ### Added
 
+- Guest mode default session model, settings controls (themes, line spacing,
+  reading/import defaults, account privacy status), and privacy-preserving structured
+  logging with content firewall (zero narrative text or search query leakage).
 - `docs/testing/eink-test-protocol.md`: manual E-Ink verification protocol and
   structured evidence runbook covering hardware matrix, six core test cases
   (cold start latency, page-turn ghosting, typography contrast, case board pan/redraw,

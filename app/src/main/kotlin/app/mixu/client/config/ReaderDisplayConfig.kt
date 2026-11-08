@@ -37,7 +37,7 @@ enum class FontFamilyChoice {
 }
 
 /**
- * Persistent reader display and typography preferences.
+ * Persistent reader display, typography, and reading/import defaults.
  *
  * Can be maintained as a global application default or customized per individual book edition.
  */
@@ -50,6 +50,10 @@ data class ReaderDisplayConfig(
     val marginPreset: MarginPreset = MarginPreset.NORMAL,
     val fontFamilyChoice: FontFamilyChoice = FontFamilyChoice.SERIF,
     val eInkFullRefreshInterval: Int = 10,
+    val keepScreenOn: Boolean = false,
+    val autoBookmark: Boolean = true,
+    val autoDetectChapters: Boolean = true,
+    val autoExtractGraphOnImport: Boolean = false,
 ) {
     init {
         require(fontSizeSp in 10f..48f) { "fontSizeSp must be in 10..48 sp, got $fontSizeSp" }
@@ -88,6 +92,10 @@ data class ReaderDisplayConfig(
             KEY_MARGIN_PRESET to marginPreset.name,
             KEY_FONT_FAMILY to fontFamilyChoice.name,
             KEY_REFRESH_INTERVAL to eInkFullRefreshInterval.toString(),
+            KEY_KEEP_SCREEN_ON to keepScreenOn.toString(),
+            KEY_AUTO_BOOKMARK to autoBookmark.toString(),
+            KEY_AUTO_DETECT_CHAPTERS to autoDetectChapters.toString(),
+            KEY_AUTO_EXTRACT_GRAPH to autoExtractGraphOnImport.toString(),
         )
 
     companion object {
@@ -99,6 +107,10 @@ data class ReaderDisplayConfig(
         const val KEY_MARGIN_PRESET = "margin_preset"
         const val KEY_FONT_FAMILY = "font_family_choice"
         const val KEY_REFRESH_INTERVAL = "eink_refresh_interval"
+        const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
+        const val KEY_AUTO_BOOKMARK = "auto_bookmark"
+        const val KEY_AUTO_DETECT_CHAPTERS = "auto_detect_chapters"
+        const val KEY_AUTO_EXTRACT_GRAPH = "auto_extract_graph"
 
         val DEFAULT = ReaderDisplayConfig()
 
@@ -152,6 +164,22 @@ data class ReaderDisplayConfig(
                 map[KEY_REFRESH_INTERVAL]?.toIntOrNull()?.coerceAtLeast(0)
                     ?: DEFAULT.eInkFullRefreshInterval
 
+            val keepScreenOn =
+                map[KEY_KEEP_SCREEN_ON]?.toBooleanStrictOrNull()
+                    ?: DEFAULT.keepScreenOn
+
+            val autoBookmark =
+                map[KEY_AUTO_BOOKMARK]?.toBooleanStrictOrNull()
+                    ?: DEFAULT.autoBookmark
+
+            val autoDetectChapters =
+                map[KEY_AUTO_DETECT_CHAPTERS]?.toBooleanStrictOrNull()
+                    ?: DEFAULT.autoDetectChapters
+
+            val autoExtractGraph =
+                map[KEY_AUTO_EXTRACT_GRAPH]?.toBooleanStrictOrNull()
+                    ?: DEFAULT.autoExtractGraphOnImport
+
             return ReaderDisplayConfig(
                 themeMode = theme,
                 eInkMode = eink,
@@ -161,6 +189,10 @@ data class ReaderDisplayConfig(
                 marginPreset = margin,
                 fontFamilyChoice = fontFamily,
                 eInkFullRefreshInterval = refresh,
+                keepScreenOn = keepScreenOn,
+                autoBookmark = autoBookmark,
+                autoDetectChapters = autoDetectChapters,
+                autoExtractGraphOnImport = autoExtractGraph,
             )
         }
     }

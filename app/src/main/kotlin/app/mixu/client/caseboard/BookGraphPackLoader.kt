@@ -112,7 +112,6 @@ class BookGraphPackLoader(
                             }
                         }
                         is BookImportResult.Duplicate -> {
-                            discoveredBookIds.add(res.existingBookItem.id)
                             val stem = file.nameWithoutExtension
                             val companion = File(dir, "$stem.graph.json")
                             if (companion.isFile) {

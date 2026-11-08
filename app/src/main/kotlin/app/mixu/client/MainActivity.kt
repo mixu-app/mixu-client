@@ -111,16 +111,31 @@ class MainActivity :
         packLoader.syncImportDirectories(importDirs, importService)
 
         val initialBooks = loadLibraryBooks()
-        val initialBookId = initialBooks.firstOrNull()?.id
+        val queryExtra = intent?.getStringExtra("book_query")?.trim()
+        val matchedBook =
+            if (!queryExtra.isNullOrEmpty()) {
+                initialBooks.firstOrNull { book ->
+                    book.id.contains(queryExtra, ignoreCase = true) ||
+                        book.title.contains(queryExtra, ignoreCase = true) ||
+                        book.author.contains(queryExtra, ignoreCase = true)
+                }
+            } else {
+                null
+            }
+        val initialBookId = (matchedBook ?: initialBooks.firstOrNull())?.id
         if (initialBookId != null && database.getBookAssetForBook(initialBookId) != null) {
             runCatching { readerSession.openBook(initialBookId) }
         }
+        val destExtra = intent?.getStringExtra("destination")?.trim()?.uppercase()
+        val startDestination =
+            MainScreenDestination.entries.firstOrNull { it.name == destExtra }
+                ?: MainScreenDestination.LIBRARY
 
         val composeView =
             ComposeView(this).apply {
                 setContent {
                     var currentDestination by remember {
-                        mutableStateOf(MainScreenDestination.LIBRARY)
+                        mutableStateOf(startDestination)
                     }
                     var config by remember { mutableStateOf(database.loadReaderSettings()) }
                     var userSession by remember { mutableStateOf(UserSession.DEFAULT) }
@@ -574,9 +589,12 @@ class MainActivity :
     }
 
     private fun buildCaseBoardController(bookId: String?): CaseBoardController {
-        val nav = readerSession.activeNavigator
         val asset = bookId?.let { database.getBookAssetForBook(it) }
         if (asset != null) {
+            val nav =
+                readerSession.activeNavigator?.takeIf {
+                    it.viewportState.bookId == bookId
+                }
             val pack = packLoader.loadForBook(asset = asset, publication = nav?.publication)
             val maxAnchorOrdinal = (pack.anchors.maxOfOrNull { it.ordinal } ?: 0).coerceAtLeast(0)
             val navState = readerSession.navigationStateMachine
@@ -593,8 +611,8 @@ class MainActivity :
                     .coerceIn(readingPos, maxAnchorOrdinal)
             val viewPos = horizon
             val title =
-                nav?.publication?.metadata?.title
-                    ?: database.getLibraryItem(bookId)?.displayTitle
+                database.getLibraryItem(bookId)?.displayTitle
+                    ?: nav?.publication?.metadata?.title
                     ?: "Mystery Novel"
             return CaseBoardController(
                 graphPack = pack,

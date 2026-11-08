@@ -70,7 +70,7 @@ fun LibraryScreen(
     onImportBook: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    var books by remember { mutableStateOf(initialBooks) }
+    var books by remember(initialBooks) { mutableStateOf(initialBooks) }
     var searchQuery by remember { mutableStateOf("") }
     var layoutMode by remember { mutableStateOf(LibraryLayoutMode.GRID) }
     var sortOrder by remember { mutableStateOf(LibrarySortOrder.LAST_READ) }
@@ -148,34 +148,53 @@ fun LibraryScreen(
                     )
                 },
                 actions = {
+                    val borderStroke =
+                        BorderStroke(
+                            width =
+                                if (isEInk) {
+                                    dimensionResource(R.dimen.library_card_border_width_eink)
+                                } else {
+                                    dimensionResource(R.dimen.library_card_border_width)
+                                },
+                            color = if (isEInk) colors.outline else colors.outlineVariant,
+                        )
+                    val buttonShape =
+                        RoundedCornerShape(
+                            if (isEInk) {
+                                dimensionResource(R.dimen.library_button_corner_radius_eink)
+                            } else {
+                                dimensionResource(R.dimen.library_button_corner_radius)
+                            },
+                        )
+                    val buttonPadding =
+                        PaddingValues(
+                            horizontal = dimensionResource(R.dimen.library_control_spacing),
+                            vertical = dimensionResource(R.dimen.library_badge_padding_vertical),
+                        )
+                    OutlinedButton(
+                        onClick = onImportClick,
+                        border = borderStroke,
+                        shape = buttonShape,
+                        contentPadding = buttonPadding,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.library_import_button),
+                            style = typography.labelMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.primary,
+                        )
+                    }
+                    Spacer(
+                        modifier =
+                            Modifier.width(
+                                dimensionResource(R.dimen.library_control_spacing),
+                            ),
+                    )
                     OutlinedButton(
                         onClick = onNavigateToSettings,
-                        border =
-                            BorderStroke(
-                                width =
-                                    if (isEInk) {
-                                        dimensionResource(R.dimen.library_card_border_width_eink)
-                                    } else {
-                                        dimensionResource(R.dimen.library_card_border_width)
-                                    },
-                                color = if (isEInk) colors.outline else colors.outlineVariant,
-                            ),
-                        shape =
-                            RoundedCornerShape(
-                                if (isEInk) {
-                                    dimensionResource(R.dimen.library_button_corner_radius_eink)
-                                } else {
-                                    dimensionResource(R.dimen.library_button_corner_radius)
-                                },
-                            ),
-                        contentPadding =
-                            PaddingValues(
-                                horizontal = dimensionResource(R.dimen.library_control_spacing),
-                                vertical =
-                                    dimensionResource(
-                                        R.dimen.library_badge_padding_vertical,
-                                    ),
-                            ),
+                        border = borderStroke,
+                        shape = buttonShape,
+                        contentPadding = buttonPadding,
                     ) {
                         Text(
                             text = stringResource(R.string.library_switch_to_settings),

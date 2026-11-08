@@ -121,4 +121,52 @@
     <!-- Generic Preference Toggles -->
     <string name="setting_toggle_enabled">On</string>
     <string name="setting_toggle_disabled">Off</string>
+
+    <!-- Navigation History & Tripartite State Machine -->
+    <string name="nav_history_back">Back</string>
+    <string name="nav_history_forward">Forward</string>
+    <string name="nav_advance_dialog_title">Advance Knowledge Horizon?</string>
+    <string name="nav_advance_dialog_message">You are about to advance to chapter %1$d (reveal %2$d), which is beyond your current knowledge horizon of chapter %3$d. Advancing will unlock new character identities, relationships, and evidence. Proceed?</string>
+    <string name="nav_advance_dialog_confirm">Advance Horizon</string>
+    <string name="nav_advance_dialog_cancel">Keep Frozen</string>
+
+    <!-- Case Board Surface -->
+    <string name="caseboard_title">Case Board</string>
+    <string name="caseboard_scrubber_title">Historical Narrative Reveal</string>
+    <string name="caseboard_scrubber_label">Reveal: %1$d / Horizon: %2$d</string>
+    <string name="caseboard_scrubber_rewound_badge">HISTORICAL REWIND ACTIVE</string>
+    <string name="caseboard_scrubber_desc">Scrubbing historical reveal rewinds graph state to past chapters without affecting your reading progress or unlocking future spoilers.</string>
+    <string name="caseboard_scrubber_prev">Previous Reveal</string>
+    <string name="caseboard_scrubber_next">Next Reveal</string>
+    <string name="caseboard_tab_graph">Narrative Graph</string>
+    <string name="caseboard_tab_claims">Active Claims</string>
+    <string name="caseboard_tab_hypotheses">User Hypotheses</string>
+    <string name="caseboard_zoom_in">Zoom In</string>
+    <string name="caseboard_zoom_out">Zoom Out</string>
+    <string name="caseboard_zoom_reset">Reset View</string>
+    <string name="caseboard_stepped_pan">Pan View</string>
+    <string name="caseboard_entity_inspect_title">Entity Dossier</string>
+    <string name="caseboard_entity_aliases">Revealed Aliases</string>
+    <string name="caseboard_entity_claims">Associated Claims (%1$d)</string>
+    <string name="caseboard_entity_first_reveal">First Revealed at Chapter %1$d</string>
+    <string name="caseboard_entity_close">Close Dossier</string>
+    <string name="caseboard_empty_graph">No entities revealed at this ordinal.</string>
+    <string name="caseboard_no_claims">No active claims recorded for this entity.</string>
+    <string name="caseboard_add_hypothesis">New Hypothesis</string>
+    <string name="caseboard_hypothesis_title_hint">Hypothesis Title</string>
+    <string name="caseboard_hypothesis_desc_hint">Enter your deduction or speculation…</string>
+    <string name="caseboard_hypothesis_related_entity_label">Related Entity</string>
+    <string name="caseboard_hypothesis_save">Save Hypothesis</string>
+    <string name="caseboard_hypothesis_cancel">Cancel</string>
+    <string name="caseboard_hypothesis_delete">Delete</string>
+    <string name="caseboard_hypothesis_badge">HYPOTHESIS</string>
+    <string name="caseboard_hypothesis_disclaimer">User hypotheses are personal speculations and are never confused with canonical narrative facts.</string>
+    <string name="caseboard_empty_hypotheses">No user hypotheses recorded yet. Tap \'+ New Hypothesis\' to add candidate deductions.</string>
+    <string name="caseboard_type_person">Person</string>
+    <string name="caseboard_type_location">Location</string>
+    <string name="caseboard_type_object">Object</string>
+    <string name="caseboard_type_event">Event</string>
+    <string name="caseboard_type_organization">Organization</string>
+    <string name="caseboard_evidence_anchor">Evidence: #%1$s</string>
+    <string name="caseboard_active_filter">Filtered view</string>
 </resources>

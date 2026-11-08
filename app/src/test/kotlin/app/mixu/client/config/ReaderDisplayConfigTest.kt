@@ -34,7 +34,7 @@ class ReaderDisplayConfigTest {
         assertTrue(default.justifyText)
         assertEquals(780, default.maxReadingWidthDp)
         assertTrue(default.immersiveReaderMode)
-        assertEquals(GraphDimensionMode.PERSPECTIVE_3D, default.graphDimensionMode)
+        assertEquals(GraphDimensionMode.FORCE_2D, default.graphDimensionMode)
     }
 
     @Test
@@ -72,7 +72,7 @@ class ReaderDisplayConfigTest {
                 justifyText = false,
                 maxReadingWidthDp = 960,
                 immersiveReaderMode = false,
-                graphDimensionMode = GraphDimensionMode.FORCE_2D,
+                graphDimensionMode = GraphDimensionMode.HIERARCHICAL,
             )
 
         val map = original.toMap()

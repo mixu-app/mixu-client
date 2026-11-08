@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -22,8 +23,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -52,6 +51,7 @@ import app.mixu.client.reader.ReaderSessionController
 import app.mixu.client.reader.ReadiumEpubNavigator
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.theme.createMixuTypography
+import app.mixu.client.ui.MixuIcons
 import app.mixu.client.ui.SettingsPreviewScreen
 import java.io.File
 
@@ -193,17 +193,9 @@ class MainActivity :
                                                 currentDestination = MainScreenDestination.LIBRARY
                                             },
                                             icon = {
-                                                Text(
-                                                    text =
-                                                        if (currentDestination ==
-                                                            MainScreenDestination.LIBRARY
-                                                        ) {
-                                                            "■"
-                                                        } else {
-                                                            "□"
-                                                        },
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontWeight = FontWeight.Bold,
+                                                Icon(
+                                                    imageVector = MixuIcons.Library,
+                                                    contentDescription = null,
                                                 )
                                             },
                                             label = { Text(stringResource(R.string.nav_library)) },
@@ -239,17 +231,9 @@ class MainActivity :
                                                 currentDestination = MainScreenDestination.READER
                                             },
                                             icon = {
-                                                Text(
-                                                    text =
-                                                        if (currentDestination ==
-                                                            MainScreenDestination.READER
-                                                        ) {
-                                                            "◆"
-                                                        } else {
-                                                            "◇"
-                                                        },
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontWeight = FontWeight.Bold,
+                                                Icon(
+                                                    imageVector = MixuIcons.Reader,
+                                                    contentDescription = null,
                                                 )
                                             },
                                             label = { Text(stringResource(R.string.nav_reader)) },
@@ -271,17 +255,9 @@ class MainActivity :
                                                     MainScreenDestination.CASE_BOARD
                                             },
                                             icon = {
-                                                Text(
-                                                    text =
-                                                        if (currentDestination ==
-                                                            MainScreenDestination.CASE_BOARD
-                                                        ) {
-                                                            "●"
-                                                        } else {
-                                                            "○"
-                                                        },
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontWeight = FontWeight.Bold,
+                                                Icon(
+                                                    imageVector = MixuIcons.CaseBoard,
+                                                    contentDescription = null,
                                                 )
                                             },
                                             label = {
@@ -305,17 +281,9 @@ class MainActivity :
                                                     MainScreenDestination.SETTINGS_PREVIEW
                                             },
                                             icon = {
-                                                Text(
-                                                    text =
-                                                        if (currentDestination ==
-                                                            MainScreenDestination.SETTINGS_PREVIEW
-                                                        ) {
-                                                            "▲"
-                                                        } else {
-                                                            "△"
-                                                        },
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontWeight = FontWeight.Bold,
+                                                Icon(
+                                                    imageVector = MixuIcons.Settings,
+                                                    contentDescription = null,
                                                 )
                                             },
                                             label = {

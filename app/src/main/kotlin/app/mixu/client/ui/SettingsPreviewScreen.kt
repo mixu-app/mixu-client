@@ -591,19 +591,6 @@ fun SettingsPreviewScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         ThemeOptionButton(
-                            label = stringResource(R.string.caseboard_graph_mode_3d),
-                            isSelected =
-                                config.graphDimensionMode == GraphDimensionMode.PERSPECTIVE_3D,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(
-                                        graphDimensionMode = GraphDimensionMode.PERSPECTIVE_3D,
-                                    ),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
                             label = stringResource(R.string.caseboard_graph_mode_2d),
                             isSelected = config.graphDimensionMode == GraphDimensionMode.FORCE_2D,
                             onClick = {

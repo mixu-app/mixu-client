@@ -183,4 +183,21 @@
     <string name="caseboard_type_organization">Organization</string>
     <string name="caseboard_evidence_anchor">Evidence: #%1$s</string>
     <string name="caseboard_active_filter">Filtered view</string>
+    <string name="caseboard_graph_mode_3d">3D Orbit</string>
+    <string name="caseboard_graph_mode_2d">2D Force</string>
+    <string name="caseboard_graph_mode_hierarchical">Hierarchical</string>
+    <string name="caseboard_graph_recenter">Center</string>
+    <string name="caseboard_graph_labels_toggle">Predicates</string>
+    <string name="caseboard_graph_stats">%1$d Entities · %2$d Links</string>
+    <string name="caseboard_scrubber_expand">Timeline</string>
+    <string name="caseboard_scrubber_collapse">Collapse</string>
+    <string name="reader_layout_mode_label">Reading Mode</string>
+    <string name="reader_layout_paged">Paged</string>
+    <string name="reader_layout_continuous">Scroll</string>
+    <string name="reader_indent_label">First-Line Indent</string>
+    <string name="reader_indent_2em">2 Chars (2em)</string>
+    <string name="reader_indent_none">Flush Left</string>
+    <string name="reader_immersive_label">Immersive Reading</string>
+    <string name="reader_immersive_desc">Auto-hide toolbars while reading; tap center to toggle controls</string>
+    <string name="reader_menu_hint">Tap center for menu · Tap sides to turn page</string>
 </resources>

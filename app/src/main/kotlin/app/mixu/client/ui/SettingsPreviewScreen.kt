@@ -48,8 +48,10 @@ import androidx.compose.ui.unit.sp
 import app.mixu.client.R
 import app.mixu.client.auth.UserSession
 import app.mixu.client.config.FontFamilyChoice
+import app.mixu.client.config.GraphDimensionMode
 import app.mixu.client.config.MarginPreset
 import app.mixu.client.config.ReaderDisplayConfig
+import app.mixu.client.config.ReadingLayoutMode
 import app.mixu.client.eink.EInkMode
 import app.mixu.client.eink.StrokePattern
 import app.mixu.client.theme.MixuTheme
@@ -516,12 +518,132 @@ fun SettingsPreviewScreen(
                             )
                         }
                     }
+
+                    // Reading Layout Mode (Paged vs Continuous Scroll)
+                    Text(
+                        text = stringResource(R.string.reader_layout_mode_label),
+                        style = typography.labelLarge,
+                        color = colors.onSurface,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemeOptionButton(
+                            label = stringResource(R.string.reader_layout_paged),
+                            isSelected = config.readingLayoutMode == ReadingLayoutMode.PAGED,
+                            onClick = {
+                                onConfigChange(
+                                    config.copy(readingLayoutMode = ReadingLayoutMode.PAGED),
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.reader_layout_continuous),
+                            isSelected =
+                                config.readingLayoutMode == ReadingLayoutMode.CONTINUOUS,
+                            onClick = {
+                                onConfigChange(
+                                    config.copy(readingLayoutMode = ReadingLayoutMode.CONTINUOUS),
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    // CJK First-Line Paragraph Indentation
+                    Text(
+                        text = stringResource(R.string.reader_indent_label),
+                        style = typography.labelLarge,
+                        color = colors.onSurface,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemeOptionButton(
+                            label = stringResource(R.string.reader_indent_2em),
+                            isSelected = config.paragraphIndentEm > 0f,
+                            onClick = {
+                                onConfigChange(config.copy(paragraphIndentEm = 2.0f))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.reader_indent_none),
+                            isSelected = config.paragraphIndentEm == 0f,
+                            onClick = {
+                                onConfigChange(config.copy(paragraphIndentEm = 0f))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    // Default Knowledge Graph Layout Mode
+                    Text(
+                        text = stringResource(R.string.caseboard_tab_graph),
+                        style = typography.labelLarge,
+                        color = colors.onSurface,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemeOptionButton(
+                            label = stringResource(R.string.caseboard_graph_mode_3d),
+                            isSelected =
+                                config.graphDimensionMode == GraphDimensionMode.PERSPECTIVE_3D,
+                            onClick = {
+                                onConfigChange(
+                                    config.copy(
+                                        graphDimensionMode = GraphDimensionMode.PERSPECTIVE_3D,
+                                    ),
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.caseboard_graph_mode_2d),
+                            isSelected = config.graphDimensionMode == GraphDimensionMode.FORCE_2D,
+                            onClick = {
+                                onConfigChange(
+                                    config.copy(graphDimensionMode = GraphDimensionMode.FORCE_2D),
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.caseboard_graph_mode_hierarchical),
+                            isSelected =
+                                config.graphDimensionMode == GraphDimensionMode.HIERARCHICAL,
+                            onClick = {
+                                onConfigChange(
+                                    config.copy(
+                                        graphDimensionMode = GraphDimensionMode.HIERARCHICAL,
+                                    ),
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
 
             // Section 5: Reading Behavior Defaults
             SectionCard(title = stringResource(R.string.reading_defaults_heading)) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PreferenceToggleRow(
+                        title = stringResource(R.string.reader_immersive_label),
+                        description = stringResource(R.string.reader_immersive_desc),
+                        enabled = config.immersiveReaderMode,
+                        onToggle = { enabled ->
+                            onConfigChange(config.copy(immersiveReaderMode = enabled))
+                        },
+                    )
+
+                    HorizontalDivider(color = colors.outlineVariant)
+
                     PreferenceToggleRow(
                         title = stringResource(R.string.reading_keep_screen_on),
                         description = stringResource(R.string.reading_keep_screen_on_desc),

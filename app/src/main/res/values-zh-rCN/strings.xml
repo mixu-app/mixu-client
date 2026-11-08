@@ -183,4 +183,21 @@
     <string name="caseboard_type_organization">组织团体</string>
     <string name="caseboard_evidence_anchor">证据出处：#%1$s</string>
     <string name="caseboard_active_filter">筛选视图</string>
+    <string name="caseboard_graph_mode_3d">3D 星系</string>
+    <string name="caseboard_graph_mode_2d">2D 力导向</string>
+    <string name="caseboard_graph_mode_hierarchical">层级拓扑</string>
+    <string name="caseboard_graph_recenter">归位居中</string>
+    <string name="caseboard_graph_labels_toggle">关系标签</string>
+    <string name="caseboard_graph_stats">%1$d 实体 · %2$d 关系链</string>
+    <string name="caseboard_scrubber_expand">展开时序</string>
+    <string name="caseboard_scrubber_collapse">收起</string>
+    <string name="reader_layout_mode_label">翻页模式</string>
+    <string name="reader_layout_paged">精准分页</string>
+    <string name="reader_layout_continuous">平滑滚动</string>
+    <string name="reader_indent_label">段落首行缩进</string>
+    <string name="reader_indent_2em">首行缩进 2 格</string>
+    <string name="reader_indent_none">顶格无缩进</string>
+    <string name="reader_immersive_label">沉浸式全屏阅读</string>
+    <string name="reader_immersive_desc">阅读时隐藏顶栏与底栏，轻触屏幕中央唤出控制面板</string>
+    <string name="reader_menu_hint">轻触中央唤出菜单 · 左右点击翻页</string>
 </resources>

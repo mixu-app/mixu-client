@@ -183,4 +183,21 @@
     <string name="caseboard_type_organization">組織</string>
     <string name="caseboard_evidence_anchor">証拠箇所：#%1$s</string>
     <string name="caseboard_active_filter">絞り込み表示</string>
+    <string name="caseboard_graph_mode_3d">3D 軌道</string>
+    <string name="caseboard_graph_mode_2d">2D 力学</string>
+    <string name="caseboard_graph_mode_hierarchical">階層構造</string>
+    <string name="caseboard_graph_recenter">中央揃え</string>
+    <string name="caseboard_graph_labels_toggle">関係ラベル</string>
+    <string name="caseboard_graph_stats">%1$d 要素 · %2$d 関係</string>
+    <string name="caseboard_scrubber_expand">時系列展開</string>
+    <string name="caseboard_scrubber_collapse">折りたたむ</string>
+    <string name="reader_layout_mode_label">表示モード</string>
+    <string name="reader_layout_paged">ページめくり</string>
+    <string name="reader_layout_continuous">縦スクロール</string>
+    <string name="reader_indent_label">段落の字下げ</string>
+    <string name="reader_indent_2em">行頭 2 文字下げ</string>
+    <string name="reader_indent_none">字下げなし</string>
+    <string name="reader_immersive_label">没入型フルスクリーン</string>
+    <string name="reader_immersive_desc">読書中はツールバーを自動非表示にし、中央タップでメニューを開閉します</string>
+    <string name="reader_menu_hint">中央タップでメニュー · 左右タップでページ移動</string>
 </resources>

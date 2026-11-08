@@ -67,6 +67,7 @@ data class EpubNavigatorViewportState(
     val displayConfig: ReaderDisplayConfig,
     val hasPreviousPage: Boolean,
     val hasNextPage: Boolean,
+    val currentChapterParagraphs: List<String> = currentPage.paragraphs,
 )
 
 /**
@@ -303,8 +304,14 @@ class ReadiumEpubNavigator(
         get() = currentGlobalPageIndex < allPages.lastIndex
 
     val viewportState: EpubNavigatorViewportState
-        get() =
-            EpubNavigatorViewportState(
+        get() {
+            val chapterParas =
+                publication.chapters
+                    .getOrNull(currentPage.spineIndex)
+                    ?.paragraphs
+                    ?.ifEmpty { currentPage.paragraphs }
+                    ?: currentPage.paragraphs
+            return EpubNavigatorViewportState(
                 bookId = bookId,
                 bookTitle = publication.metadata.title,
                 bookAuthor = publication.metadata.author,
@@ -313,7 +320,9 @@ class ReadiumEpubNavigator(
                 displayConfig = displayConfig,
                 hasPreviousPage = hasPreviousPage,
                 hasNextPage = hasNextPage,
+                currentChapterParagraphs = chapterParas,
             )
+        }
 
     /**
      * Advances to the next page if available.
@@ -480,40 +489,77 @@ class ReadiumEpubNavigator(
         var currentBucketChars = 0
 
         for (para in paragraphs) {
-            val paraLen = para.length
-            if (currentParagraphs.isNotEmpty() && currentBucketChars + paraLen > charsPerPage) {
-                buckets.add(
-                    Triple(
-                        bucketStartOffset,
-                        runningOffset,
-                        currentParagraphs.toList(),
-                    ),
-                )
-                currentParagraphs = mutableListOf()
-                bucketStartOffset = runningOffset
-                currentBucketChars = 0
-            }
+            var remainingPara = para
+            while (remainingPara.isNotEmpty()) {
+                val paraLen = remainingPara.length
+                val remainingCapacity = charsPerPage - currentBucketChars
 
-            if (paraLen > charsPerPage && currentParagraphs.isEmpty()) {
-                // Split extra-long paragraph into page-sized chunks
-                var pos = 0
-                while (pos < paraLen) {
-                    val end = minOf(paraLen, pos + charsPerPage)
-                    val chunk = para.substring(pos, end).trim()
-                    val chunkStart = runningOffset + pos
-                    val chunkEnd = runningOffset + end
+                if (currentParagraphs.isNotEmpty() && paraLen > remainingCapacity) {
+                    // If the current page is still under-filled (< 65% capacity) and the incoming
+                    // paragraph is long, split at the nearest sentence boundary to avoid half-empty pages
+                    val splitAt =
+                        if (currentBucketChars < (charsPerPage * 0.65).toInt() &&
+                            remainingCapacity >= 120 &&
+                            paraLen >= 180
+                        ) {
+                            findSentenceSplitIndex(remainingPara, remainingCapacity)
+                        } else {
+                            -1
+                        }
+
+                    if (splitAt in 60 until paraLen) {
+                        val headChunk = remainingPara.substring(0, splitAt).trim()
+                        if (headChunk.isNotEmpty()) {
+                            currentParagraphs.add(headChunk)
+                            runningOffset += splitAt
+                        }
+                        buckets.add(
+                            Triple(
+                                bucketStartOffset,
+                                runningOffset,
+                                currentParagraphs.toList(),
+                            ),
+                        )
+                        currentParagraphs = mutableListOf()
+                        bucketStartOffset = runningOffset
+                        currentBucketChars = 0
+                        remainingPara = remainingPara.substring(splitAt).trimStart()
+                        continue
+                    } else {
+                        buckets.add(
+                            Triple(
+                                bucketStartOffset,
+                                runningOffset,
+                                currentParagraphs.toList(),
+                            ),
+                        )
+                        currentParagraphs = mutableListOf()
+                        bucketStartOffset = runningOffset
+                        currentBucketChars = 0
+                    }
+                }
+
+                if (paraLen > charsPerPage && currentParagraphs.isEmpty()) {
+                    val splitAt =
+                        findSentenceSplitIndex(remainingPara, charsPerPage)
+                            .takeIf { it in 80..charsPerPage }
+                            ?: minOf(paraLen, charsPerPage)
+                    val chunk = remainingPara.substring(0, splitAt).trim()
+                    val chunkStart = runningOffset
+                    val chunkEnd = runningOffset + splitAt
                     if (chunk.isNotEmpty()) {
                         buckets.add(Triple(chunkStart, chunkEnd, listOf(chunk)))
                     }
-                    pos = end
+                    runningOffset += splitAt
+                    bucketStartOffset = runningOffset
+                    currentBucketChars = 0
+                    remainingPara = remainingPara.substring(splitAt).trimStart()
+                } else {
+                    currentParagraphs.add(remainingPara)
+                    currentBucketChars += paraLen + 2
+                    runningOffset += paraLen + 2
+                    remainingPara = ""
                 }
-                runningOffset += paraLen + 2
-                bucketStartOffset = runningOffset
-                currentBucketChars = 0
-            } else {
-                currentParagraphs.add(para)
-                currentBucketChars += paraLen + 2
-                runningOffset += paraLen + 2
             }
         }
 
@@ -585,6 +631,27 @@ class ReadiumEpubNavigator(
                 .substringBefore('#')
                 .replace('\\', '/')
                 .trimStart('/')
+
+        private fun findSentenceSplitIndex(
+            text: String,
+            maxChars: Int,
+        ): Int {
+            val limit = minOf(text.length, maxChars)
+            val minTarget = (limit * 0.55).toInt().coerceAtLeast(40)
+            val sentenceEndings = charArrayOf('。', '！', '？', '」', '”', '』', '；', '.', '!', '?')
+            for (idx in limit - 1 downTo minTarget) {
+                if (text[idx] in sentenceEndings) {
+                    var splitPos = idx + 1
+                    while (splitPos < text.length &&
+                        (text[splitPos] == '」' || text[splitPos] == '”' || text[splitPos] == '』')
+                    ) {
+                        splitPos++
+                    }
+                    return splitPos
+                }
+            }
+            return limit
+        }
     }
 }
 

@@ -117,6 +117,12 @@
     <string name="import_auto_detect_chapters_desc">导入书籍时自动分析 EPUB 结构并生成章节目录</string>
     <string name="import_auto_extract_graph">导入时自动构建叙事图谱</string>
     <string name="import_auto_extract_graph_desc">在书籍添加到书架时，本地执行初始实体与时序抽取</string>
+    <string name="import_progress_copying">正在将书籍复制到本地存储…</string>
+    <string name="import_progress_parsing">正在解析 EPUB 元数据与章节结构…</string>
+    <string name="import_status_duplicate">该书籍已在书架中（已通过 SHA-256 哈希去重）。</string>
+    <string name="import_error_corrupt">无法导入书籍：文件已损坏或不是有效的 EPUB 归档。</string>
+    <string name="import_error_excluded_pdf">PDF 格式不在支持范围内，请选择 EPUB 格式的小说。</string>
+    <string name="import_error_unsupported_format">当前出版物适配器白名单未启用该文件格式。</string>
 
     <!-- Generic Preference Toggles -->
     <string name="setting_toggle_enabled">开启</string>

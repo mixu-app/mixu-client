@@ -117,6 +117,12 @@
     <string name="import_auto_detect_chapters_desc">インポート時に EPUB 構造を解析して目次を自動生成します</string>
     <string name="import_auto_extract_graph">インポート時に物語グラフを抽出</string>
     <string name="import_auto_extract_graph_desc">書籍の追加時にローカルで初期エンティティとタイムラインの抽出を行います</string>
+    <string name="import_progress_copying">書籍をローカルストレージにコピー中…</string>
+    <string name="import_progress_parsing">EPUB メタデータと章構成を解析中…</string>
+    <string name="import_status_duplicate">この書籍は既に本棚にあります（SHA-256 ハッシュにより重複検出）。</string>
+    <string name="import_error_corrupt">書籍を取り込めませんでした：ファイルが破損しているか、有効な EPUB ではありません。</string>
+    <string name="import_error_excluded_pdf">PDF 形式は対象外です。EPUB 形式の書籍を選択してください。</string>
+    <string name="import_error_unsupported_format">このファイル形式は現在のアダプター許可リストで有効化されていません。</string>
 
     <!-- Generic Preference Toggles -->
     <string name="setting_toggle_enabled">有効</string>

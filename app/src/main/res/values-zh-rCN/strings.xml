@@ -138,6 +138,14 @@
 
     <!-- Case Board Surface -->
     <string name="caseboard_title">案情图板</string>
+    <string name="reader_prev_page">上一页</string>
+    <string name="reader_next_page">下一页</string>
+    <string name="reader_toc_button">目录</string>
+    <string name="reader_bookmark_add">添加书签</string>
+    <string name="reader_font_smaller">A-</string>
+    <string name="reader_font_larger">A+</string>
+    <string name="reader_page_indicator">第 %1$d / %2$d 页 · %3$d%%</string>
+    <string name="reader_open_case_board">案情图板</string>
     <string name="caseboard_scrubber_title">历史叙事复盘</string>
     <string name="caseboard_scrubber_label">复盘序号：%1$d / 认知边界：%2$d</string>
     <string name="caseboard_scrubber_rewound_badge">历史回溯模式已激活</string>

@@ -121,4 +121,52 @@
     <!-- Generic Preference Toggles -->
     <string name="setting_toggle_enabled">开启</string>
     <string name="setting_toggle_disabled">关闭</string>
+
+    <!-- Navigation History & Tripartite State Machine -->
+    <string name="nav_history_back">返回</string>
+    <string name="nav_history_forward">前进</string>
+    <string name="nav_advance_dialog_title">是否推进认知边界？</string>
+    <string name="nav_advance_dialog_message">您即将跳转至第 %1$d 章（序号 %2$d），该位置超出了当前的认知边界（第 %3$d 章）。推进边界将解锁后续登场的人物、关系与线索。确认推进？</string>
+    <string name="nav_advance_dialog_confirm">确认推进</string>
+    <string name="nav_advance_dialog_cancel">保持冻结</string>
+
+    <!-- Case Board Surface -->
+    <string name="caseboard_title">案情图板</string>
+    <string name="caseboard_scrubber_title">历史叙事复盘</string>
+    <string name="caseboard_scrubber_label">复盘序号：%1$d / 认知边界：%2$d</string>
+    <string name="caseboard_scrubber_rewound_badge">历史回溯模式已激活</string>
+    <string name="caseboard_scrubber_desc">拖动滑块可复盘过往章节的人物与证据演变，不影响当前阅读进度，亦不会泄露后续剧透。</string>
+    <string name="caseboard_scrubber_prev">上一节点</string>
+    <string name="caseboard_scrubber_next">下一节点</string>
+    <string name="caseboard_tab_graph">叙事图谱</string>
+    <string name="caseboard_tab_claims">当前主张与证据</string>
+    <string name="caseboard_tab_hypotheses">推想与假设</string>
+    <string name="caseboard_zoom_in">放大</string>
+    <string name="caseboard_zoom_out">缩小</string>
+    <string name="caseboard_zoom_reset">重置视角</string>
+    <string name="caseboard_stepped_pan">平移视口</string>
+    <string name="caseboard_entity_inspect_title">实体档案</string>
+    <string name="caseboard_entity_aliases">已知称谓与别名</string>
+    <string name="caseboard_entity_claims">关联主张与陈述 (%1$d)</string>
+    <string name="caseboard_entity_first_reveal">首次登场：第 %1$d 节</string>
+    <string name="caseboard_entity_close">关闭档案</string>
+    <string name="caseboard_empty_graph">当前节点下尚无已揭晓实体。</string>
+    <string name="caseboard_no_claims">此实体暂无记录的关联主张。</string>
+    <string name="caseboard_add_hypothesis">新建推想</string>
+    <string name="caseboard_hypothesis_title_hint">推想标题</string>
+    <string name="caseboard_hypothesis_desc_hint">输入你的推论或案情猜测…</string>
+    <string name="caseboard_hypothesis_related_entity_label">关涉实体</string>
+    <string name="caseboard_hypothesis_save">保存推想</string>
+    <string name="caseboard_hypothesis_cancel">取消</string>
+    <string name="caseboard_hypothesis_delete">删除</string>
+    <string name="caseboard_hypothesis_badge">推想备忘</string>
+    <string name="caseboard_hypothesis_disclaimer">用户推想仅为个人主观猜测，严格与正文事实隔离。</string>
+    <string name="caseboard_empty_hypotheses">暂无推想记录。点击“+ 新建推想”添加你的侦查笔记。</string>
+    <string name="caseboard_type_person">人物</string>
+    <string name="caseboard_type_location">地点</string>
+    <string name="caseboard_type_object">关键物品</string>
+    <string name="caseboard_type_event">事件</string>
+    <string name="caseboard_type_organization">组织团体</string>
+    <string name="caseboard_evidence_anchor">证据出处：#%1$s</string>
+    <string name="caseboard_active_filter">筛选视图</string>
 </resources>

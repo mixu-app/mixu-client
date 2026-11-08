@@ -121,4 +121,52 @@
     <!-- Generic Preference Toggles -->
     <string name="setting_toggle_enabled">有効</string>
     <string name="setting_toggle_disabled">無効</string>
+
+    <!-- Navigation History & Tripartite State Machine -->
+    <string name="nav_history_back">戻る</string>
+    <string name="nav_history_forward">進む</string>
+    <string name="nav_advance_dialog_title">知識境界を進めますか？</string>
+    <string name="nav_advance_dialog_message">現在の知識境界（第 %3$d 章）を超えて、第 %1$d 章（開示 %2$d）へ進もうとしています。境界を進めると、新たな登場人物の正体、人間関係、証拠が開示されます。続行しますか？</string>
+    <string name="nav_advance_dialog_confirm">境界を進める</string>
+    <string name="nav_advance_dialog_cancel">凍結のまま</string>
+
+    <!-- Case Board Surface -->
+    <string name="caseboard_title">事件ボード</string>
+    <string name="caseboard_scrubber_title">物語の歴史的開示</string>
+    <string name="caseboard_scrubber_label">開示位置：%1$d / 知識境界：%2$d</string>
+    <string name="caseboard_scrubber_rewound_badge">歴史的巻き戻し有効</string>
+    <string name="caseboard_scrubber_desc">スライダーを動かすことで、読書進捗や未読のネタバレに影響を与えずに過去章のグラフを復元・検証できます。</string>
+    <string name="caseboard_scrubber_prev">前の開示</string>
+    <string name="caseboard_scrubber_next">次の開示</string>
+    <string name="caseboard_tab_graph">物語グラフ</string>
+    <string name="caseboard_tab_claims">主張と証拠一覧</string>
+    <string name="caseboard_tab_hypotheses">推論・仮説</string>
+    <string name="caseboard_zoom_in">拡大</string>
+    <string name="caseboard_zoom_out">縮小</string>
+    <string name="caseboard_zoom_reset">視点リセット</string>
+    <string name="caseboard_stepped_pan">視点移動</string>
+    <string name="caseboard_entity_inspect_title">エンティティ詳細</string>
+    <string name="caseboard_entity_aliases">開示された別名</string>
+    <string name="caseboard_entity_claims">関連する主張 (%1$d)</string>
+    <string name="caseboard_entity_first_reveal">初登場：第 %1$d 章</string>
+    <string name="caseboard_entity_close">閉じる</string>
+    <string name="caseboard_empty_graph">この開示位置ではエンティティはまだ存在しません。</string>
+    <string name="caseboard_no_claims">このエンティティに関する主張はありません。</string>
+    <string name="caseboard_add_hypothesis">新しい仮説</string>
+    <string name="caseboard_hypothesis_title_hint">仮説のタイトル</string>
+    <string name="caseboard_hypothesis_desc_hint">推理や推測を入力してください…</string>
+    <string name="caseboard_hypothesis_related_entity_label">関連エンティティ</string>
+    <string name="caseboard_hypothesis_save">仮説を保存</string>
+    <string name="caseboard_hypothesis_cancel">キャンセル</string>
+    <string name="caseboard_hypothesis_delete">削除</string>
+    <string name="caseboard_hypothesis_badge">仮説</string>
+    <string name="caseboard_hypothesis_disclaimer">ユーザー仮説は個人の推測であり、物語の確定事実とは厳格に区別されます。</string>
+    <string name="caseboard_empty_hypotheses">仮説はまだありません。「+ 新しい仮説」をタップして推理メモを追加できます。</string>
+    <string name="caseboard_type_person">人物</string>
+    <string name="caseboard_type_location">場所</string>
+    <string name="caseboard_type_object">重要物品</string>
+    <string name="caseboard_type_event">事件</string>
+    <string name="caseboard_type_organization">組織</string>
+    <string name="caseboard_evidence_anchor">証拠箇所：#%1$s</string>
+    <string name="caseboard_active_filter">絞り込み表示</string>
 </resources>

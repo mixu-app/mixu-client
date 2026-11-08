@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="-4.011"
+        android:translateY="6.789"
+        android:scaleX="0.61714"
+        android:scaleY="0.61714">
+        <group
+            android:translateY="153.0"
+            android:scaleX="0.1"
+            android:scaleY="-0.1">
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M1360 1281 c-131 -37 -246 -93 -356 -174 l-60 -44 -25 19 c-107 87 -378 153 -459 111 -73 -38 -75 -46 -78 -431 -4 -414 -17 -377 140 -377 141 0 226 -30 318 -112 l44 -40 36 35 c41 41 144 92 200 99 57 8 57 16 4 73 -46 49 -46 50 -23 58 65 25 63 25 126 -42 l60 -64 104 -3 104 -4 3 346 2 345 -22 21 c-53 49 -53 50 -58 -237 l-5 -265 -25 -2 c-202 -20 -403 -99 -500 -196 -45 -45 -49 -47 -40 -21 19 54 110 163 205 244 129 111 183 175 237 278 59 111 161 370 154 388 -7 17 -6 17 -86 -5z m-310 -282 c65 -29 103 -62 140 -119 l32 -50 -26 -35 c-34 -45 -37 -44 -59 10 -36 87 -125 141 -216 132 -230 -24 -290 -320 -88 -432 l56 -31 -21 -32 c-24 -39 -28 -39 -83 -6 -326 190 -78 719 265 563z m-112 -139 c1 -9 -15 -23 -45 -37 -30 -14 -57 -36 -71 -58 -26 -41 -52 -46 -52 -11 0 66 157 165 168 106z" />
+        </group>
+    </group>
+</vector>

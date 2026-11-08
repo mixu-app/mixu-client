@@ -117,6 +117,12 @@
     <string name="import_auto_detect_chapters_desc">Automatically parse EPUB table of contents into distinct chapters</string>
     <string name="import_auto_extract_graph">Extract Narrative Graph on Import</string>
     <string name="import_auto_extract_graph_desc">Run local initial entity and timeline extraction when a book is added</string>
+    <string name="import_progress_copying">Copying book into local storage…</string>
+    <string name="import_progress_parsing">Parsing EPUB package metadata…</string>
+    <string name="import_status_duplicate">This book is already in your library (matched by SHA-256 hash).</string>
+    <string name="import_error_corrupt">Could not import book: archive is corrupted or not a valid EPUB.</string>
+    <string name="import_error_excluded_pdf">PDF files are excluded from product scope. Please select an EPUB book.</string>
+    <string name="import_error_unsupported_format">This file format is not enabled in the current publication adapter allowlist.</string>
 
     <!-- Generic Preference Toggles -->
     <string name="setting_toggle_enabled">On</string>

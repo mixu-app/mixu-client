@@ -94,4 +94,31 @@
     <string name="library_badge_reading">読書中</string>
     <string name="library_badge_completed">読了</string>
     <string name="library_badge_new">未読</string>
+
+    <!-- Account & Guest Mode -->
+    <string name="account_heading">アカウントとプライバシー</string>
+    <string name="account_guest_title">ゲストモード</string>
+    <string name="account_guest_badge">ゲスト (オフライン)</string>
+    <string name="account_guest_desc">Mixu はデフォルトでゲストモードで動作し、アカウント登録は不要です。すべての知識グラフ、読書履歴、メモは端末内にのみ保存され、クラウド同期やテレメトリ送信は行われません。</string>
+    <string name="account_session_id_label">ローカルセッション ID</string>
+    <string name="account_cloud_sync_label">クラウド同期</string>
+    <string name="account_cloud_sync_status">無効 (ゲストモード)</string>
+
+    <!-- Reading Behavior Defaults -->
+    <string name="reading_defaults_heading">読書設定のデフォルト</string>
+    <string name="reading_keep_screen_on">読書中の画面常時点灯</string>
+    <string name="reading_keep_screen_on_desc">読書中に端末が自動消灯するのを防ぎます</string>
+    <string name="reading_auto_bookmark">読書進捗の自動保存</string>
+    <string name="reading_auto_bookmark_desc">リーダーを閉じた際や画面遷移時に最新の章と位置を自動保存します</string>
+
+    <!-- Import Defaults -->
+    <string name="import_defaults_heading">インポートのデフォルト</string>
+    <string name="import_auto_detect_chapters">目次の自動検出</string>
+    <string name="import_auto_detect_chapters_desc">インポート時に EPUB 構造を解析して目次を自動生成します</string>
+    <string name="import_auto_extract_graph">インポート時に物語グラフを抽出</string>
+    <string name="import_auto_extract_graph_desc">書籍の追加時にローカルで初期エンティティとタイムラインの抽出を行います</string>
+
+    <!-- Generic Preference Toggles -->
+    <string name="setting_toggle_enabled">有効</string>
+    <string name="setting_toggle_disabled">無効</string>
 </resources>

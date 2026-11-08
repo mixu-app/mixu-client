@@ -94,4 +94,31 @@
     <string name="library_badge_reading">在读</string>
     <string name="library_badge_completed">已读完</string>
     <string name="library_badge_new">未读</string>
+
+    <!-- Account & Guest Mode -->
+    <string name="account_heading">账号与隐私</string>
+    <string name="account_guest_title">访客模式</string>
+    <string name="account_guest_badge">访客模式 (离线)</string>
+    <string name="account_guest_desc">谜序默认以访客模式运行，无需注册或登录账号。所有叙事图谱、阅读历史与笔记均严格保存在本地设备中，不进行云端同步或外发遥测。</string>
+    <string name="account_session_id_label">本地会话标识</string>
+    <string name="account_cloud_sync_label">云端同步</string>
+    <string name="account_cloud_sync_status">已停用 (访客模式)</string>
+
+    <!-- Reading Behavior Defaults -->
+    <string name="reading_defaults_heading">阅读行为偏好</string>
+    <string name="reading_keep_screen_on">阅读时保持屏幕常亮</string>
+    <string name="reading_keep_screen_on_desc">在翻阅正文时防止设备因超时自动熄屏</string>
+    <string name="reading_auto_bookmark">自动记录阅读进度</string>
+    <string name="reading_auto_bookmark_desc">在离开阅读器或退出应用时自动保存最新章节与阅读位置</string>
+
+    <!-- Import Defaults -->
+    <string name="import_defaults_heading">书籍导入默认设置</string>
+    <string name="import_auto_detect_chapters">自动解析章节目录</string>
+    <string name="import_auto_detect_chapters_desc">导入书籍时自动分析 EPUB 结构并生成章节目录</string>
+    <string name="import_auto_extract_graph">导入时自动构建叙事图谱</string>
+    <string name="import_auto_extract_graph_desc">在书籍添加到书架时，本地执行初始实体与时序抽取</string>
+
+    <!-- Generic Preference Toggles -->
+    <string name="setting_toggle_enabled">开启</string>
+    <string name="setting_toggle_disabled">关闭</string>
 </resources>

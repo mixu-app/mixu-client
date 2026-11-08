@@ -6,6 +6,8 @@ import app.mixu.client.theme.MixuThemeMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ReaderDisplayConfigTest {
     @Test
@@ -21,6 +23,10 @@ class ReaderDisplayConfigTest {
         assertEquals(10, default.eInkFullRefreshInterval)
         assertEquals(18f, default.effectiveFontSizeSp())
         assertEquals(27f, default.effectiveLineHeightSp())
+        assertFalse(default.keepScreenOn)
+        assertTrue(default.autoBookmark)
+        assertTrue(default.autoDetectChapters)
+        assertFalse(default.autoExtractGraphOnImport)
     }
 
     @Test
@@ -47,6 +53,10 @@ class ReaderDisplayConfigTest {
                 marginPreset = MarginPreset.WIDE,
                 fontFamilyChoice = FontFamilyChoice.MONOSPACE,
                 eInkFullRefreshInterval = 5,
+                keepScreenOn = true,
+                autoBookmark = false,
+                autoDetectChapters = false,
+                autoExtractGraphOnImport = true,
             )
 
         val map = original.toMap()
@@ -62,6 +72,7 @@ class ReaderDisplayConfigTest {
                 ReaderDisplayConfig.KEY_FONT_SIZE_SP to "invalid-float",
                 ReaderDisplayConfig.KEY_LINE_HEIGHT to "-10.0",
                 ReaderDisplayConfig.KEY_REFRESH_INTERVAL to "-5",
+                ReaderDisplayConfig.KEY_KEEP_SCREEN_ON to "not-a-bool",
             )
 
         val recovered = ReaderDisplayConfig.fromMap(corruptedMap)
@@ -73,6 +84,8 @@ class ReaderDisplayConfigTest {
         assertEquals(1.1f, recovered.lineHeightMultiplier)
         // Negative refresh interval is coerced to >= 0
         assertEquals(0, recovered.eInkFullRefreshInterval)
+        // Invalid boolean falls back to default
+        assertEquals(ReaderDisplayConfig.DEFAULT.keepScreenOn, recovered.keepScreenOn)
     }
 
     @Test

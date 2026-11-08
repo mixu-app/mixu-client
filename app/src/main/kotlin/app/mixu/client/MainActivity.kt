@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
+import app.mixu.client.auth.UserSession
 import app.mixu.client.config.ReaderDisplayConfig
 import app.mixu.client.eink.EInkDetector
 import app.mixu.client.library.LibraryScreen
@@ -33,6 +34,8 @@ class MainActivity : Activity() {
                         mutableStateOf(MainScreenDestination.LIBRARY)
                     }
                     var config by remember { mutableStateOf(ReaderDisplayConfig.DEFAULT) }
+                    var userSession by remember { mutableStateOf(UserSession.DEFAULT) }
+
                     val einkPolicy =
                         remember(config.eInkMode, config.eInkFullRefreshInterval) {
                             EInkDetector.resolvePolicy(
@@ -70,6 +73,7 @@ class MainActivity : Activity() {
                                 SettingsPreviewScreen(
                                     config = config,
                                     onConfigChange = { updated -> config = updated },
+                                    userSession = userSession,
                                     onNavigateBack = {
                                         currentDestination = MainScreenDestination.LIBRARY
                                     },

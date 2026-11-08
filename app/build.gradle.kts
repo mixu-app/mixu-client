@@ -29,6 +29,7 @@ dependencies {
     implementation("app.mixu:mixu-graph")
     implementation("app.mixu:mixu-spoiler")
     implementation("app.mixu:mixu-renderer")
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(kotlin("test"))
 }

@@ -124,6 +124,77 @@ class EpubBookPublication private constructor(
             )
         }
 
+        /**
+         * Creates an in-memory synthetic mystery [EpubBookPublication] when no user EPUB
+         * has been imported yet.
+         */
+        fun createSyntheticDemo(): EpubBookPublication {
+            val spineItems =
+                listOf(
+                    EpubSpineItem(
+                        spineIndex = 0,
+                        idref = "ch1",
+                        href = "text/ch1.xhtml",
+                        resolvedZipPath = "OEBPS/text/ch1.xhtml",
+                        mediaType = "application/xhtml+xml",
+                        title = "Chapter 1: The Locked Study",
+                    ),
+                    EpubSpineItem(
+                        spineIndex = 1,
+                        idref = "ch2",
+                        href = "text/ch2.xhtml",
+                        resolvedZipPath = "OEBPS/text/ch2.xhtml",
+                        mediaType = "application/xhtml+xml",
+                        title = "Chapter 2: The Midnight Discovery",
+                    ),
+                )
+            val chapters =
+                listOf(
+                    EpubChapterContent(
+                        spineItem = spineItems[0],
+                        paragraphs =
+                            listOf(
+                                "At eight in the evening, Baxter the butler found the study door " +
+                                    "bolted from the inside at Blackwood Manor.",
+                                "Inspector Vance arrived ten minutes later and examined the " +
+                                    "mahogany desk where Lord Arthur Pendelton lay.",
+                            ),
+                        fullText =
+                            "At eight in the evening, Baxter the butler found the study door " +
+                                "bolted from the inside at Blackwood Manor.\n\n" +
+                                "Inspector Vance arrived ten minutes later and examined the " +
+                                "mahogany desk where Lord Arthur Pendelton lay.",
+                    ),
+                    EpubChapterContent(
+                        spineItem = spineItems[1],
+                        paragraphs =
+                            listOf(
+                                "In the pantry, Baxter claimed he had been polishing silver at " +
+                                    "midnight while Evelyn Reed remained in the guest wing.",
+                                "Yet a faint trail of mud led toward the narrow service staircase.",
+                            ),
+                        fullText =
+                            "In the pantry, Baxter claimed he had been polishing silver at " +
+                                "midnight while Evelyn Reed remained in the guest wing.\n\n" +
+                                "Yet a faint trail of mud led toward the narrow service staircase.",
+                    ),
+                )
+            val metadata =
+                ParsedEpubMetadata(
+                    title = "Blackwood Manor Mystery",
+                    author = "Mixu Synthetic Fixture",
+                    language = "en",
+                    identifier = "urn:mixu:demo:blackwood",
+                    opfPath = "OEBPS/content.opf",
+                    spineItems = spineItems,
+                )
+            return EpubBookPublication(
+                epubFile = File("demo.epub"),
+                metadata = metadata,
+                chapters = chapters,
+            )
+        }
+
         internal fun extractParagraphsFromXhtml(
             xhtml: String,
             fallbackTitle: String,

@@ -138,6 +138,14 @@
 
     <!-- Case Board Surface -->
     <string name="caseboard_title">Case Board</string>
+    <string name="reader_prev_page">Prev Page</string>
+    <string name="reader_next_page">Next Page</string>
+    <string name="reader_toc_button">Chapters</string>
+    <string name="reader_bookmark_add">Bookmark</string>
+    <string name="reader_font_smaller">A-</string>
+    <string name="reader_font_larger">A+</string>
+    <string name="reader_page_indicator">Page %1$d / %2$d · %3$d%%</string>
+    <string name="reader_open_case_board">Case Board</string>
     <string name="caseboard_scrubber_title">Historical Narrative Reveal</string>
     <string name="caseboard_scrubber_label">Reveal: %1$d / Horizon: %2$d</string>
     <string name="caseboard_scrubber_rewound_badge">HISTORICAL REWIND ACTIVE</string>

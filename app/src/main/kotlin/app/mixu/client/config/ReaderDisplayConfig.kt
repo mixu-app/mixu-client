@@ -118,15 +118,24 @@ data class ReaderDisplayConfig(
                 } ?: DEFAULT.eInkMode
 
             val fontSize =
-                map[KEY_FONT_SIZE_SP]?.toFloatOrNull()?.coerceIn(10f, 48f)
+                map[KEY_FONT_SIZE_SP]
+                    ?.toFloatOrNull()
+                    ?.takeUnless { it.isNaN() }
+                    ?.coerceIn(10f, 48f)
                     ?: DEFAULT.fontSizeSp
 
             val fontScale =
-                map[KEY_FONT_SCALE]?.toFloatOrNull()?.coerceIn(0.5f, 3.0f)
+                map[KEY_FONT_SCALE]
+                    ?.toFloatOrNull()
+                    ?.takeUnless { it.isNaN() }
+                    ?.coerceIn(0.5f, 3.0f)
                     ?: DEFAULT.fontScaleMultiplier
 
             val lineHeight =
-                map[KEY_LINE_HEIGHT]?.toFloatOrNull()?.coerceIn(1.1f, 2.5f)
+                map[KEY_LINE_HEIGHT]
+                    ?.toFloatOrNull()
+                    ?.takeUnless { it.isNaN() }
+                    ?.coerceIn(1.1f, 2.5f)
                     ?: DEFAULT.lineHeightMultiplier
 
             val margin =

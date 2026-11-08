@@ -6,6 +6,9 @@ package app.mixu.client.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.FlingBehavior
+import androidx.compose.foundation.gestures.ScrollScope
+import androidx.compose.foundation.gestures.ScrollableDefaults
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +66,18 @@ fun SettingsPreviewScreen(
     val typography = MixuTheme.typography
     val einkPolicy = MixuTheme.einkPolicy
     val scrollState = rememberScrollState()
+
+    val flingBehavior =
+        if (einkPolicy.isActive) {
+            remember {
+                object : FlingBehavior {
+                    override suspend fun ScrollScope.performFling(initialVelocity: Float): Float =
+                        0f
+                }
+            }
+        } else {
+            ScrollableDefaults.flingBehavior()
+        }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -139,7 +154,7 @@ fun SettingsPreviewScreen(
                 Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .verticalScroll(scrollState)
+                    .verticalScroll(state = scrollState, flingBehavior = flingBehavior)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {

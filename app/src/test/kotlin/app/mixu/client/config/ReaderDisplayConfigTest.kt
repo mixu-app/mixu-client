@@ -76,6 +76,26 @@ class ReaderDisplayConfigTest {
     }
 
     @Test
+    fun nanValuesInMapFallbackToDefaults() {
+        val nanMap =
+            mapOf(
+                ReaderDisplayConfig.KEY_FONT_SIZE_SP to "NaN",
+                ReaderDisplayConfig.KEY_FONT_SCALE to "NaN",
+                ReaderDisplayConfig.KEY_LINE_HEIGHT to "NaN",
+            )
+        val recovered = ReaderDisplayConfig.fromMap(nanMap)
+        assertEquals(ReaderDisplayConfig.DEFAULT.fontSizeSp, recovered.fontSizeSp)
+        assertEquals(
+            ReaderDisplayConfig.DEFAULT.fontScaleMultiplier,
+            recovered.fontScaleMultiplier,
+        )
+        assertEquals(
+            ReaderDisplayConfig.DEFAULT.lineHeightMultiplier,
+            recovered.lineHeightMultiplier,
+        )
+    }
+
+    @Test
     fun invalidConstructorsFailFast() {
         assertFailsWith<IllegalArgumentException> {
             ReaderDisplayConfig(fontSizeSp = 5f)

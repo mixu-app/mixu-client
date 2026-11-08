@@ -37,6 +37,23 @@ enum class FontFamilyChoice {
 }
 
 /**
+ * Reading viewport pagination/flow mode.
+ */
+enum class ReadingLayoutMode {
+    PAGED,
+    CONTINUOUS,
+}
+
+/**
+ * Knowledge graph visualization projection mode in the Case Board.
+ */
+enum class GraphDimensionMode {
+    PERSPECTIVE_3D,
+    FORCE_2D,
+    HIERARCHICAL,
+}
+
+/**
  * Persistent reader display, typography, and reading/import defaults.
  *
  * Can be maintained as a global application default or customized per individual book edition.
@@ -54,6 +71,14 @@ data class ReaderDisplayConfig(
     val autoBookmark: Boolean = true,
     val autoDetectChapters: Boolean = true,
     val autoExtractGraphOnImport: Boolean = false,
+    val readingLayoutMode: ReadingLayoutMode = ReadingLayoutMode.PAGED,
+    val paragraphIndentEm: Float = 2.0f,
+    val paragraphSpacingDp: Float = 10f,
+    val letterSpacingSp: Float = 0.4f,
+    val justifyText: Boolean = true,
+    val maxReadingWidthDp: Int = 780,
+    val immersiveReaderMode: Boolean = true,
+    val graphDimensionMode: GraphDimensionMode = GraphDimensionMode.PERSPECTIVE_3D,
 ) {
     init {
         require(fontSizeSp in 10f..48f) { "fontSizeSp must be in 10..48 sp, got $fontSizeSp" }
@@ -65,6 +90,18 @@ data class ReaderDisplayConfig(
         }
         require(eInkFullRefreshInterval >= 0) {
             "eInkFullRefreshInterval must be non-negative, got $eInkFullRefreshInterval"
+        }
+        require(paragraphIndentEm in 0f..4f) {
+            "paragraphIndentEm must be in 0..4 em, got $paragraphIndentEm"
+        }
+        require(paragraphSpacingDp in 0f..48f) {
+            "paragraphSpacingDp must be in 0..48 dp, got $paragraphSpacingDp"
+        }
+        require(letterSpacingSp in 0f..4f) {
+            "letterSpacingSp must be in 0..4 sp, got $letterSpacingSp"
+        }
+        require(maxReadingWidthDp in 320..2400) {
+            "maxReadingWidthDp must be in 320..2400 dp, got $maxReadingWidthDp"
         }
     }
 
@@ -96,6 +133,14 @@ data class ReaderDisplayConfig(
             KEY_AUTO_BOOKMARK to autoBookmark.toString(),
             KEY_AUTO_DETECT_CHAPTERS to autoDetectChapters.toString(),
             KEY_AUTO_EXTRACT_GRAPH to autoExtractGraphOnImport.toString(),
+            KEY_READING_LAYOUT_MODE to readingLayoutMode.name,
+            KEY_PARAGRAPH_INDENT_EM to paragraphIndentEm.toString(),
+            KEY_PARAGRAPH_SPACING_DP to paragraphSpacingDp.toString(),
+            KEY_LETTER_SPACING_SP to letterSpacingSp.toString(),
+            KEY_JUSTIFY_TEXT to justifyText.toString(),
+            KEY_MAX_READING_WIDTH_DP to maxReadingWidthDp.toString(),
+            KEY_IMMERSIVE_READER to immersiveReaderMode.toString(),
+            KEY_GRAPH_DIMENSION_MODE to graphDimensionMode.name,
         )
 
     companion object {
@@ -111,6 +156,14 @@ data class ReaderDisplayConfig(
         const val KEY_AUTO_BOOKMARK = "auto_bookmark"
         const val KEY_AUTO_DETECT_CHAPTERS = "auto_detect_chapters"
         const val KEY_AUTO_EXTRACT_GRAPH = "auto_extract_graph"
+        const val KEY_READING_LAYOUT_MODE = "reading_layout_mode"
+        const val KEY_PARAGRAPH_INDENT_EM = "paragraph_indent_em"
+        const val KEY_PARAGRAPH_SPACING_DP = "paragraph_spacing_dp"
+        const val KEY_LETTER_SPACING_SP = "letter_spacing_sp"
+        const val KEY_JUSTIFY_TEXT = "justify_text"
+        const val KEY_MAX_READING_WIDTH_DP = "max_reading_width_dp"
+        const val KEY_IMMERSIVE_READER = "immersive_reader_mode"
+        const val KEY_GRAPH_DIMENSION_MODE = "graph_dimension_mode"
 
         val DEFAULT = ReaderDisplayConfig()
 
@@ -180,6 +233,51 @@ data class ReaderDisplayConfig(
                 map[KEY_AUTO_EXTRACT_GRAPH]?.toBooleanStrictOrNull()
                     ?: DEFAULT.autoExtractGraphOnImport
 
+            val readingLayout =
+                map[KEY_READING_LAYOUT_MODE]?.let { name ->
+                    runCatching { ReadingLayoutMode.valueOf(name) }.getOrNull()
+                } ?: DEFAULT.readingLayoutMode
+
+            val paragraphIndent =
+                map[KEY_PARAGRAPH_INDENT_EM]
+                    ?.toFloatOrNull()
+                    ?.takeUnless { it.isNaN() }
+                    ?.coerceIn(0f, 4f)
+                    ?: DEFAULT.paragraphIndentEm
+
+            val paragraphSpacing =
+                map[KEY_PARAGRAPH_SPACING_DP]
+                    ?.toFloatOrNull()
+                    ?.takeUnless { it.isNaN() }
+                    ?.coerceIn(0f, 48f)
+                    ?: DEFAULT.paragraphSpacingDp
+
+            val letterSpacing =
+                map[KEY_LETTER_SPACING_SP]
+                    ?.toFloatOrNull()
+                    ?.takeUnless { it.isNaN() }
+                    ?.coerceIn(0f, 4f)
+                    ?: DEFAULT.letterSpacingSp
+
+            val justify =
+                map[KEY_JUSTIFY_TEXT]?.toBooleanStrictOrNull()
+                    ?: DEFAULT.justifyText
+
+            val maxReadingWidth =
+                map[KEY_MAX_READING_WIDTH_DP]
+                    ?.toIntOrNull()
+                    ?.coerceIn(320, 2400)
+                    ?: DEFAULT.maxReadingWidthDp
+
+            val immersive =
+                map[KEY_IMMERSIVE_READER]?.toBooleanStrictOrNull()
+                    ?: DEFAULT.immersiveReaderMode
+
+            val graphDimension =
+                map[KEY_GRAPH_DIMENSION_MODE]?.let { name ->
+                    runCatching { GraphDimensionMode.valueOf(name) }.getOrNull()
+                } ?: DEFAULT.graphDimensionMode
+
             return ReaderDisplayConfig(
                 themeMode = theme,
                 eInkMode = eink,
@@ -193,6 +291,14 @@ data class ReaderDisplayConfig(
                 autoBookmark = autoBookmark,
                 autoDetectChapters = autoDetectChapters,
                 autoExtractGraphOnImport = autoExtractGraph,
+                readingLayoutMode = readingLayout,
+                paragraphIndentEm = paragraphIndent,
+                paragraphSpacingDp = paragraphSpacing,
+                letterSpacingSp = letterSpacing,
+                justifyText = justify,
+                maxReadingWidthDp = maxReadingWidth,
+                immersiveReaderMode = immersive,
+                graphDimensionMode = graphDimension,
             )
         }
     }

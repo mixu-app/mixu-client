@@ -27,6 +27,14 @@ class ReaderDisplayConfigTest {
         assertTrue(default.autoBookmark)
         assertTrue(default.autoDetectChapters)
         assertFalse(default.autoExtractGraphOnImport)
+        assertEquals(ReadingLayoutMode.PAGED, default.readingLayoutMode)
+        assertEquals(2.0f, default.paragraphIndentEm)
+        assertEquals(10f, default.paragraphSpacingDp)
+        assertEquals(0.4f, default.letterSpacingSp)
+        assertTrue(default.justifyText)
+        assertEquals(780, default.maxReadingWidthDp)
+        assertTrue(default.immersiveReaderMode)
+        assertEquals(GraphDimensionMode.PERSPECTIVE_3D, default.graphDimensionMode)
     }
 
     @Test
@@ -57,6 +65,14 @@ class ReaderDisplayConfigTest {
                 autoBookmark = false,
                 autoDetectChapters = false,
                 autoExtractGraphOnImport = true,
+                readingLayoutMode = ReadingLayoutMode.CONTINUOUS,
+                paragraphIndentEm = 0.0f,
+                paragraphSpacingDp = 14f,
+                letterSpacingSp = 0.8f,
+                justifyText = false,
+                maxReadingWidthDp = 960,
+                immersiveReaderMode = false,
+                graphDimensionMode = GraphDimensionMode.FORCE_2D,
             )
 
         val map = original.toMap()

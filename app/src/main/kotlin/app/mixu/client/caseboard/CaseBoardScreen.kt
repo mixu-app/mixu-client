@@ -4,11 +4,15 @@
 package app.mixu.client.caseboard
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,13 +21,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -40,6 +42,7 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,32 +50,53 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.mixu.client.R
+import app.mixu.client.config.GraphDimensionMode
 import app.mixu.client.eink.StrokePattern
 import app.mixu.client.theme.MixuTheme
 import app.mixu.graph.EntityType
+import app.mixu.graph.EpistemicStatus
 import app.mixu.graph.ObjectRef
 import app.mixu.graph.RevealedAssertion
 import app.mixu.graph.RevealedEntity
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * Geometric Diamond Shape for OBJECT entity rendering.
@@ -112,6 +136,7 @@ fun CaseBoardScreen(
     onNavigateBack: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onJumpToOrdinal: ((Int) -> Unit)? = null,
+    initialGraphMode: GraphDimensionMode = GraphDimensionMode.PERSPECTIVE_3D,
     modifier: Modifier = Modifier,
 ) {
     var state by remember(controller) { mutableStateOf(controller.state) }
@@ -157,6 +182,7 @@ fun CaseBoardScreen(
         onNavigateBack = onNavigateBack,
         onNavigateToSettings = onNavigateToSettings,
         onJumpToOrdinal = onJumpToOrdinal,
+        initialGraphMode = initialGraphMode,
         modifier = modifier,
     )
 }
@@ -180,6 +206,7 @@ fun CaseBoardScreen(
     onNavigateBack: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onJumpToOrdinal: ((Int) -> Unit)? = null,
+    initialGraphMode: GraphDimensionMode = GraphDimensionMode.PERSPECTIVE_3D,
     modifier: Modifier = Modifier,
 ) {
     val eInkPolicy = MixuTheme.einkPolicy
@@ -212,6 +239,8 @@ fun CaseBoardScreen(
                                 text = uiState.bookTitle,
                                 style = MixuTheme.typography.caption,
                                 color = colors.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     },
@@ -268,7 +297,10 @@ fun CaseBoardScreen(
                     Tab(
                         selected = uiState.activeTab == CaseBoardTab.GRAPH,
                         onClick = { onTabChange(CaseBoardTab.GRAPH) },
-                        text = { Text(stringResource(R.string.caseboard_tab_graph)) },
+                        text = {
+                            val entityCount = uiState.revealedGraphView?.entities?.size ?: 0
+                            Text("${stringResource(R.string.caseboard_tab_graph)} ($entityCount)")
+                        },
                     )
                     Tab(
                         selected = uiState.activeTab == CaseBoardTab.CLAIMS,
@@ -291,14 +323,17 @@ fun CaseBoardScreen(
                     )
                 }
 
-                // Historical Reveal Slider (P-SPOILER-05)
+                // Compact Historical Reveal Scrubber (P-SPOILER-05)
                 HistoricalRevealScrubber(
                     readingPosition = uiState.readingPosition,
                     knowledgeHorizon = uiState.knowledgeHorizon,
                     graphViewPosition = uiState.graphViewPosition,
                     isRewound = uiState.isRewound,
                     onScrub = onScrub,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                 )
             }
         },
@@ -319,6 +354,7 @@ fun CaseBoardScreen(
                         onStepZoom = onStepZoom,
                         onStepPan = onStepPan,
                         onResetViewport = onResetViewport,
+                        initialGraphMode = initialGraphMode,
                         modifier = Modifier.fillMaxSize(),
                     )
 
@@ -334,7 +370,7 @@ fun CaseBoardScreen(
                                 Modifier
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
-                                    .padding(8.dp),
+                                    .padding(10.dp),
                         )
                     }
                 }
@@ -368,7 +404,8 @@ fun CaseBoardScreen(
 }
 
 /**
- * Historical Reveal Scrubber allowing readers to explore past narrative graph states.
+ * Compact Historical Reveal Scrubber allowing readers to explore past narrative graph states
+ * while preserving maximum vertical canvas height.
  * Enforces Invariant P-SPOILER-05: scrubbing rewinds view only without mutating knowledge horizon.
  */
 @Composable
@@ -382,89 +419,94 @@ private fun HistoricalRevealScrubber(
 ) {
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
-    val strokeWidth = if (eInkPolicy.isActive) 2.5.dp else 1.5.dp
+    val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
+    val cornerRadius = if (eInkPolicy.isActive) 2.dp else 8.dp
+    var showDescription by remember { mutableStateOf(false) }
 
     Card(
         modifier = modifier,
-        border = BorderStroke(strokeWidth, if (isRewound) colors.claimed else colors.outline),
+        border =
+            BorderStroke(
+                strokeWidth,
+                if (isRewound) colors.claimed else colors.outlineVariant,
+            ),
         colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant),
-        shape = RoundedCornerShape(4.dp),
+        shape = RoundedCornerShape(cornerRadius),
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = stringResource(R.string.caseboard_scrubber_title),
-                        style = MixuTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = colors.onSurface,
-                    )
-                    if (isRewound) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Box(
-                            modifier =
-                                Modifier
-                                    .background(colors.claimed, RoundedCornerShape(2.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.caseboard_scrubber_rewound_badge),
-                                style =
-                                    MixuTheme.typography.caption.copy(
-                                        fontFamily = FontFamily.Monospace,
-                                    ),
-                                color = colors.onPrimary,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
-                }
-                Text(
-                    text =
-                        stringResource(
-                            R.string.caseboard_scrubber_label,
-                            graphViewPosition,
-                            knowledgeHorizon,
-                        ),
-                    style =
-                        MixuTheme.typography.caption.copy(
-                            fontFamily = FontFamily.Monospace,
-                        ),
-                    color = colors.onSurfaceVariant,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = stringResource(R.string.caseboard_scrubber_desc),
-                style = MixuTheme.typography.bodyMedium,
-                color = colors.onSurfaceVariant,
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedButton(
                     onClick = { onScrub((graphViewPosition - 1).coerceAtLeast(0)) },
                     enabled = graphViewPosition > 0,
-                    modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 48.dp),
-                    shape = RoundedCornerShape(2.dp),
+                    modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 36.dp),
+                    shape = RoundedCornerShape(cornerRadius),
                     border = BorderStroke(strokeWidth, colors.outline),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                 ) {
                     Text(
-                        "◀ " + stringResource(R.string.caseboard_scrubber_prev),
+                        "◀",
                         style = MixuTheme.typography.caption,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Column(
+                    modifier =
+                        Modifier
+                            .clickable { showDescription = !showDescription }
+                            .padding(horizontal = 2.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = stringResource(R.string.caseboard_scrubber_title),
+                            style =
+                                MixuTheme.typography.caption.copy(
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                            color = colors.onSurface,
+                        )
+                        if (isRewound) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .background(colors.claimed, RoundedCornerShape(3.dp))
+                                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                            ) {
+                                Text(
+                                    text =
+                                        stringResource(
+                                            R.string.caseboard_scrubber_rewound_badge,
+                                        ),
+                                    style =
+                                        MixuTheme.typography.caption.copy(
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 10.sp,
+                                        ),
+                                    color = colors.onPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text =
+                            stringResource(
+                                R.string.caseboard_scrubber_label,
+                                graphViewPosition,
+                                knowledgeHorizon,
+                            ),
+                        style =
+                            MixuTheme.typography.caption.copy(
+                                fontFamily = FontFamily.Monospace,
+                            ),
+                        color = colors.onSurfaceVariant,
+                    )
+                }
 
                 if (knowledgeHorizon > 0) {
                     Slider(
@@ -472,7 +514,7 @@ private fun HistoricalRevealScrubber(
                         onValueChange = { onScrub(it.roundToInt()) },
                         valueRange = 0f..knowledgeHorizon.toFloat(),
                         steps = if (knowledgeHorizon > 1) knowledgeHorizon - 1 else 0,
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        modifier = Modifier.weight(1f).height(32.dp),
                         colors =
                             SliderDefaults.colors(
                                 thumbColor = colors.primary,
@@ -481,31 +523,48 @@ private fun HistoricalRevealScrubber(
                             ),
                     )
                 } else {
-                    Box(modifier = Modifier.weight(1f))
+                    Spacer(modifier = Modifier.weight(1f))
                 }
-
-                Spacer(modifier = Modifier.width(8.dp))
 
                 OutlinedButton(
                     onClick = { onScrub((graphViewPosition + 1).coerceAtMost(knowledgeHorizon)) },
                     enabled = graphViewPosition < knowledgeHorizon,
-                    modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 48.dp),
-                    shape = RoundedCornerShape(2.dp),
+                    modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 36.dp),
+                    shape = RoundedCornerShape(cornerRadius),
                     border = BorderStroke(strokeWidth, colors.outline),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                 ) {
                     Text(
-                        stringResource(R.string.caseboard_scrubber_next) + " ▶",
+                        "▶",
                         style = MixuTheme.typography.caption,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
+            }
+
+            if (showDescription) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.caseboard_scrubber_desc),
+                    style = MixuTheme.typography.caption,
+                    color = colors.onSurfaceVariant,
+                )
             }
         }
     }
 }
 
 /**
- * Compose Graph Canvas displaying deterministic layout nodes with non-color geometric shapes,
- * stroke styles, and 48dp minimum touch targets complying with EInkPolicy.
+ * Interactive Compose Knowledge Graph Canvas supporting:
+ * - **3D Orbit Force Graph** ([GraphDimensionMode.PERSPECTIVE_3D]): 3D spherical force physics,
+ *   perspective camera projection, interactive drag-to-orbit ($\theta, \phi$), and Painter's
+ *   Algorithm depth-sorted rendering.
+ * - **2D Planar Force Graph** ([GraphDimensionMode.FORCE_2D]): spring-embedder planar layout.
+ * - **Hierarchical Topological Graph** ([GraphDimensionMode.HIERARCHICAL]): layered hub-to-periphery
+ *   Sugiyama layout with barycenter crossing minimization.
+ * - **E-Ink Physics & Visual Adaptation**: pre-settled static equilibrium, expanded node repulsion
+ *   and link rest length, 8px grid snapping, monochrome geometric node shapes, and discrete
+ *   stepped controls.
  */
 @Composable
 private fun GraphCanvasSurface(
@@ -514,6 +573,7 @@ private fun GraphCanvasSurface(
     onStepZoom: (Boolean) -> Unit,
     onStepPan: (Float, Float) -> Unit,
     onResetViewport: () -> Unit,
+    initialGraphMode: GraphDimensionMode = GraphDimensionMode.PERSPECTIVE_3D,
     modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
@@ -522,7 +582,56 @@ private fun GraphCanvasSurface(
     val entities = graphView?.entities ?: emptyList()
     val assertions = graphView?.assertions ?: emptyList()
 
-    Box(modifier = modifier.background(colors.background)) {
+    var graphMode by remember(eInkPolicy.isActive, initialGraphMode) {
+        mutableStateOf(
+            if (eInkPolicy.isActive) {
+                GraphDimensionMode.FORCE_2D
+            } else {
+                initialGraphMode
+            },
+        )
+    }
+    var showEdgeLabels by remember { mutableStateOf(true) }
+    var orbitYawRad by remember { mutableFloatStateOf(ForceDirectedGraphEngine.DEFAULT_YAW_RAD) }
+    var orbitPitchRad by remember {
+        mutableFloatStateOf(ForceDirectedGraphEngine.DEFAULT_PITCH_RAD)
+    }
+    var interactivePanX by remember { mutableFloatStateOf(0f) }
+    var interactivePanY by remember { mutableFloatStateOf(0f) }
+    var interactiveZoom by remember { mutableFloatStateOf(1.0f) }
+
+    val effectiveZoom = (uiState.zoomLevel * interactiveZoom).coerceIn(0.5f, 2.6f)
+    val effectivePanX = uiState.panOffsetX + interactivePanX
+    val effectivePanY = uiState.panOffsetY + interactivePanY
+    val is3DActive = (graphMode == GraphDimensionMode.PERSPECTIVE_3D) && !eInkPolicy.isActive
+
+    val layoutResult =
+        remember(
+            uiState.editionId,
+            entities,
+            assertions,
+            graphMode,
+            eInkPolicy.isActive,
+        ) {
+            ForceDirectedGraphEngine.computeLayout(
+                editionId = uiState.editionId,
+                entities = entities,
+                assertions = assertions,
+                is3D = is3DActive,
+                isEInk = eInkPolicy.isActive,
+                mode = graphMode,
+            )
+        }
+
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+
+    BoxWithConstraints(
+        modifier =
+            modifier
+                .background(colors.background)
+                .clipToBounds(),
+    ) {
         if (entities.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -535,204 +644,852 @@ private fun GraphCanvasSurface(
                 )
             }
         } else {
-            // Edge canvas rendering connections with epistemic status patterns
-            Box(
+            val viewportWidthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(320f)
+            val viewportHeightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(320f)
+
+            val projectedNodes =
+                remember(
+                    entities,
+                    layoutResult,
+                    viewportWidthPx,
+                    viewportHeightPx,
+                    effectiveZoom,
+                    effectivePanX,
+                    effectivePanY,
+                    orbitYawRad,
+                    orbitPitchRad,
+                    is3DActive,
+                ) {
+                    ForceDirectedGraphEngine.projectNodes(
+                        entities = entities,
+                        layoutResult = layoutResult,
+                        viewportWidthPx = viewportWidthPx,
+                        viewportHeightPx = viewportHeightPx,
+                        zoom = effectiveZoom,
+                        panX = effectivePanX,
+                        panY = effectivePanY,
+                        orbitYawRad = orbitYawRad,
+                        orbitPitchRad = orbitPitchRad,
+                        is3D = is3DActive,
+                    )
+                }
+
+            val projectedById =
+                remember(projectedNodes) {
+                    projectedNodes.associateBy { it.entity.entity.entityId.value }
+                }
+
+            val selectedEntityId =
+                uiState.selectedEntity
+                    ?.entity
+                    ?.entityId
+                    ?.value
+            val selectedNeighbors =
+                remember(selectedEntityId, layoutResult) {
+                    if (selectedEntityId != null) {
+                        layoutResult.neighborMap[selectedEntityId].orEmpty() + selectedEntityId
+                    } else {
+                        emptySet()
+                    }
+                }
+
+            val nodeLabelStyle =
+                remember(colors.onSurface) {
+                    TextStyle(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onSurface,
+                    )
+                }
+            val nodeBadgeStyle =
+                remember(colors.onPrimary) {
+                    TextStyle(
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onPrimary,
+                    )
+                }
+            val edgeLabelStyle =
+                remember(colors.onSurfaceVariant) {
+                    TextStyle(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.onSurfaceVariant,
+                    )
+                }
+
+            Canvas(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .drawBehind {
-                            val zoom = uiState.zoomLevel
-                            val panX = uiState.panOffsetX
-                            val panY = uiState.panOffsetY
-
-                            for (assertion in assertions) {
-                                val obj = assertion.assertion.objectRef
-                                if (obj is ObjectRef.Entity) {
-                                    val subId = assertion.assertion.subjectId.value
-                                    val sourcePos = uiState.layoutPositions[subId]
-                                    val targetPos = uiState.layoutPositions[obj.entityId.value]
-                                    if (sourcePos != null && targetPos != null) {
-                                        val startX =
-                                            (
-                                                sourcePos.bounds.center.x
-                                                    .toFloat() + panX
-                                            ) * zoom
-                                        val startY =
-                                            (
-                                                sourcePos.bounds.center.y
-                                                    .toFloat() + panY
-                                            ) * zoom
-                                        val endX =
-                                            (
-                                                targetPos.bounds.center.x
-                                                    .toFloat() + panX
-                                            ) * zoom
-                                        val endY =
-                                            (
-                                                targetPos.bounds.center.y
-                                                    .toFloat() + panY
-                                            ) * zoom
-
-                                        val epistemicStyle =
-                                            eInkPolicy.getEpistemicStroke(
-                                                assertion.currentStatus,
-                                            )
-                                        val pathEffect =
-                                            when (epistemicStyle.pattern) {
-                                                StrokePattern.DASHED ->
-                                                    PathEffect.dashPathEffect(
-                                                        floatArrayOf(12f, 8f),
-                                                        0f,
-                                                    )
-                                                StrokePattern.DOTTED ->
-                                                    PathEffect.dashPathEffect(
-                                                        floatArrayOf(4f, 4f),
-                                                        0f,
-                                                    )
-                                                else -> null
-                                            }
-
-                                        drawLine(
-                                            color = colors.outline,
-                                            start = Offset(startX, startY),
-                                            end = Offset(endX, endY),
-                                            strokeWidth = epistemicStyle.strokeWidthDp.toPx(),
-                                            pathEffect = pathEffect,
-                                        )
+                        .pointerInput(projectedNodes, selectedEntityId) {
+                            detectTapGestures { tapOffset ->
+                                val hitRadiusPx = 42.dp.toPx()
+                                // Reverse order checks foreground nodes first (Painter's order)
+                                val hitNode =
+                                    projectedNodes.asReversed().firstOrNull { node ->
+                                        hypot(
+                                            tapOffset.x - node.screenX,
+                                            tapOffset.y - node.screenY,
+                                        ) <= hitRadiusPx
                                     }
+                                if (hitNode != null) {
+                                    val clickedId = hitNode.entity.entity.entityId.value
+                                    if (clickedId == selectedEntityId) {
+                                        onSelectEntity(null)
+                                    } else {
+                                        onSelectEntity(hitNode.entity)
+                                    }
+                                } else {
+                                    onSelectEntity(null)
+                                }
+                            }
+                        }.pointerInput(is3DActive, eInkPolicy.isActive) {
+                            detectTransformGestures { _, pan, zoomChange, _ ->
+                                if (zoomChange != 1f) {
+                                    interactiveZoom =
+                                        (interactiveZoom * zoomChange).coerceIn(0.55f, 2.4f)
+                                }
+                                if (is3DActive && !eInkPolicy.isActive) {
+                                    orbitYawRad += pan.x * 0.0065f
+                                    orbitPitchRad =
+                                        (orbitPitchRad - pan.y * 0.0055f).coerceIn(-1.15f, 1.15f)
+                                } else {
+                                    interactivePanX =
+                                        (interactivePanX + pan.x / effectiveZoom)
+                                            .coerceIn(-600f, 600f)
+                                    interactivePanY =
+                                        (interactivePanY + pan.y / effectiveZoom)
+                                            .coerceIn(-600f, 600f)
                                 }
                             }
                         },
             ) {
-                // Nodes
-                for (revealedEntity in entities) {
-                    val pos = uiState.layoutPositions[revealedEntity.entity.entityId.value]
-                    if (pos != null) {
-                        val zoom = uiState.zoomLevel
-                        val panX = uiState.panOffsetX
-                        val panY = uiState.panOffsetY
+                // 1. Background Grid / 3D Orbital Reference Ring
+                if (!eInkPolicy.isActive) {
+                    drawGraphBackdrop(
+                        is3D = is3DActive,
+                        centerX = size.width / 2f + effectivePanX * effectiveZoom * 0.25f,
+                        centerY = size.height / 2f + effectivePanY * effectiveZoom * 0.25f,
+                        minDim = minOf(size.width, size.height),
+                        zoom = effectiveZoom,
+                        outlineColor = colors.outlineVariant,
+                        primaryColor = colors.primary,
+                    )
+                }
 
-                        val nodeX = ((pos.position.x.toFloat() + panX) * zoom).roundToInt()
-                        val nodeY = ((pos.position.y.toFloat() + panY) * zoom).roundToInt()
+                // 2. Sort and Draw Directed Curved Edges (Painter's depth order)
+                val sortedEdges =
+                    layoutResult.edges.sortedBy { edge ->
+                        val srcZ = projectedById[edge.sourceId]?.depthZ ?: 0f
+                        val dstZ = projectedById[edge.targetId]?.depthZ ?: 0f
+                        (srcZ + dstZ) * 0.5f
+                    }
 
-                        EntityNodeCard(
-                            entity = revealedEntity,
-                            isSelected =
-                                uiState.selectedEntity?.entity?.entityId ==
-                                    revealedEntity.entity.entityId,
-                            onClick = { onSelectEntity(revealedEntity) },
-                            modifier =
-                                Modifier
-                                    .offset { IntOffset(nodeX, nodeY) }
-                                    .sizeIn(minWidth = 56.dp, minHeight = 48.dp),
+                for (edge in sortedEdges) {
+                    val src = projectedById[edge.sourceId] ?: continue
+                    val dst = projectedById[edge.targetId] ?: continue
+
+                    val isIncidentToSelection =
+                        selectedEntityId != null &&
+                            (
+                                edge.sourceId == selectedEntityId ||
+                                    edge.targetId == selectedEntityId
+                            )
+                    val isDimmed = selectedEntityId != null && !isIncidentToSelection
+
+                    val avgDepthNorm = (src.depthNorm + dst.depthNorm) * 0.5f
+                    val baseAlpha =
+                        when {
+                            eInkPolicy.isActive -> if (isDimmed) 0.35f else 1.0f
+                            isIncidentToSelection -> 0.98f
+                            isDimmed -> 0.16f
+                            is3DActive -> (0.42f + avgDepthNorm * 0.50f).coerceIn(0.38f, 0.92f)
+                            else -> 0.78f
+                        }
+
+                    val status = edge.assertion.currentStatus
+                    val baseEdgeColor =
+                        if (eInkPolicy.isActive) {
+                            colors.onSurface
+                        } else if (isIncidentToSelection) {
+                            colors.primary
+                        } else {
+                            when (status) {
+                                EpistemicStatus.OBSERVED -> colors.observed
+                                EpistemicStatus.CORROBORATED -> colors.corroborated
+                                EpistemicStatus.CLAIMED -> colors.claimed
+                                EpistemicStatus.INFERRED -> colors.inferred
+                                EpistemicStatus.CONTRADICTED -> colors.contradicted
+                                EpistemicStatus.RETRACTED -> colors.retracted
+                                EpistemicStatus.UNRESOLVED -> colors.unresolved
+                            }
+                        }
+                    val edgeColor = baseEdgeColor.copy(alpha = baseAlpha)
+
+                    val epistemicStyle = eInkPolicy.getEpistemicStroke(status)
+                    val pathEffect =
+                        when (epistemicStyle.pattern) {
+                            StrokePattern.DASHED ->
+                                PathEffect.dashPathEffect(floatArrayOf(14f, 8f), 0f)
+                            StrokePattern.DOTTED ->
+                                PathEffect.dashPathEffect(floatArrayOf(5f, 6f), 0f)
+                            else -> null
+                        }
+
+                    val strokePx =
+                        if (isIncidentToSelection) {
+                            (epistemicStyle.strokeWidthDp + 1.dp).toPx()
+                        } else {
+                            epistemicStyle.strokeWidthDp.toPx()
+                        }
+
+                    val dx = dst.screenX - src.screenX
+                    val dy = dst.screenY - src.screenY
+                    val dist = hypot(dx, dy).coerceAtLeast(1f)
+                    val nx = -dy / dist
+                    val ny = dx / dist
+                    val curveOffset = dist * edge.curvature
+                    val ctrlX = (src.screenX + dst.screenX) * 0.5f + nx * curveOffset
+                    val ctrlY = (src.screenY + dst.screenY) * 0.5f + ny * curveOffset
+
+                    val path =
+                        Path().apply {
+                            moveTo(src.screenX, src.screenY)
+                            quadraticTo(ctrlX, ctrlY, dst.screenX, dst.screenY)
+                        }
+
+                    drawPath(
+                        path = path,
+                        color = edgeColor,
+                        style =
+                            Stroke(
+                                width = strokePx,
+                                cap = StrokeCap.Round,
+                                pathEffect = pathEffect,
+                            ),
+                    )
+
+                    // Draw directional arrowhead near the target node boundary
+                    val targetRadiusPx =
+                        (
+                            dst.layout.baseRadiusDp.dp
+                                .toPx() * dst.perspectiveScale
+                        ).coerceIn(14.dp.toPx(), 42.dp.toPx())
+                    if (dist > targetRadiusPx * 1.8f) {
+                        val tArrow =
+                            (1f - (targetRadiusPx + 6.dp.toPx()) / dist).coerceIn(
+                                0.55f,
+                                0.92f,
+                            )
+                        val oneMinusT = 1f - tArrow
+                        val tipX =
+                            oneMinusT * oneMinusT * src.screenX +
+                                2f * oneMinusT * tArrow * ctrlX +
+                                tArrow * tArrow * dst.screenX
+                        val tipY =
+                            oneMinusT * oneMinusT * src.screenY +
+                                2f * oneMinusT * tArrow * ctrlY +
+                                tArrow * tArrow * dst.screenY
+                        val tanX =
+                            2f * oneMinusT * (ctrlX - src.screenX) +
+                                2f * tArrow * (dst.screenX - ctrlX)
+                        val tanY =
+                            2f * oneMinusT * (ctrlY - src.screenY) +
+                                2f * tArrow * (dst.screenY - ctrlY)
+                        val angle = atan2(tanY, tanX)
+                        val arrowLen = if (isIncidentToSelection) 10.dp.toPx() else 8.dp.toPx()
+                        val spread = 0.46f
+
+                        val arrowPath =
+                            Path().apply {
+                                moveTo(tipX, tipY)
+                                lineTo(
+                                    tipX - arrowLen * cos(angle - spread),
+                                    tipY - arrowLen * sin(angle - spread),
+                                )
+                                lineTo(
+                                    tipX - arrowLen * cos(angle + spread),
+                                    tipY - arrowLen * sin(angle + spread),
+                                )
+                                close()
+                            }
+                        drawPath(path = arrowPath, color = edgeColor)
+                    }
+
+                    // Draw predicate pill label along the curve midpoint
+                    val minLabelDistPx =
+                        when {
+                            isIncidentToSelection -> 54.dp.toPx()
+                            entities.size <= 14 || effectiveZoom >= 1.25f -> 76.dp.toPx()
+                            else -> 135.dp.toPx()
+                        }
+                    if ((showEdgeLabels && (!isDimmed || entities.size <= 14)) ||
+                        isIncidentToSelection
+                    ) {
+                        val midX = 0.25f * src.screenX + 0.5f * ctrlX + 0.25f * dst.screenX
+                        val midY = 0.25f * src.screenY + 0.5f * ctrlY + 0.25f * dst.screenY
+                        val rawPred =
+                            edge.assertion.assertion.predicate
+                                .trim()
+                        val predLabel =
+                            if (rawPred.length > 14) rawPred.take(13) + "…" else rawPred
+                        if (predLabel.isNotEmpty() && dist > minLabelDistPx) {
+                            val measured =
+                                textMeasurer.measure(
+                                    text = AnnotatedString(predLabel),
+                                    style =
+                                        edgeLabelStyle.copy(
+                                            color =
+                                                if (isIncidentToSelection) {
+                                                    colors.primary
+                                                } else {
+                                                    colors.onSurfaceVariant.copy(alpha = baseAlpha)
+                                                },
+                                        ),
+                                )
+                            val padX = 5.dp.toPx()
+                            val padY = 2.dp.toPx()
+                            val boxW = measured.size.width + padX * 2
+                            val boxH = measured.size.height + padY * 2
+                            val topLeft = Offset(midX - boxW / 2f, midY - boxH / 2f)
+
+                            drawRoundRect(
+                                color =
+                                    colors.surface.copy(
+                                        alpha = if (eInkPolicy.isActive) 1f else 0.88f * baseAlpha,
+                                    ),
+                                topLeft = topLeft,
+                                size = Size(boxW, boxH),
+                                cornerRadius = CornerRadius(4.dp.toPx()),
+                            )
+                            if (isIncidentToSelection || eInkPolicy.isActive) {
+                                drawRoundRect(
+                                    color = edgeColor,
+                                    topLeft = topLeft,
+                                    size = Size(boxW, boxH),
+                                    cornerRadius = CornerRadius(4.dp.toPx()),
+                                    style = Stroke(width = 1.dp.toPx()),
+                                )
+                            }
+                            drawText(
+                                textLayoutResult = measured,
+                                topLeft = Offset(topLeft.x + padX, topLeft.y + padY),
+                            )
+                        }
+                    }
+                }
+
+                // 3. Draw Projected Nodes (Painter's depth order: far-to-near)
+                for (proj in projectedNodes) {
+                    val entityId = proj.entity.entity.entityId.value
+                    val isSelected = entityId == selectedEntityId
+                    val isNeighbor = selectedNeighbors.contains(entityId)
+                    val isDimmed = selectedEntityId != null && !isNeighbor
+
+                    val nodeAlpha =
+                        when {
+                            eInkPolicy.isActive -> if (isDimmed) 0.4f else 1.0f
+                            isSelected || isNeighbor -> 1.0f
+                            isDimmed -> 0.22f
+                            is3DActive -> (0.62f + proj.depthNorm * 0.38f).coerceIn(0.58f, 1.0f)
+                            else -> 0.96f
+                        }
+
+                    val radiusPx =
+                        (
+                            proj.layout.baseRadiusDp.dp
+                                .toPx() * proj.perspectiveScale
+                        ).coerceIn(15.dp.toPx(), 42.dp.toPx())
+                    val center = Offset(proj.screenX, proj.screenY)
+
+                    val (baseNodeColor, typeSymbol) =
+                        when (proj.entity.entity.entityType) {
+                            EntityType.PERSON, EntityType.PERSONA ->
+                                colors.primary to "●"
+                            EntityType.LOCATION ->
+                                colors.corroborated to "■"
+                            EntityType.OBJECT ->
+                                colors.claimed to "◆"
+                            EntityType.ORGANIZATION ->
+                                colors.inferred to "⬭"
+                        }
+
+                    // Outer selection / hub glow ring
+                    if (isSelected) {
+                        if (!eInkPolicy.isActive) {
+                            drawCircle(
+                                brush =
+                                    Brush.radialGradient(
+                                        colors =
+                                            listOf(
+                                                baseNodeColor.copy(alpha = 0.42f),
+                                                baseNodeColor.copy(alpha = 0.0f),
+                                            ),
+                                        center = center,
+                                        radius = radiusPx * 2.1f,
+                                    ),
+                                radius = radiusPx * 2.1f,
+                                center = center,
+                            )
+                        }
+                        drawCircle(
+                            color = if (eInkPolicy.isActive) colors.onSurface else baseNodeColor,
+                            radius = radiusPx + 5.dp.toPx(),
+                            center = center,
+                            style =
+                                Stroke(
+                                    width = if (eInkPolicy.isActive) 3.dp.toPx() else 2.2.dp.toPx(),
+                                ),
+                        )
+                    } else if (proj.layout.degree >= 4 && !isDimmed && !eInkPolicy.isActive) {
+                        drawCircle(
+                            color = baseNodeColor.copy(alpha = 0.22f * nodeAlpha),
+                            radius = radiusPx + 4.dp.toPx(),
+                            center = center,
+                            style = Stroke(width = 1.2.dp.toPx()),
                         )
                     }
+
+                    // Node body: 3D shaded sphere in Standard mode, geometric shape in E-Ink mode
+                    if (eInkPolicy.isActive) {
+                        drawEInkGeometricNode(
+                            entityType = proj.entity.entity.entityType,
+                            center = center,
+                            radiusPx = radiusPx,
+                            fillColor = if (isSelected) colors.primaryContainer else colors.surface,
+                            strokeColor = colors.onSurface.copy(alpha = nodeAlpha),
+                            strokeWidthPx = if (isSelected) 3.dp.toPx() else 2.dp.toPx(),
+                        )
+                    } else {
+                        val highlightColor =
+                            Color(
+                                red = (baseNodeColor.red + 0.38f).coerceAtMost(1f),
+                                green = (baseNodeColor.green + 0.38f).coerceAtMost(1f),
+                                blue = (baseNodeColor.blue + 0.38f).coerceAtMost(1f),
+                                alpha = nodeAlpha,
+                            )
+                        val shadowColor =
+                            Color(
+                                red = (baseNodeColor.red * 0.58f).coerceIn(0f, 1f),
+                                green = (baseNodeColor.green * 0.58f).coerceIn(0f, 1f),
+                                blue = (baseNodeColor.blue * 0.58f).coerceIn(0f, 1f),
+                                alpha = nodeAlpha,
+                            )
+                        drawCircle(
+                            brush =
+                                Brush.radialGradient(
+                                    colors =
+                                        listOf(
+                                            highlightColor,
+                                            baseNodeColor.copy(alpha = nodeAlpha),
+                                            shadowColor,
+                                        ),
+                                    center =
+                                        Offset(
+                                            center.x - radiusPx * 0.32f,
+                                            center.y - radiusPx * 0.32f,
+                                        ),
+                                    radius = radiusPx * 1.35f,
+                                ),
+                            radius = radiusPx,
+                            center = center,
+                        )
+                        drawCircle(
+                            color = colors.surface.copy(alpha = 0.85f * nodeAlpha),
+                            radius = radiusPx,
+                            center = center,
+                            style = Stroke(width = 1.5.dp.toPx()),
+                        )
+                    }
+
+                    // Inner icon / glyph inside node sphere
+                    val displayName =
+                        proj.entity.canonicalName?.displayText
+                            ?: proj.entity.entity.entityId.value
+                    val centerGlyph =
+                        if (eInkPolicy.isActive) {
+                            typeSymbol
+                        } else {
+                            displayName.take(1)
+                        }
+                    val glyphLayout =
+                        textMeasurer.measure(
+                            text = AnnotatedString(centerGlyph),
+                            style =
+                                nodeBadgeStyle.copy(
+                                    fontSize =
+                                        if (proj.perspectiveScale > 1.05f) 12.sp else 11.sp,
+                                    color =
+                                        if (eInkPolicy.isActive) {
+                                            colors.onSurface.copy(alpha = nodeAlpha)
+                                        } else {
+                                            colors.onPrimary.copy(alpha = nodeAlpha)
+                                        },
+                                ),
+                        )
+                    drawText(
+                        textLayoutResult = glyphLayout,
+                        topLeft =
+                            Offset(
+                                center.x - glyphLayout.size.width / 2f,
+                                center.y - glyphLayout.size.height / 2f,
+                            ),
+                    )
+
+                    // Floating entity name pill underneath node
+                    val truncatedName =
+                        if (displayName.length > 10) {
+                            displayName.take(9) + "…"
+                        } else {
+                            displayName
+                        }
+                    val labelText =
+                        if (proj.layout.degree >= 2) {
+                            "$truncatedName · ${proj.layout.degree}"
+                        } else {
+                            truncatedName
+                        }
+                    val labelMeasured =
+                        textMeasurer.measure(
+                            text = AnnotatedString(labelText),
+                            style =
+                                nodeLabelStyle.copy(
+                                    color =
+                                        if (isSelected) {
+                                            colors.primary
+                                        } else {
+                                            colors.onSurface.copy(alpha = nodeAlpha)
+                                        },
+                                ),
+                        )
+                    val lPadX = 7.dp.toPx()
+                    val lPadY = 3.dp.toPx()
+                    val pillW = labelMeasured.size.width + lPadX * 2
+                    val pillH = labelMeasured.size.height + lPadY * 2
+                    val pillTopLeft =
+                        Offset(
+                            center.x - pillW / 2f,
+                            center.y + radiusPx + 5.dp.toPx(),
+                        )
+
+                    drawRoundRect(
+                        color =
+                            if (isSelected) {
+                                colors.primaryContainer
+                            } else {
+                                colors.surface.copy(
+                                    alpha = if (eInkPolicy.isActive) 1f else 0.90f * nodeAlpha,
+                                )
+                            },
+                        topLeft = pillTopLeft,
+                        size = Size(pillW, pillH),
+                        cornerRadius =
+                            CornerRadius(if (eInkPolicy.isActive) 2.dp.toPx() else 6.dp.toPx()),
+                    )
+                    drawRoundRect(
+                        color =
+                            if (isSelected) {
+                                colors.primary
+                            } else {
+                                colors.outlineVariant.copy(alpha = nodeAlpha)
+                            },
+                        topLeft = pillTopLeft,
+                        size = Size(pillW, pillH),
+                        cornerRadius =
+                            CornerRadius(if (eInkPolicy.isActive) 2.dp.toPx() else 6.dp.toPx()),
+                        style =
+                            Stroke(
+                                width = if (isSelected) 1.5.dp.toPx() else 1.dp.toPx(),
+                            ),
+                    )
+                    drawText(
+                        textLayoutResult = labelMeasured,
+                        topLeft = Offset(pillTopLeft.x + lPadX, pillTopLeft.y + lPadY),
+                    )
                 }
             }
         }
 
-        // Discrete stepped pan & zoom control overlay for E-Ink compliance
-        DiscreteViewportControls(
-            zoomLevel = uiState.zoomLevel,
-            onStepZoom = onStepZoom,
-            onStepPan = onStepPan,
-            onReset = onResetViewport,
+        // Top-Left Mode Switcher & Graph Stats Bar
+        GraphModeToolbar(
+            graphMode = graphMode,
+            showEdgeLabels = showEdgeLabels,
+            entityCount = entities.size,
+            edgeCount = layoutResult.edges.size,
+            onModeChange = { newMode -> graphMode = newMode },
+            onToggleLabels = { showEdgeLabels = !showEdgeLabels },
+            onResetView = {
+                orbitYawRad = ForceDirectedGraphEngine.DEFAULT_YAW_RAD
+                orbitPitchRad = ForceDirectedGraphEngine.DEFAULT_PITCH_RAD
+                interactivePanX = 0f
+                interactivePanY = 0f
+                interactiveZoom = 1.0f
+                onResetViewport()
+            },
             modifier =
                 Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp),
+                    .align(Alignment.TopStart)
+                    .padding(10.dp),
+        )
+
+        // Top-Right Discrete Stepped Pan & Zoom Controls (E-Ink compliant)
+        DiscreteViewportControls(
+            zoomLevel = effectiveZoom,
+            onStepZoom = onStepZoom,
+            onStepPan = { dx, dy ->
+                if (is3DActive && !eInkPolicy.isActive) {
+                    orbitYawRad += (dx / 60f) * 0.28f
+                    orbitPitchRad = (orbitPitchRad + (dy / 60f) * 0.22f).coerceIn(-1.1f, 1.1f)
+                } else {
+                    onStepPan(dx, dy)
+                }
+            },
+            onReset = {
+                orbitYawRad = ForceDirectedGraphEngine.DEFAULT_YAW_RAD
+                orbitPitchRad = ForceDirectedGraphEngine.DEFAULT_PITCH_RAD
+                interactivePanX = 0f
+                interactivePanY = 0f
+                interactiveZoom = 1.0f
+                onResetViewport()
+            },
+            modifier =
+                Modifier
+                    .align(if (maxWidth < 560.dp) Alignment.BottomEnd else Alignment.TopEnd)
+                    .padding(10.dp),
         )
     }
 }
 
-/**
- * Geometric entity node with non-color shapes and distinct iconography.
- * Min touch target: 48dp.
- */
+private fun DrawScope.drawGraphBackdrop(
+    is3D: Boolean,
+    centerX: Float,
+    centerY: Float,
+    minDim: Float,
+    zoom: Float,
+    outlineColor: Color,
+    primaryColor: Color,
+) {
+    val center = Offset(centerX, centerY)
+    val baseRadius = (minDim * 0.36f * zoom).coerceIn(110f, minDim * 0.65f)
+
+    // Subtle radial ambient glow
+    drawCircle(
+        brush =
+            Brush.radialGradient(
+                colors =
+                    listOf(
+                        primaryColor.copy(alpha = 0.06f),
+                        Color.Transparent,
+                    ),
+                center = center,
+                radius = baseRadius * 1.45f,
+            ),
+        radius = baseRadius * 1.45f,
+        center = center,
+    )
+
+    if (is3D) {
+        // Concentric orbital rings for 3D spatial depth perception
+        drawCircle(
+            color = outlineColor.copy(alpha = 0.28f),
+            radius = baseRadius,
+            center = center,
+            style =
+                Stroke(
+                    width = 1.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 10f), 0f),
+                ),
+        )
+        drawCircle(
+            color = outlineColor.copy(alpha = 0.18f),
+            radius = baseRadius * 0.62f,
+            center = center,
+            style = Stroke(width = 1.dp.toPx()),
+        )
+    }
+}
+
+private fun DrawScope.drawEInkGeometricNode(
+    entityType: EntityType,
+    center: Offset,
+    radiusPx: Float,
+    fillColor: Color,
+    strokeColor: Color,
+    strokeWidthPx: Float,
+) {
+    when (entityType) {
+        EntityType.PERSON, EntityType.PERSONA -> {
+            drawCircle(color = fillColor, radius = radiusPx, center = center)
+            drawCircle(
+                color = strokeColor,
+                radius = radiusPx,
+                center = center,
+                style = Stroke(width = strokeWidthPx),
+            )
+        }
+        EntityType.LOCATION -> {
+            val topLeft = Offset(center.x - radiusPx, center.y - radiusPx)
+            val boxSize = Size(radiusPx * 2f, radiusPx * 2f)
+            drawRect(color = fillColor, topLeft = topLeft, size = boxSize)
+            drawRect(
+                color = strokeColor,
+                topLeft = topLeft,
+                size = boxSize,
+                style = Stroke(width = strokeWidthPx),
+            )
+        }
+        EntityType.OBJECT -> {
+            val path =
+                Path().apply {
+                    moveTo(center.x, center.y - radiusPx * 1.15f)
+                    lineTo(center.x + radiusPx * 1.15f, center.y)
+                    lineTo(center.x, center.y + radiusPx * 1.15f)
+                    lineTo(center.x - radiusPx * 1.15f, center.y)
+                    close()
+                }
+            drawPath(path = path, color = fillColor)
+            drawPath(path = path, color = strokeColor, style = Stroke(width = strokeWidthPx))
+        }
+        EntityType.ORGANIZATION -> {
+            val topLeft = Offset(center.x - radiusPx * 1.2f, center.y - radiusPx * 0.85f)
+            val boxSize = Size(radiusPx * 2.4f, radiusPx * 1.7f)
+            drawRoundRect(
+                color = fillColor,
+                topLeft = topLeft,
+                size = boxSize,
+                cornerRadius = CornerRadius(radiusPx * 0.6f),
+            )
+            drawRoundRect(
+                color = strokeColor,
+                topLeft = topLeft,
+                size = boxSize,
+                cornerRadius = CornerRadius(radiusPx * 0.6f),
+                style = Stroke(width = strokeWidthPx),
+            )
+        }
+    }
+}
+
 @Composable
-private fun EntityNodeCard(
-    entity: RevealedEntity,
-    isSelected: Boolean,
+private fun GraphModeToolbar(
+    graphMode: GraphDimensionMode,
+    showEdgeLabels: Boolean,
+    entityCount: Int,
+    edgeCount: Int,
+    onModeChange: (GraphDimensionMode) -> Unit,
+    onToggleLabels: () -> Unit,
+    onResetView: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MixuTheme.colors
+    val eInkPolicy = MixuTheme.einkPolicy
+    val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
+    val cornerRadius = if (eInkPolicy.isActive) 2.dp else 10.dp
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(cornerRadius),
+        color = colors.surface.copy(alpha = if (eInkPolicy.isActive) 1f else 0.92f),
+        border = BorderStroke(strokeWidth, colors.outlineVariant),
+        shadowElevation = if (eInkPolicy.isActive) 0.dp else 4.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!eInkPolicy.isActive) {
+                    GraphPillButton(
+                        label = stringResource(R.string.caseboard_graph_mode_3d),
+                        selected = graphMode == GraphDimensionMode.PERSPECTIVE_3D,
+                        onClick = { onModeChange(GraphDimensionMode.PERSPECTIVE_3D) },
+                    )
+                }
+                GraphPillButton(
+                    label = stringResource(R.string.caseboard_graph_mode_2d),
+                    selected = graphMode == GraphDimensionMode.FORCE_2D,
+                    onClick = { onModeChange(GraphDimensionMode.FORCE_2D) },
+                )
+                GraphPillButton(
+                    label = stringResource(R.string.caseboard_graph_mode_hierarchical),
+                    selected = graphMode == GraphDimensionMode.HIERARCHICAL,
+                    onClick = { onModeChange(GraphDimensionMode.HIERARCHICAL) },
+                )
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                GraphPillButton(
+                    label = stringResource(R.string.caseboard_graph_labels_toggle),
+                    selected = showEdgeLabels,
+                    onClick = onToggleLabels,
+                )
+                GraphPillButton(
+                    label = stringResource(R.string.caseboard_graph_recenter),
+                    selected = false,
+                    onClick = onResetView,
+                )
+                Text(
+                    text =
+                        stringResource(
+                            R.string.caseboard_graph_stats,
+                            entityCount,
+                            edgeCount,
+                        ),
+                    style =
+                        MixuTheme.typography.caption.copy(
+                            fontFamily = FontFamily.Monospace,
+                        ),
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GraphPillButton(
+    label: String,
+    selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
-    val strokeWidth =
-        if (isSelected) {
-            3.5.dp
-        } else if (eInkPolicy.isActive) {
-            2.5.dp
-        } else {
-            1.5.dp
-        }
+    val shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp)
+    val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
 
-    val (shape, iconSymbol, typeLabelRes) =
-        when (entity.entity.entityType) {
-            EntityType.PERSON, EntityType.PERSONA ->
-                Triple(
-                    CircleShape,
-                    "[●]",
-                    R.string.caseboard_type_person,
-                )
-            EntityType.LOCATION ->
-                Triple(
-                    RoundedCornerShape(2.dp),
-                    "[■]",
-                    R.string.caseboard_type_location,
-                )
-            EntityType.OBJECT -> Triple(DiamondShape, "[◆]", R.string.caseboard_type_object)
-            EntityType.ORGANIZATION ->
-                Triple(
-                    RoundedCornerShape(8.dp),
-                    "[⬭]",
-                    R.string.caseboard_type_organization,
-                )
-        }
-
-    val displayName = entity.canonicalName?.displayText ?: entity.entity.entityId.value
-
-    Card(
-        shape = shape,
-        border = BorderStroke(strokeWidth, if (isSelected) colors.primary else colors.outline),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = if (isSelected) colors.primaryContainer else colors.surface,
-            ),
+    Surface(
         modifier =
             modifier
-                .clickable(onClick = onClick)
-                .sizeIn(minWidth = 56.dp, minHeight = 48.dp),
+                .height(30.dp)
+                .clickable(onClick = onClick),
+        shape = shape,
+        color = if (selected) colors.primaryContainer else colors.surfaceVariant.copy(alpha = 0.6f),
+        border =
+            BorderStroke(
+                strokeWidth,
+                if (selected) colors.primary else colors.outlineVariant,
+            ),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(horizontal = 8.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    text = iconSymbol,
-                    style = MixuTheme.typography.caption.copy(fontFamily = FontFamily.Monospace),
-                    fontWeight = FontWeight.Bold,
-                    color = if (isSelected) colors.onPrimaryContainer else colors.primary,
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = stringResource(typeLabelRes),
-                    style = MixuTheme.typography.caption,
-                    color = colors.onSurfaceVariant,
-                )
-            }
             Text(
-                text = displayName,
-                style = MixuTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = if (isSelected) colors.onPrimaryContainer else colors.onSurface,
+                text = label,
+                style = MixuTheme.typography.caption,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                color = if (selected) colors.onPrimaryContainer else colors.onSurface,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
             )
         }
     }
@@ -751,12 +1508,19 @@ private fun DiscreteViewportControls(
 ) {
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
-    val strokeWidth = if (eInkPolicy.isActive) 2.5.dp else 1.5.dp
+    val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
+    val cornerRadius = if (eInkPolicy.isActive) 2.dp else 10.dp
 
     Card(
-        border = BorderStroke(strokeWidth, colors.outline),
-        colors = CardDefaults.cardColors(containerColor = colors.surface),
-        shape = RoundedCornerShape(4.dp),
+        border = BorderStroke(strokeWidth, colors.outlineVariant),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    colors.surface.copy(
+                        alpha = if (eInkPolicy.isActive) 1f else 0.92f,
+                    ),
+            ),
+        shape = RoundedCornerShape(cornerRadius),
         modifier = modifier,
     ) {
         Column(
@@ -766,14 +1530,14 @@ private fun DiscreteViewportControls(
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 OutlinedButton(
                     onClick = { onStepZoom(false) },
-                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
-                    shape = RoundedCornerShape(2.dp),
+                    modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 36.dp),
+                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
                     contentPadding = PaddingValues(0.dp),
                 ) {
-                    Text("－", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("－", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
                 Box(
-                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                    modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 36.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -787,11 +1551,11 @@ private fun DiscreteViewportControls(
                 }
                 OutlinedButton(
                     onClick = { onStepZoom(true) },
-                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
-                    shape = RoundedCornerShape(2.dp),
+                    modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 36.dp),
+                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
                     contentPadding = PaddingValues(0.dp),
                 ) {
-                    Text("＋", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("＋", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
 
@@ -800,27 +1564,27 @@ private fun DiscreteViewportControls(
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 OutlinedButton(
                     onClick = { onStepPan(-60f, 0f) },
-                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
-                    shape = RoundedCornerShape(2.dp),
+                    modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 36.dp),
+                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
                     contentPadding = PaddingValues(0.dp),
                 ) {
-                    Text("◀", fontSize = 12.sp)
+                    Text("◀", fontSize = 11.sp)
                 }
                 OutlinedButton(
                     onClick = onReset,
-                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
-                    shape = RoundedCornerShape(2.dp),
+                    modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 36.dp),
+                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
                     contentPadding = PaddingValues(0.dp),
                 ) {
-                    Text("●", fontSize = 12.sp)
+                    Text("●", fontSize = 11.sp)
                 }
                 OutlinedButton(
                     onClick = { onStepPan(60f, 0f) },
-                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
-                    shape = RoundedCornerShape(2.dp),
+                    modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 36.dp),
+                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
                     contentPadding = PaddingValues(0.dp),
                 ) {
-                    Text("▶", fontSize = 12.sp)
+                    Text("▶", fontSize = 11.sp)
                 }
             }
         }
@@ -847,8 +1611,8 @@ private fun EntityDossierInspectionSheet(
     Card(
         border = BorderStroke(strokeWidth, colors.primary),
         colors = CardDefaults.cardColors(containerColor = colors.surface),
-        shape = RoundedCornerShape(4.dp),
-        modifier = modifier.heightIn(max = 280.dp),
+        shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 12.dp),
+        modifier = modifier.heightIn(max = 260.dp),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -870,8 +1634,8 @@ private fun EntityDossierInspectionSheet(
                 }
                 OutlinedButton(
                     onClick = onClose,
-                    modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 48.dp),
-                    shape = RoundedCornerShape(2.dp),
+                    modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 40.dp),
+                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
                 ) {
                     Text(
                         stringResource(R.string.caseboard_entity_close),
@@ -880,7 +1644,7 @@ private fun EntityDossierInspectionSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             val firstRevealMod =
                 if (onJumpToOrdinal != null) {
@@ -1004,7 +1768,7 @@ private fun AssertionItemRow(
         Box(
             modifier =
                 Modifier
-                    .border(BorderStroke(1.dp, colors.outline), RoundedCornerShape(2.dp))
+                    .border(BorderStroke(1.dp, colors.outline), RoundedCornerShape(4.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
         ) {
             Text(
@@ -1028,6 +1792,7 @@ private fun ActiveClaimsList(
     modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
+    val eInkPolicy = MixuTheme.einkPolicy
 
     if (assertions.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -1045,8 +1810,8 @@ private fun ActiveClaimsList(
             items(assertions) { assertion ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(2.dp),
-                    border = BorderStroke(1.dp, colors.outline),
+                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
+                    border = BorderStroke(1.dp, colors.outlineVariant),
                     colors = CardDefaults.cardColors(containerColor = colors.surface),
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
@@ -1089,8 +1854,8 @@ private fun HypothesesSurface(
     Column(modifier = modifier) {
         // Disclaimer Banner
         Card(
-            shape = RoundedCornerShape(4.dp),
-            border = BorderStroke(strokeWidth, colors.outline),
+            shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
+            border = BorderStroke(strokeWidth, colors.outlineVariant),
             colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant),
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -1129,8 +1894,8 @@ private fun HypothesesSurface(
             )
             Button(
                 onClick = onAddClick,
-                modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 48.dp),
-                shape = RoundedCornerShape(2.dp),
+                modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 44.dp),
+                shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = colors.primary),
             ) {
                 Text(
@@ -1190,9 +1955,7 @@ private fun HypothesisItemCard(
                     drawRoundRect(
                         color = colors.outline,
                         size = size,
-                        cornerRadius =
-                            androidx.compose.ui.geometry
-                                .CornerRadius(4.dp.toPx()),
+                        cornerRadius = CornerRadius(4.dp.toPx()),
                         style =
                             Stroke(
                                 width = strokeWidthPx,
@@ -1237,7 +2000,7 @@ private fun HypothesisItemCard(
 
                 OutlinedButton(
                     onClick = onDelete,
-                    modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 48.dp),
+                    modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 40.dp),
                     shape = RoundedCornerShape(2.dp),
                 ) {
                     Text(
@@ -1363,8 +2126,8 @@ private fun AddHypothesisDialog(
                     }
                 },
                 enabled = title.isNotBlank(),
-                shape = RoundedCornerShape(2.dp),
-                modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 48.dp),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 44.dp),
             ) {
                 Text(
                     stringResource(R.string.caseboard_hypothesis_save),
@@ -1375,8 +2138,8 @@ private fun AddHypothesisDialog(
         dismissButton = {
             OutlinedButton(
                 onClick = onDismiss,
-                shape = RoundedCornerShape(2.dp),
-                modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 48.dp),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 44.dp),
             ) {
                 Text(stringResource(R.string.caseboard_hypothesis_cancel))
             }

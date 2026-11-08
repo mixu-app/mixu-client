@@ -172,153 +172,165 @@ class MainActivity :
 
                         Scaffold(
                             bottomBar = {
-                                NavigationBar(
-                                    containerColor = colors.surface,
-                                    contentColor = colors.primary,
-                                    modifier =
-                                        Modifier.border(
-                                            BorderStroke(strokeWidth, colors.outline),
-                                        ),
-                                ) {
-                                    NavigationBarItem(
-                                        selected =
-                                            currentDestination == MainScreenDestination.LIBRARY,
-                                        onClick = {
-                                            libraryBooks = loadLibraryBooks()
-                                            currentDestination = MainScreenDestination.LIBRARY
-                                        },
-                                        icon = {
-                                            Text(
-                                                text =
-                                                    if (currentDestination ==
-                                                        MainScreenDestination.LIBRARY
-                                                    ) {
-                                                        "[■]"
-                                                    } else {
-                                                        "[□]"
-                                                    },
-                                                fontFamily = FontFamily.Monospace,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                        },
-                                        label = { Text(stringResource(R.string.nav_library)) },
-                                        colors =
-                                            NavigationBarItemDefaults.colors(
-                                                selectedIconColor = colors.primary,
-                                                selectedTextColor = colors.primary,
-                                                indicatorColor = colors.primaryContainer,
-                                                unselectedIconColor = colors.onSurfaceVariant,
-                                                unselectedTextColor = colors.onSurfaceVariant,
+                                val showBottomNav =
+                                    currentDestination != MainScreenDestination.READER ||
+                                        !config.immersiveReaderMode
+                                if (showBottomNav) {
+                                    NavigationBar(
+                                        containerColor = colors.surface,
+                                        contentColor = colors.primary,
+                                        modifier =
+                                            Modifier.border(
+                                                BorderStroke(strokeWidth, colors.outlineVariant),
                                             ),
-                                    )
-                                    NavigationBarItem(
-                                        selected =
-                                            currentDestination == MainScreenDestination.READER,
-                                        onClick = {
-                                            if (readerSession.activeNavigator == null) {
-                                                val candidateId =
-                                                    activeBookId
-                                                        ?: libraryBooks.firstOrNull()?.id
-                                                if (candidateId != null &&
-                                                    database.getBookAssetForBook(
-                                                        candidateId,
-                                                    ) != null
-                                                ) {
-                                                    runCatching {
-                                                        readerSession.openBook(candidateId)
-                                                        activeBookId = candidateId
-                                                        readerTick++
+                                    ) {
+                                        NavigationBarItem(
+                                            selected =
+                                                currentDestination ==
+                                                    MainScreenDestination.LIBRARY,
+                                            onClick = {
+                                                libraryBooks = loadLibraryBooks()
+                                                currentDestination = MainScreenDestination.LIBRARY
+                                            },
+                                            icon = {
+                                                Text(
+                                                    text =
+                                                        if (currentDestination ==
+                                                            MainScreenDestination.LIBRARY
+                                                        ) {
+                                                            "■"
+                                                        } else {
+                                                            "□"
+                                                        },
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                            },
+                                            label = { Text(stringResource(R.string.nav_library)) },
+                                            colors =
+                                                NavigationBarItemDefaults.colors(
+                                                    selectedIconColor = colors.primary,
+                                                    selectedTextColor = colors.primary,
+                                                    indicatorColor = colors.primaryContainer,
+                                                    unselectedIconColor = colors.onSurfaceVariant,
+                                                    unselectedTextColor = colors.onSurfaceVariant,
+                                                ),
+                                        )
+                                        NavigationBarItem(
+                                            selected =
+                                                currentDestination == MainScreenDestination.READER,
+                                            onClick = {
+                                                if (readerSession.activeNavigator == null) {
+                                                    val candidateId =
+                                                        activeBookId
+                                                            ?: libraryBooks.firstOrNull()?.id
+                                                    if (candidateId != null &&
+                                                        database.getBookAssetForBook(
+                                                            candidateId,
+                                                        ) != null
+                                                    ) {
+                                                        runCatching {
+                                                            readerSession.openBook(candidateId)
+                                                            activeBookId = candidateId
+                                                            readerTick++
+                                                        }
                                                     }
                                                 }
-                                            }
-                                            currentDestination = MainScreenDestination.READER
-                                        },
-                                        icon = {
-                                            Text(
-                                                text =
-                                                    if (currentDestination ==
-                                                        MainScreenDestination.READER
-                                                    ) {
-                                                        "[◆]"
-                                                    } else {
-                                                        "[◇]"
-                                                    },
-                                                fontFamily = FontFamily.Monospace,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                        },
-                                        label = { Text(stringResource(R.string.nav_reader)) },
-                                        colors =
-                                            NavigationBarItemDefaults.colors(
-                                                selectedIconColor = colors.primary,
-                                                selectedTextColor = colors.primary,
-                                                indicatorColor = colors.primaryContainer,
-                                                unselectedIconColor = colors.onSurfaceVariant,
-                                                unselectedTextColor = colors.onSurfaceVariant,
-                                            ),
-                                    )
-                                    NavigationBarItem(
-                                        selected =
-                                            currentDestination == MainScreenDestination.CASE_BOARD,
-                                        onClick = {
-                                            currentDestination = MainScreenDestination.CASE_BOARD
-                                        },
-                                        icon = {
-                                            Text(
-                                                text =
-                                                    if (currentDestination ==
-                                                        MainScreenDestination.CASE_BOARD
-                                                    ) {
-                                                        "[●]"
-                                                    } else {
-                                                        "[○]"
-                                                    },
-                                                fontFamily = FontFamily.Monospace,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                        },
-                                        label = { Text(stringResource(R.string.nav_case_board)) },
-                                        colors =
-                                            NavigationBarItemDefaults.colors(
-                                                selectedIconColor = colors.primary,
-                                                selectedTextColor = colors.primary,
-                                                indicatorColor = colors.primaryContainer,
-                                                unselectedIconColor = colors.onSurfaceVariant,
-                                                unselectedTextColor = colors.onSurfaceVariant,
-                                            ),
-                                    )
-                                    NavigationBarItem(
-                                        selected =
-                                            currentDestination ==
-                                                MainScreenDestination.SETTINGS_PREVIEW,
-                                        onClick = {
-                                            currentDestination =
-                                                MainScreenDestination.SETTINGS_PREVIEW
-                                        },
-                                        icon = {
-                                            Text(
-                                                text =
-                                                    if (currentDestination ==
-                                                        MainScreenDestination.SETTINGS_PREVIEW
-                                                    ) {
-                                                        "[▲]"
-                                                    } else {
-                                                        "[△]"
-                                                    },
-                                                fontFamily = FontFamily.Monospace,
-                                                fontWeight = FontWeight.Bold,
-                                            )
-                                        },
-                                        label = { Text(stringResource(R.string.nav_settings)) },
-                                        colors =
-                                            NavigationBarItemDefaults.colors(
-                                                selectedIconColor = colors.primary,
-                                                selectedTextColor = colors.primary,
-                                                indicatorColor = colors.primaryContainer,
-                                                unselectedIconColor = colors.onSurfaceVariant,
-                                                unselectedTextColor = colors.onSurfaceVariant,
-                                            ),
-                                    )
+                                                currentDestination = MainScreenDestination.READER
+                                            },
+                                            icon = {
+                                                Text(
+                                                    text =
+                                                        if (currentDestination ==
+                                                            MainScreenDestination.READER
+                                                        ) {
+                                                            "◆"
+                                                        } else {
+                                                            "◇"
+                                                        },
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                            },
+                                            label = { Text(stringResource(R.string.nav_reader)) },
+                                            colors =
+                                                NavigationBarItemDefaults.colors(
+                                                    selectedIconColor = colors.primary,
+                                                    selectedTextColor = colors.primary,
+                                                    indicatorColor = colors.primaryContainer,
+                                                    unselectedIconColor = colors.onSurfaceVariant,
+                                                    unselectedTextColor = colors.onSurfaceVariant,
+                                                ),
+                                        )
+                                        NavigationBarItem(
+                                            selected =
+                                                currentDestination ==
+                                                    MainScreenDestination.CASE_BOARD,
+                                            onClick = {
+                                                currentDestination =
+                                                    MainScreenDestination.CASE_BOARD
+                                            },
+                                            icon = {
+                                                Text(
+                                                    text =
+                                                        if (currentDestination ==
+                                                            MainScreenDestination.CASE_BOARD
+                                                        ) {
+                                                            "●"
+                                                        } else {
+                                                            "○"
+                                                        },
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                            },
+                                            label = {
+                                                Text(stringResource(R.string.nav_case_board))
+                                            },
+                                            colors =
+                                                NavigationBarItemDefaults.colors(
+                                                    selectedIconColor = colors.primary,
+                                                    selectedTextColor = colors.primary,
+                                                    indicatorColor = colors.primaryContainer,
+                                                    unselectedIconColor = colors.onSurfaceVariant,
+                                                    unselectedTextColor = colors.onSurfaceVariant,
+                                                ),
+                                        )
+                                        NavigationBarItem(
+                                            selected =
+                                                currentDestination ==
+                                                    MainScreenDestination.SETTINGS_PREVIEW,
+                                            onClick = {
+                                                currentDestination =
+                                                    MainScreenDestination.SETTINGS_PREVIEW
+                                            },
+                                            icon = {
+                                                Text(
+                                                    text =
+                                                        if (currentDestination ==
+                                                            MainScreenDestination.SETTINGS_PREVIEW
+                                                        ) {
+                                                            "▲"
+                                                        } else {
+                                                            "△"
+                                                        },
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                            },
+                                            label = {
+                                                Text(stringResource(R.string.nav_settings))
+                                            },
+                                            colors =
+                                                NavigationBarItemDefaults.colors(
+                                                    selectedIconColor = colors.primary,
+                                                    selectedTextColor = colors.primary,
+                                                    indicatorColor = colors.primaryContainer,
+                                                    unselectedIconColor = colors.onSurfaceVariant,
+                                                    unselectedTextColor = colors.onSurfaceVariant,
+                                                ),
+                                        )
+                                    }
                                 }
                             },
                         ) { innerPadding ->
@@ -433,6 +445,16 @@ class MainActivity :
                                                 libraryBooks = loadLibraryBooks()
                                                 currentDestination = MainScreenDestination.LIBRARY
                                             },
+                                            onUpdateConfig = { updated ->
+                                                config = updated
+                                                if (readerSession.activeNavigator != null) {
+                                                    readerSession.updateDisplayConfig(updated)
+                                                } else {
+                                                    database.saveReaderSettings(updated)
+                                                    activeNav.updateDisplayConfig(updated)
+                                                }
+                                                readerTick++
+                                            },
                                         )
                                     }
                                     MainScreenDestination.CASE_BOARD -> {
@@ -466,6 +488,7 @@ class MainActivity :
                                                         MainScreenDestination.READER
                                                 }
                                             },
+                                            initialGraphMode = config.graphDimensionMode,
                                         )
                                     }
                                     MainScreenDestination.SETTINGS_PREVIEW -> {
@@ -589,9 +612,18 @@ class MainActivity :
             val pack = packLoader.loadForBook(asset = asset, publication = nav?.publication)
             val maxAnchorOrdinal = (pack.anchors.maxOfOrNull { it.ordinal } ?: 0).coerceAtLeast(0)
             val navState = readerSession.navigationStateMachine
-            val readingPos = navState.readingPosition.coerceIn(0, maxAnchorOrdinal)
-            val horizon = navState.knowledgeHorizon.coerceIn(readingPos, maxAnchorOrdinal)
-            val viewPos = navState.graphViewPosition.coerceIn(0, horizon)
+            val totalProg = (nav?.currentLocator?.totalProgression ?: 1.0).coerceIn(0.0, 1.0)
+            val progOrdinal =
+                (totalProg * maxAnchorOrdinal)
+                    .toInt()
+                    .coerceIn(0, maxAnchorOrdinal)
+            val readingPos =
+                maxOf(navState.readingPosition, progOrdinal, maxAnchorOrdinal)
+                    .coerceIn(0, maxAnchorOrdinal)
+            val horizon =
+                maxOf(navState.knowledgeHorizon, readingPos, maxAnchorOrdinal)
+                    .coerceIn(readingPos, maxAnchorOrdinal)
+            val viewPos = horizon
             val title =
                 nav?.publication?.metadata?.title
                     ?: database.getLibraryItem(bookId)?.displayTitle

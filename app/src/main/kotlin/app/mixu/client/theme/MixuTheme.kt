@@ -89,10 +89,17 @@ fun MixuTheme(
             )
         }
 
+    val resolvedEInkPolicy =
+        if (themeMode == MixuThemeMode.EINK && !eInkPolicy.isActive) {
+            EInkPolicy.EINK_ACTIVE
+        } else {
+            eInkPolicy
+        }
+
     CompositionLocalProvider(
         LocalMixuColors provides resolvedColors,
         LocalMixuTypography provides typography,
-        LocalMixuEInkPolicy provides eInkPolicy,
+        LocalMixuEInkPolicy provides resolvedEInkPolicy,
     ) {
         MaterialTheme(
             colorScheme = materialColorScheme,

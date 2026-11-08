@@ -35,6 +35,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -69,6 +70,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -86,6 +88,7 @@ import app.mixu.client.R
 import app.mixu.client.config.GraphDimensionMode
 import app.mixu.client.eink.StrokePattern
 import app.mixu.client.theme.MixuTheme
+import app.mixu.client.ui.MixuIcons
 import app.mixu.graph.EntityType
 import app.mixu.graph.EpistemicStatus
 import app.mixu.graph.ObjectRef
@@ -136,7 +139,7 @@ fun CaseBoardScreen(
     onNavigateBack: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onJumpToOrdinal: ((Int) -> Unit)? = null,
-    initialGraphMode: GraphDimensionMode = GraphDimensionMode.PERSPECTIVE_3D,
+    initialGraphMode: GraphDimensionMode = GraphDimensionMode.FORCE_2D,
     modifier: Modifier = Modifier,
 ) {
     var state by remember(controller) { mutableStateOf(controller.state) }
@@ -206,7 +209,7 @@ fun CaseBoardScreen(
     onNavigateBack: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onJumpToOrdinal: ((Int) -> Unit)? = null,
-    initialGraphMode: GraphDimensionMode = GraphDimensionMode.PERSPECTIVE_3D,
+    initialGraphMode: GraphDimensionMode = GraphDimensionMode.FORCE_2D,
     modifier: Modifier = Modifier,
 ) {
     val eInkPolicy = MixuTheme.einkPolicy
@@ -555,11 +558,9 @@ private fun HistoricalRevealScrubber(
 }
 
 /**
- * Interactive Compose Knowledge Graph Canvas supporting:
- * - **3D Orbit Force Graph** ([GraphDimensionMode.PERSPECTIVE_3D]): 3D spherical force physics,
- *   perspective camera projection, interactive drag-to-orbit ($\theta, \phi$), and Painter's
- *   Algorithm depth-sorted rendering.
- * - **2D Planar Force Graph** ([GraphDimensionMode.FORCE_2D]): spring-embedder planar layout.
+ * Interactive 2D Compose Knowledge Graph Canvas supporting:
+ * - **2D Planar Force Graph** ([GraphDimensionMode.FORCE_2D]): spring-embedder planar layout with
+ *   curved multi-edges, directional arrowheads, predicate pills, and SVG vector entity icons.
  * - **Hierarchical Topological Graph** ([GraphDimensionMode.HIERARCHICAL]): layered hub-to-periphery
  *   Sugiyama layout with barycenter crossing minimization.
  * - **E-Ink Physics & Visual Adaptation**: pre-settled static equilibrium, expanded node repulsion
@@ -573,7 +574,7 @@ private fun GraphCanvasSurface(
     onStepZoom: (Boolean) -> Unit,
     onStepPan: (Float, Float) -> Unit,
     onResetViewport: () -> Unit,
-    initialGraphMode: GraphDimensionMode = GraphDimensionMode.PERSPECTIVE_3D,
+    initialGraphMode: GraphDimensionMode = GraphDimensionMode.FORCE_2D,
     modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
@@ -582,20 +583,10 @@ private fun GraphCanvasSurface(
     val entities = graphView?.entities ?: emptyList()
     val assertions = graphView?.assertions ?: emptyList()
 
-    var graphMode by remember(eInkPolicy.isActive, initialGraphMode) {
-        mutableStateOf(
-            if (eInkPolicy.isActive) {
-                GraphDimensionMode.FORCE_2D
-            } else {
-                initialGraphMode
-            },
-        )
+    var graphMode by remember(initialGraphMode) {
+        mutableStateOf(initialGraphMode)
     }
     var showEdgeLabels by remember { mutableStateOf(true) }
-    var orbitYawRad by remember { mutableFloatStateOf(ForceDirectedGraphEngine.DEFAULT_YAW_RAD) }
-    var orbitPitchRad by remember {
-        mutableFloatStateOf(ForceDirectedGraphEngine.DEFAULT_PITCH_RAD)
-    }
     var interactivePanX by remember { mutableFloatStateOf(0f) }
     var interactivePanY by remember { mutableFloatStateOf(0f) }
     var interactiveZoom by remember { mutableFloatStateOf(1.0f) }
@@ -603,7 +594,6 @@ private fun GraphCanvasSurface(
     val effectiveZoom = (uiState.zoomLevel * interactiveZoom).coerceIn(0.5f, 2.6f)
     val effectivePanX = uiState.panOffsetX + interactivePanX
     val effectivePanY = uiState.panOffsetY + interactivePanY
-    val is3DActive = (graphMode == GraphDimensionMode.PERSPECTIVE_3D) && !eInkPolicy.isActive
 
     val layoutResult =
         remember(
@@ -617,7 +607,6 @@ private fun GraphCanvasSurface(
                 editionId = uiState.editionId,
                 entities = entities,
                 assertions = assertions,
-                is3D = is3DActive,
                 isEInk = eInkPolicy.isActive,
                 mode = graphMode,
             )
@@ -656,9 +645,6 @@ private fun GraphCanvasSurface(
                     effectiveZoom,
                     effectivePanX,
                     effectivePanY,
-                    orbitYawRad,
-                    orbitPitchRad,
-                    is3DActive,
                 ) {
                     ForceDirectedGraphEngine.projectNodes(
                         entities = entities,
@@ -668,9 +654,6 @@ private fun GraphCanvasSurface(
                         zoom = effectiveZoom,
                         panX = effectivePanX,
                         panY = effectivePanY,
-                        orbitYawRad = orbitYawRad,
-                        orbitPitchRad = orbitPitchRad,
-                        is3D = is3DActive,
                     )
                 }
 
@@ -701,15 +684,6 @@ private fun GraphCanvasSurface(
                         color = colors.onSurface,
                     )
                 }
-            val nodeBadgeStyle =
-                remember(colors.onPrimary) {
-                    TextStyle(
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.onPrimary,
-                    )
-                }
             val edgeLabelStyle =
                 remember(colors.onSurfaceVariant) {
                     TextStyle(
@@ -726,7 +700,6 @@ private fun GraphCanvasSurface(
                         .pointerInput(projectedNodes, selectedEntityId) {
                             detectTapGestures { tapOffset ->
                                 val hitRadiusPx = 42.dp.toPx()
-                                // Reverse order checks foreground nodes first (Painter's order)
                                 val hitNode =
                                     projectedNodes.asReversed().firstOrNull { node ->
                                         hypot(
@@ -745,31 +718,24 @@ private fun GraphCanvasSurface(
                                     onSelectEntity(null)
                                 }
                             }
-                        }.pointerInput(is3DActive, eInkPolicy.isActive) {
+                        }.pointerInput(eInkPolicy.isActive) {
                             detectTransformGestures { _, pan, zoomChange, _ ->
                                 if (zoomChange != 1f) {
                                     interactiveZoom =
                                         (interactiveZoom * zoomChange).coerceIn(0.55f, 2.4f)
                                 }
-                                if (is3DActive && !eInkPolicy.isActive) {
-                                    orbitYawRad += pan.x * 0.0065f
-                                    orbitPitchRad =
-                                        (orbitPitchRad - pan.y * 0.0055f).coerceIn(-1.15f, 1.15f)
-                                } else {
-                                    interactivePanX =
-                                        (interactivePanX + pan.x / effectiveZoom)
-                                            .coerceIn(-600f, 600f)
-                                    interactivePanY =
-                                        (interactivePanY + pan.y / effectiveZoom)
-                                            .coerceIn(-600f, 600f)
-                                }
+                                interactivePanX =
+                                    (interactivePanX + pan.x / effectiveZoom)
+                                        .coerceIn(-650f, 650f)
+                                interactivePanY =
+                                    (interactivePanY + pan.y / effectiveZoom)
+                                        .coerceIn(-650f, 650f)
                             }
                         },
             ) {
-                // 1. Background Grid / 3D Orbital Reference Ring
+                // 1. Subtle 2D Coordinate Grid Backdrop (non-E-Ink)
                 if (!eInkPolicy.isActive) {
                     drawGraphBackdrop(
-                        is3D = is3DActive,
                         centerX = size.width / 2f + effectivePanX * effectiveZoom * 0.25f,
                         centerY = size.height / 2f + effectivePanY * effectiveZoom * 0.25f,
                         minDim = minOf(size.width, size.height),
@@ -779,15 +745,8 @@ private fun GraphCanvasSurface(
                     )
                 }
 
-                // 2. Sort and Draw Directed Curved Edges (Painter's depth order)
-                val sortedEdges =
-                    layoutResult.edges.sortedBy { edge ->
-                        val srcZ = projectedById[edge.sourceId]?.depthZ ?: 0f
-                        val dstZ = projectedById[edge.targetId]?.depthZ ?: 0f
-                        (srcZ + dstZ) * 0.5f
-                    }
-
-                for (edge in sortedEdges) {
+                // 2. Draw Directed Curved Edges
+                for (edge in layoutResult.edges) {
                     val src = projectedById[edge.sourceId] ?: continue
                     val dst = projectedById[edge.targetId] ?: continue
 
@@ -799,13 +758,11 @@ private fun GraphCanvasSurface(
                             )
                     val isDimmed = selectedEntityId != null && !isIncidentToSelection
 
-                    val avgDepthNorm = (src.depthNorm + dst.depthNorm) * 0.5f
                     val baseAlpha =
                         when {
                             eInkPolicy.isActive -> if (isDimmed) 0.35f else 1.0f
                             isIncidentToSelection -> 0.98f
                             isDimmed -> 0.16f
-                            is3DActive -> (0.42f + avgDepthNorm * 0.50f).coerceIn(0.38f, 0.92f)
                             else -> 0.78f
                         }
 
@@ -875,8 +832,8 @@ private fun GraphCanvasSurface(
                     val targetRadiusPx =
                         (
                             dst.layout.baseRadiusDp.dp
-                                .toPx() * dst.perspectiveScale
-                        ).coerceIn(14.dp.toPx(), 42.dp.toPx())
+                                .toPx() * dst.scale
+                        ).coerceIn(16.dp.toPx(), 42.dp.toPx())
                     if (dist > targetRadiusPx * 1.8f) {
                         val tArrow =
                             (1f - (targetRadiusPx + 6.dp.toPx()) / dist).coerceIn(
@@ -981,7 +938,7 @@ private fun GraphCanvasSurface(
                     }
                 }
 
-                // 3. Draw Projected Nodes (Painter's depth order: far-to-near)
+                // 3. Draw 2D Nodes with Crisp SVG Vector Icons Inside
                 for (proj in projectedNodes) {
                     val entityId = proj.entity.entity.entityId.value
                     val isSelected = entityId == selectedEntityId
@@ -993,44 +950,30 @@ private fun GraphCanvasSurface(
                             eInkPolicy.isActive -> if (isDimmed) 0.4f else 1.0f
                             isSelected || isNeighbor -> 1.0f
                             isDimmed -> 0.22f
-                            is3DActive -> (0.62f + proj.depthNorm * 0.38f).coerceIn(0.58f, 1.0f)
                             else -> 0.96f
                         }
 
                     val radiusPx =
                         (
                             proj.layout.baseRadiusDp.dp
-                                .toPx() * proj.perspectiveScale
-                        ).coerceIn(15.dp.toPx(), 42.dp.toPx())
+                                .toPx() * proj.scale
+                        ).coerceIn(16.dp.toPx(), 42.dp.toPx())
                     val center = Offset(proj.screenX, proj.screenY)
 
-                    val (baseNodeColor, typeSymbol) =
+                    val baseNodeColor =
                         when (proj.entity.entity.entityType) {
-                            EntityType.PERSON, EntityType.PERSONA ->
-                                colors.primary to "●"
-                            EntityType.LOCATION ->
-                                colors.corroborated to "■"
-                            EntityType.OBJECT ->
-                                colors.claimed to "◆"
-                            EntityType.ORGANIZATION ->
-                                colors.inferred to "⬭"
+                            EntityType.PERSON, EntityType.PERSONA -> colors.primary
+                            EntityType.LOCATION -> colors.corroborated
+                            EntityType.OBJECT -> colors.claimed
+                            EntityType.ORGANIZATION -> colors.inferred
                         }
 
-                    // Outer selection / hub glow ring
+                    // Outer selection / hub ring
                     if (isSelected) {
                         if (!eInkPolicy.isActive) {
                             drawCircle(
-                                brush =
-                                    Brush.radialGradient(
-                                        colors =
-                                            listOf(
-                                                baseNodeColor.copy(alpha = 0.42f),
-                                                baseNodeColor.copy(alpha = 0.0f),
-                                            ),
-                                        center = center,
-                                        radius = radiusPx * 2.1f,
-                                    ),
-                                radius = radiusPx * 2.1f,
+                                color = baseNodeColor.copy(alpha = 0.20f),
+                                radius = radiusPx + 8.dp.toPx(),
                                 center = center,
                             )
                         }
@@ -1045,14 +988,14 @@ private fun GraphCanvasSurface(
                         )
                     } else if (proj.layout.degree >= 4 && !isDimmed && !eInkPolicy.isActive) {
                         drawCircle(
-                            color = baseNodeColor.copy(alpha = 0.22f * nodeAlpha),
+                            color = baseNodeColor.copy(alpha = 0.24f * nodeAlpha),
                             radius = radiusPx + 4.dp.toPx(),
                             center = center,
                             style = Stroke(width = 1.2.dp.toPx()),
                         )
                     }
 
-                    // Node body: 3D shaded sphere in Standard mode, geometric shape in E-Ink mode
+                    // 2D Node Body: flat semantic circle in Standard mode, geometric shape in E-Ink mode
                     if (eInkPolicy.isActive) {
                         drawEInkGeometricNode(
                             entityType = proj.entity.entity.entityType,
@@ -1063,82 +1006,40 @@ private fun GraphCanvasSurface(
                             strokeWidthPx = if (isSelected) 3.dp.toPx() else 2.dp.toPx(),
                         )
                     } else {
-                        val highlightColor =
-                            Color(
-                                red = (baseNodeColor.red + 0.38f).coerceAtMost(1f),
-                                green = (baseNodeColor.green + 0.38f).coerceAtMost(1f),
-                                blue = (baseNodeColor.blue + 0.38f).coerceAtMost(1f),
-                                alpha = nodeAlpha,
-                            )
-                        val shadowColor =
-                            Color(
-                                red = (baseNodeColor.red * 0.58f).coerceIn(0f, 1f),
-                                green = (baseNodeColor.green * 0.58f).coerceIn(0f, 1f),
-                                blue = (baseNodeColor.blue * 0.58f).coerceIn(0f, 1f),
-                                alpha = nodeAlpha,
-                            )
                         drawCircle(
-                            brush =
-                                Brush.radialGradient(
-                                    colors =
-                                        listOf(
-                                            highlightColor,
-                                            baseNodeColor.copy(alpha = nodeAlpha),
-                                            shadowColor,
-                                        ),
-                                    center =
-                                        Offset(
-                                            center.x - radiusPx * 0.32f,
-                                            center.y - radiusPx * 0.32f,
-                                        ),
-                                    radius = radiusPx * 1.35f,
-                                ),
+                            color = baseNodeColor.copy(alpha = nodeAlpha),
                             radius = radiusPx,
                             center = center,
                         )
                         drawCircle(
-                            color = colors.surface.copy(alpha = 0.85f * nodeAlpha),
+                            color = colors.surface.copy(alpha = 0.90f * nodeAlpha),
                             radius = radiusPx,
                             center = center,
-                            style = Stroke(width = 1.5.dp.toPx()),
+                            style = Stroke(width = 1.8.dp.toPx()),
                         )
                     }
 
-                    // Inner icon / glyph inside node sphere
+                    // Crisp SVG vector icon inside node
+                    val iconColor =
+                        if (eInkPolicy.isActive) {
+                            colors.onSurface.copy(alpha = nodeAlpha)
+                        } else {
+                            colors.onPrimary.copy(alpha = nodeAlpha)
+                        }
+                    with(MixuIcons) {
+                        drawEntityVectorIcon(
+                            entityType = proj.entity.entity.entityType,
+                            center = center,
+                            iconRadiusPx = radiusPx * 0.56f,
+                            color = iconColor,
+                            strokeWidthPx = 1.8.dp.toPx(),
+                        )
+                    }
+
+                    // Floating entity name pill underneath node
                     val displayName =
                         proj.entity.canonicalName?.displayText
                             ?: proj.entity.entity.entityId.value
-                    val centerGlyph =
-                        if (eInkPolicy.isActive) {
-                            typeSymbol
-                        } else {
-                            displayName.take(1)
-                        }
-                    val glyphLayout =
-                        textMeasurer.measure(
-                            text = AnnotatedString(centerGlyph),
-                            style =
-                                nodeBadgeStyle.copy(
-                                    fontSize =
-                                        if (proj.perspectiveScale > 1.05f) 12.sp else 11.sp,
-                                    color =
-                                        if (eInkPolicy.isActive) {
-                                            colors.onSurface.copy(alpha = nodeAlpha)
-                                        } else {
-                                            colors.onPrimary.copy(alpha = nodeAlpha)
-                                        },
-                                ),
-                        )
-                    drawText(
-                        textLayoutResult = glyphLayout,
-                        topLeft =
-                            Offset(
-                                center.x - glyphLayout.size.width / 2f,
-                                center.y - glyphLayout.size.height / 2f,
-                            ),
-                    )
-
-                    // Floating entity name pill underneath node
                     val truncatedName =
                         if (displayName.length > 10) {
                             displayName.take(9) + "…"
@@ -1180,7 +1081,7 @@ private fun GraphCanvasSurface(
                                 colors.primaryContainer
                             } else {
                                 colors.surface.copy(
-                                    alpha = if (eInkPolicy.isActive) 1f else 0.90f * nodeAlpha,
+                                    alpha = if (eInkPolicy.isActive) 1f else 0.92f * nodeAlpha,
                                 )
                             },
                         topLeft = pillTopLeft,
@@ -1221,8 +1122,6 @@ private fun GraphCanvasSurface(
             onModeChange = { newMode -> graphMode = newMode },
             onToggleLabels = { showEdgeLabels = !showEdgeLabels },
             onResetView = {
-                orbitYawRad = ForceDirectedGraphEngine.DEFAULT_YAW_RAD
-                orbitPitchRad = ForceDirectedGraphEngine.DEFAULT_PITCH_RAD
                 interactivePanX = 0f
                 interactivePanY = 0f
                 interactiveZoom = 1.0f
@@ -1234,21 +1133,12 @@ private fun GraphCanvasSurface(
                     .padding(10.dp),
         )
 
-        // Top-Right Discrete Stepped Pan & Zoom Controls (E-Ink compliant)
+        // Discrete Stepped Pan & Zoom Controls (E-Ink compliant)
         DiscreteViewportControls(
             zoomLevel = effectiveZoom,
             onStepZoom = onStepZoom,
-            onStepPan = { dx, dy ->
-                if (is3DActive && !eInkPolicy.isActive) {
-                    orbitYawRad += (dx / 60f) * 0.28f
-                    orbitPitchRad = (orbitPitchRad + (dy / 60f) * 0.22f).coerceIn(-1.1f, 1.1f)
-                } else {
-                    onStepPan(dx, dy)
-                }
-            },
+            onStepPan = onStepPan,
             onReset = {
-                orbitYawRad = ForceDirectedGraphEngine.DEFAULT_YAW_RAD
-                orbitPitchRad = ForceDirectedGraphEngine.DEFAULT_PITCH_RAD
                 interactivePanX = 0f
                 interactivePanY = 0f
                 interactiveZoom = 1.0f
@@ -1263,7 +1153,6 @@ private fun GraphCanvasSurface(
 }
 
 private fun DrawScope.drawGraphBackdrop(
-    is3D: Boolean,
     centerX: Float,
     centerY: Float,
     minDim: Float,
@@ -1272,7 +1161,7 @@ private fun DrawScope.drawGraphBackdrop(
     primaryColor: Color,
 ) {
     val center = Offset(centerX, centerY)
-    val baseRadius = (minDim * 0.36f * zoom).coerceIn(110f, minDim * 0.65f)
+    val baseRadius = (minDim * 0.38f * zoom).coerceIn(110f, minDim * 0.65f)
 
     // Subtle radial ambient glow
     drawCircle(
@@ -1280,7 +1169,7 @@ private fun DrawScope.drawGraphBackdrop(
             Brush.radialGradient(
                 colors =
                     listOf(
-                        primaryColor.copy(alpha = 0.06f),
+                        primaryColor.copy(alpha = 0.05f),
                         Color.Transparent,
                     ),
                 center = center,
@@ -1289,26 +1178,16 @@ private fun DrawScope.drawGraphBackdrop(
         radius = baseRadius * 1.45f,
         center = center,
     )
-
-    if (is3D) {
-        // Concentric orbital rings for 3D spatial depth perception
-        drawCircle(
-            color = outlineColor.copy(alpha = 0.28f),
-            radius = baseRadius,
-            center = center,
-            style =
-                Stroke(
-                    width = 1.dp.toPx(),
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 10f), 0f),
-                ),
-        )
-        drawCircle(
-            color = outlineColor.copy(alpha = 0.18f),
-            radius = baseRadius * 0.62f,
-            center = center,
-            style = Stroke(width = 1.dp.toPx()),
-        )
-    }
+    drawCircle(
+        color = outlineColor.copy(alpha = 0.16f),
+        radius = baseRadius,
+        center = center,
+        style =
+            Stroke(
+                width = 1.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 10f), 0f),
+            ),
+    )
 }
 
 private fun DrawScope.drawEInkGeometricNode(
@@ -1403,22 +1282,17 @@ private fun GraphModeToolbar(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (!eInkPolicy.isActive) {
-                    GraphPillButton(
-                        label = stringResource(R.string.caseboard_graph_mode_3d),
-                        selected = graphMode == GraphDimensionMode.PERSPECTIVE_3D,
-                        onClick = { onModeChange(GraphDimensionMode.PERSPECTIVE_3D) },
-                    )
-                }
                 GraphPillButton(
                     label = stringResource(R.string.caseboard_graph_mode_2d),
                     selected = graphMode == GraphDimensionMode.FORCE_2D,
                     onClick = { onModeChange(GraphDimensionMode.FORCE_2D) },
+                    icon = MixuIcons.ForceGraph,
                 )
                 GraphPillButton(
                     label = stringResource(R.string.caseboard_graph_mode_hierarchical),
                     selected = graphMode == GraphDimensionMode.HIERARCHICAL,
                     onClick = { onModeChange(GraphDimensionMode.HIERARCHICAL) },
+                    icon = MixuIcons.HierarchicalGraph,
                 )
             }
 
@@ -1461,11 +1335,13 @@ private fun GraphPillButton(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
 ) {
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
     val shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp)
     val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
+    val contentColor = if (selected) colors.onPrimaryContainer else colors.onSurface
 
     Surface(
         modifier =
@@ -1480,15 +1356,24 @@ private fun GraphPillButton(
                 if (selected) colors.primary else colors.outlineVariant,
             ),
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier.padding(horizontal = 8.dp),
         ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.width(14.dp).height(14.dp),
+                )
+            }
             Text(
                 text = label,
                 style = MixuTheme.typography.caption,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                color = if (selected) colors.onPrimaryContainer else colors.onSurface,
+                color = contentColor,
                 maxLines = 1,
             )
         }

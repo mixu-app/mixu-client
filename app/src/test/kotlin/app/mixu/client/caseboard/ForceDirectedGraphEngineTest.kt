@@ -3,7 +3,7 @@ package app.mixu.client.caseboard
 
 import app.mixu.client.config.GraphDimensionMode
 import app.mixu.graph.TemporalProjectionEngine
-import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -11,55 +11,38 @@ import kotlin.test.assertTrue
 
 class ForceDirectedGraphEngineTest {
     @Test
-    fun `computeLayout produces deterministic 3D, 2D, and Hierarchical coordinates`() {
+    fun `computeLayout produces deterministic 2D Force and Hierarchical coordinates`() {
         val pack = SyntheticMysteryData.createMysteryGraphPack()
         val projection = TemporalProjectionEngine(pack).project(4)
 
-        val layout3dFirst =
+        val layoutFirst =
             ForceDirectedGraphEngine.computeLayout(
                 editionId = pack.manifest.editionId.value,
                 entities = projection.entities,
                 assertions = projection.assertions,
-                is3D = true,
-                mode = GraphDimensionMode.PERSPECTIVE_3D,
-            )
-        val layout3dSecond =
-            ForceDirectedGraphEngine.computeLayout(
-                editionId = pack.manifest.editionId.value,
-                entities = projection.entities,
-                assertions = projection.assertions,
-                is3D = true,
-                mode = GraphDimensionMode.PERSPECTIVE_3D,
-            )
-
-        assertEquals(projection.entities.size, layout3dFirst.nodes.size)
-        assertEquals(layout3dFirst.nodes, layout3dSecond.nodes)
-        assertTrue(layout3dFirst.edges.isNotEmpty())
-
-        // Verify 3D layout utilizes the Z axis while 2D layout keeps Z == 0f
-        assertTrue(layout3dFirst.nodes.values.any { abs(it.z) > 1.0f })
-
-        val layout2d =
-            ForceDirectedGraphEngine.computeLayout(
-                editionId = pack.manifest.editionId.value,
-                entities = projection.entities,
-                assertions = projection.assertions,
-                is3D = false,
                 mode = GraphDimensionMode.FORCE_2D,
             )
-        assertTrue(layout2d.nodes.values.all { it.z == 0f })
+        val layoutSecond =
+            ForceDirectedGraphEngine.computeLayout(
+                editionId = pack.manifest.editionId.value,
+                entities = projection.entities,
+                assertions = projection.assertions,
+                mode = GraphDimensionMode.FORCE_2D,
+            )
 
-        // Verify Hierarchical layout assigns distinct vertical layers and keeps Z == 0f
+        assertEquals(projection.entities.size, layoutFirst.nodes.size)
+        assertEquals(layoutFirst.nodes, layoutSecond.nodes)
+        assertTrue(layoutFirst.edges.isNotEmpty())
+
+        // Verify Hierarchical layout assigns distinct vertical layers
         val layoutHierarchical =
             ForceDirectedGraphEngine.computeLayout(
                 editionId = pack.manifest.editionId.value,
                 entities = projection.entities,
                 assertions = projection.assertions,
-                is3D = false,
                 mode = GraphDimensionMode.HIERARCHICAL,
             )
         assertEquals(projection.entities.size, layoutHierarchical.nodes.size)
-        assertTrue(layoutHierarchical.nodes.values.all { it.z == 0f })
         assertTrue(
             layoutHierarchical.nodes.values
                 .map { it.y }
@@ -67,74 +50,87 @@ class ForceDirectedGraphEngineTest {
                 .size >= 2,
         )
 
-        // Verify E-Ink mode snaps coordinates to 8px grid and enforces 2D planar Z == 0f
+        // Verify E-Ink mode snaps coordinates to 8px grid and enforces wider inter-node separation
         val layoutEInk =
             ForceDirectedGraphEngine.computeLayout(
                 editionId = pack.manifest.editionId.value,
                 entities = projection.entities,
                 assertions = projection.assertions,
-                is3D = true,
                 isEInk = true,
-                mode = GraphDimensionMode.PERSPECTIVE_3D,
+                mode = GraphDimensionMode.FORCE_2D,
             )
-        assertTrue(layoutEInk.nodes.values.all { it.z == 0f })
         assertTrue(layoutEInk.nodes.values.all { it.x % 8f == 0f && it.y % 8f == 0f })
+
+        val standardNodes = layoutFirst.nodes.values.toList()
+        val einkNodes = layoutEInk.nodes.values.toList()
+        var minStandardDist = Float.MAX_VALUE
+        var minEInkDist = Float.MAX_VALUE
+        for (i in standardNodes.indices) {
+            for (j in i + 1 until standardNodes.size) {
+                val dStd =
+                    hypot(
+                        standardNodes[i].x - standardNodes[j].x,
+                        standardNodes[i].y - standardNodes[j].y,
+                    )
+                val dEInk =
+                    hypot(
+                        einkNodes[i].x - einkNodes[j].x,
+                        einkNodes[i].y - einkNodes[j].y,
+                    )
+                if (dStd < minStandardDist) minStandardDist = dStd
+                if (dEInk < minEInkDist) minEInkDist = dEInk
+            }
+        }
+        assertTrue(
+            minEInkDist > minStandardDist,
+            "Expected E-Ink minimum node separation ($minEInkDist) > standard ($minStandardDist)",
+        )
     }
 
     @Test
-    fun `projectNodes applies 3D orbit rotation and sorts back-to-front by depthZ`() {
+    fun `projectNodes maps 2D coordinates to viewport and applies pan, zoom, and drag offsets`() {
         val pack = SyntheticMysteryData.createMysteryGraphPack()
         val projection = TemporalProjectionEngine(pack).project(4)
-        val layout3d =
+        val layout2d =
             ForceDirectedGraphEngine.computeLayout(
                 editionId = pack.manifest.editionId.value,
                 entities = projection.entities,
                 assertions = projection.assertions,
-                is3D = true,
-                mode = GraphDimensionMode.PERSPECTIVE_3D,
+                mode = GraphDimensionMode.FORCE_2D,
             )
 
-        val projectedAtDefaultOrbit =
+        val projectedDefault =
             ForceDirectedGraphEngine.projectNodes(
                 entities = projection.entities,
-                layoutResult = layout3d,
+                layoutResult = layout2d,
                 viewportWidthPx = 1200f,
                 viewportHeightPx = 900f,
                 zoom = 1.0f,
                 panX = 0f,
                 panY = 0f,
-                orbitYawRad = ForceDirectedGraphEngine.DEFAULT_YAW_RAD,
-                orbitPitchRad = ForceDirectedGraphEngine.DEFAULT_PITCH_RAD,
-                is3D = true,
             )
 
-        assertEquals(projection.entities.size, projectedAtDefaultOrbit.size)
+        assertEquals(projection.entities.size, projectedDefault.size)
 
-        // Verify back-to-front depth sorting (Painter's algorithm)
-        for (i in 0 until projectedAtDefaultOrbit.lastIndex) {
-            assertTrue(
-                projectedAtDefaultOrbit[i].depthZ <= projectedAtDefaultOrbit[i + 1].depthZ,
-                "Expected depthZ ascending order at index $i",
-            )
-        }
-
-        // Orbiting camera yaw changes projected 2D screen positions
-        val projectedRotated =
+        // Panning or dragging a node shifts projected 2D screen positions
+        val firstEntityId =
+            projection.entities
+                .first()
+                .entity.entityId.value
+        val projectedWithDrag =
             ForceDirectedGraphEngine.projectNodes(
                 entities = projection.entities,
-                layoutResult = layout3d,
+                layoutResult = layout2d,
                 viewportWidthPx = 1200f,
                 viewportHeightPx = 900f,
                 zoom = 1.0f,
-                panX = 0f,
-                panY = 0f,
-                orbitYawRad = ForceDirectedGraphEngine.DEFAULT_YAW_RAD + 0.85f,
-                orbitPitchRad = ForceDirectedGraphEngine.DEFAULT_PITCH_RAD + 0.25f,
-                is3D = true,
+                panX = 40f,
+                panY = -25f,
+                nodeOffsets = mapOf(firstEntityId to (60f to 45f)),
             )
         assertNotEquals(
-            projectedAtDefaultOrbit.map { it.screenX to it.screenY },
-            projectedRotated.map { it.screenX to it.screenY },
+            projectedDefault.map { it.screenX to it.screenY },
+            projectedWithDrag.map { it.screenX to it.screenY },
         )
     }
 }

@@ -45,10 +45,9 @@ enum class ReadingLayoutMode {
 }
 
 /**
- * Knowledge graph visualization projection mode in the Case Board.
+ * 2D knowledge graph layout mode in the Case Board.
  */
 enum class GraphDimensionMode {
-    PERSPECTIVE_3D,
     FORCE_2D,
     HIERARCHICAL,
 }
@@ -78,7 +77,7 @@ data class ReaderDisplayConfig(
     val justifyText: Boolean = true,
     val maxReadingWidthDp: Int = 780,
     val immersiveReaderMode: Boolean = true,
-    val graphDimensionMode: GraphDimensionMode = GraphDimensionMode.PERSPECTIVE_3D,
+    val graphDimensionMode: GraphDimensionMode = GraphDimensionMode.FORCE_2D,
 ) {
     init {
         require(fontSizeSp in 10f..48f) { "fontSizeSp must be in 10..48 sp, got $fontSizeSp" }

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<resources>
+    <!-- App Identity -->
+    <string name="app_name">谜序</string>
+    <string name="app_tagline">面向叙事文本的知识工程系统</string>
+
+    <!-- Navigation -->
+    <string name="nav_library">书架</string>
+    <string name="nav_reader">阅读</string>
+    <string name="nav_case_board">案情图板</string>
+    <string name="nav_settings">设置</string>
+
+    <!-- Theme Settings -->
+    <string name="theme_label">主题视觉</string>
+    <string name="theme_light">明亮 (白昼)</string>
+    <string name="theme_dark">深色 (夜间)</string>
+    <string name="theme_sepia">羊皮纸 (护眼)</string>
+    <string name="theme_eink">墨水屏 (黑白高对比)</string>
+
+    <!-- E-Ink Display Policy -->
+    <string name="eink_mode_label">墨水屏显示策略</string>
+    <string name="eink_mode_auto">自动检测</string>
+    <string name="eink_mode_off">标准屏幕 (LCD/OLED)</string>
+    <string name="eink_mode_force_on">强制开启墨水屏模式</string>
+    <string name="eink_refresh_interval_label">全屏刷新频率</string>
+    <string name="eink_refresh_interval_pages">每 %1$d 页全刷</string>
+    <string name="eink_refresh_manual_only">仅手动全刷</string>
+    <string name="eink_animation_suppression">停用平滑过渡动画</string>
+    <string name="eink_animation_suppression_desc">采用离散步进切换，消除墨水屏残影与频闪</string>
+    <string name="eink_manual_refresh_action">立即全屏刷新</string>
+    <string name="eink_active_badge">墨水屏模式已激活</string>
+    <string name="eink_standard_badge">标准色彩显示</string>
+
+    <!-- Reader Typography & Layout -->
+    <string name="typography_heading">排版与视口布局</string>
+    <string name="font_size_label">基础字号</string>
+    <string name="font_scale_label">字体缩放倍率</string>
+    <string name="line_height_label">行间距</string>
+    <string name="margin_label">阅读页边距</string>
+    <string name="margin_compact">紧凑 (12 dp)</string>
+    <string name="margin_normal">适中 (20 dp)</string>
+    <string name="margin_wide">宽松 (32 dp)</string>
+    <string name="font_family_label">字体选择</string>
+    <string name="font_family_serif">宋体 / 明朝体</string>
+    <string name="font_family_sans">黑体 / 无衬线</string>
+    <string name="font_family_mono">等宽字体</string>
+
+    <!-- Epistemic Status (Knowledge Engineering) -->
+    <string name="epistemic_heading">认知状态标识</string>
+    <string name="epistemic_observed">确证观察</string>
+    <string name="epistemic_observed_desc">原文明确记录的客观事实证据</string>
+    <string name="epistemic_corroborated">多方确证</string>
+    <string name="epistemic_corroborated_desc">经多条独立证据或后续调查相互印证</string>
+    <string name="epistemic_claimed">证词陈述</string>
+    <string name="epistemic_claimed_desc">特定角色单方主观陈述，尚未经过核查</string>
+    <string name="epistemic_inferred">逻辑推论</string>
+    <string name="epistemic_inferred_desc">由现有确证线索按照因果逻辑推导出的结论</string>
+    <string name="epistemic_contradicted">矛盾冲突</string>
+    <string name="epistemic_contradicted_desc">证词冲突、不在场证明矛盾或时序异常</string>
+    <string name="epistemic_retracted">撤回供述</string>
+    <string name="epistemic_retracted_desc">原先的主观陈述已被推翻或当事人承认作伪证</string>
+    <string name="epistemic_unresolved">未决假设</string>
+    <string name="epistemic_unresolved_desc">调查过程中提出的假设性解释，尚无定论</string>
+
+    <!-- General Actions -->
+    <string name="action_save">保存偏好设置</string>
+    <string name="action_reset">恢复默认配置</string>
+    <string name="empty_library">书架中暂无推理小说，请导入 EPUB 书籍。</string>
+    <string name="sample_preview_title">正文排版效果预览</string>
+    <string name="sample_preview_body">晚上八点，管家发现书房的门从里面反锁着。十分钟后，侦探赶到现场，确认主人已经死亡。女仆声称自己当时一直待在厨房。</string>
+</resources>

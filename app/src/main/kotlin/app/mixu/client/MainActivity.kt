@@ -3,19 +3,56 @@ package app.mixu.client
 
 import android.app.Activity
 import android.os.Bundle
-import android.view.Gravity
-import android.widget.TextView
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
+import app.mixu.client.config.ReaderDisplayConfig
+import app.mixu.client.eink.EInkDetector
+import app.mixu.client.theme.MixuTheme
+import app.mixu.client.theme.createMixuTypography
+import app.mixu.client.ui.SettingsPreviewScreen
 
 class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val textView =
-            TextView(this).apply {
-                text = getString(R.string.app_name)
-                gravity = Gravity.CENTER
-                textSize = 24f
-                setTextColor(getColor(R.color.brand_primary))
+        val composeView =
+            ComposeView(this).apply {
+                setContent {
+                    var config by remember { mutableStateOf(ReaderDisplayConfig.DEFAULT) }
+                    val einkPolicy =
+                        remember(config.eInkMode, config.eInkFullRefreshInterval) {
+                            EInkDetector.resolvePolicy(
+                                userMode = config.eInkMode,
+                                fullRefreshInterval = config.eInkFullRefreshInterval,
+                            )
+                        }
+                    val typography =
+                        remember(
+                            config.fontFamilyChoice,
+                            config.fontScaleMultiplier,
+                            config.lineHeightMultiplier,
+                        ) {
+                            createMixuTypography(
+                                fontFamily = config.fontFamilyChoice.toComposeFontFamily(),
+                                scaleMultiplier = config.fontScaleMultiplier,
+                                lineHeightMultiplier = config.lineHeightMultiplier,
+                            )
+                        }
+
+                    MixuTheme(
+                        themeMode = config.themeMode,
+                        eInkPolicy = einkPolicy,
+                        typography = typography,
+                    ) {
+                        SettingsPreviewScreen(
+                            config = config,
+                            onConfigChange = { updated -> config = updated },
+                        )
+                    }
+                }
             }
-        setContentView(textView)
+        setContentView(composeView)
     }
 }

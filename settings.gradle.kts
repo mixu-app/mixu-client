@@ -22,3 +22,7 @@ dependencyResolutionManagement {
 }
 
 include(":app")
+
+includeBuild("libs/mixu-graph")
+includeBuild("libs/mixu-spoiler")
+includeBuild("libs/mixu-renderer")

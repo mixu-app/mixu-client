@@ -24,3 +24,11 @@ android {
         }
     }
 }
+
+dependencies {
+    implementation("app.mixu:mixu-graph")
+    implementation("app.mixu:mixu-spoiler")
+    implementation("app.mixu:mixu-renderer")
+
+    testImplementation(kotlin("test"))
+}

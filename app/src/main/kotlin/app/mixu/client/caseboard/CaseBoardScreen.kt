@@ -111,9 +111,10 @@ fun CaseBoardScreen(
     controller: CaseBoardController = remember { CaseBoardController() },
     onNavigateBack: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    onJumpToOrdinal: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    var state by remember { mutableStateOf(controller.state) }
+    var state by remember(controller) { mutableStateOf(controller.state) }
 
     CaseBoardScreen(
         uiState = state,
@@ -155,6 +156,7 @@ fun CaseBoardScreen(
         },
         onNavigateBack = onNavigateBack,
         onNavigateToSettings = onNavigateToSettings,
+        onJumpToOrdinal = onJumpToOrdinal,
         modifier = modifier,
     )
 }
@@ -177,10 +179,20 @@ fun CaseBoardScreen(
     onOpenAddHypothesisDialog: (Boolean) -> Unit,
     onNavigateBack: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    onJumpToOrdinal: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val eInkPolicy = MixuTheme.einkPolicy
     val colors = MixuTheme.colors
+    val entityDisplayNames =
+        remember(uiState.revealedGraphView) {
+            uiState.revealedGraphView
+                ?.entities
+                ?.associate {
+                    it.entity.entityId.value to
+                        (it.canonicalName?.displayText ?: it.entity.entityId.value)
+                }.orEmpty()
+        }
 
     Scaffold(
         topBar = {
@@ -315,7 +327,9 @@ fun CaseBoardScreen(
                         EntityDossierInspectionSheet(
                             entity = uiState.selectedEntity,
                             claims = uiState.selectedEntityAssertions,
+                            entityDisplayNames = entityDisplayNames,
                             onClose = { onSelectEntity(null) },
+                            onJumpToOrdinal = onJumpToOrdinal,
                             modifier =
                                 Modifier
                                     .align(Alignment.BottomCenter)
@@ -327,6 +341,8 @@ fun CaseBoardScreen(
                 CaseBoardTab.CLAIMS -> {
                     ActiveClaimsList(
                         assertions = uiState.revealedGraphView?.assertions ?: emptyList(),
+                        entityDisplayNames = entityDisplayNames,
+                        onJumpToOrdinal = onJumpToOrdinal,
                         modifier = Modifier.fillMaxSize().padding(16.dp),
                     )
                 }
@@ -818,7 +834,9 @@ private fun DiscreteViewportControls(
 private fun EntityDossierInspectionSheet(
     entity: RevealedEntity,
     claims: List<RevealedAssertion>,
+    entityDisplayNames: Map<String, String>,
     onClose: () -> Unit,
+    onJumpToOrdinal: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
@@ -864,14 +882,21 @@ private fun EntityDossierInspectionSheet(
 
             Spacer(modifier = Modifier.height(6.dp))
 
+            val firstRevealMod =
+                if (onJumpToOrdinal != null) {
+                    Modifier.clickable { onJumpToOrdinal(entity.entity.firstReveal) }
+                } else {
+                    Modifier
+                }
             Text(
                 text =
                     stringResource(
                         R.string.caseboard_entity_first_reveal,
-                        entity.entity.firstReveal,
+                        entity.entity.firstReveal + 1,
                     ),
                 style = MixuTheme.typography.caption,
-                color = colors.onSurfaceVariant,
+                color = if (onJumpToOrdinal != null) colors.primary else colors.onSurfaceVariant,
+                modifier = firstRevealMod,
             )
 
             // Revealed aliases
@@ -907,7 +932,11 @@ private fun EntityDossierInspectionSheet(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
                     items(claims) { assertion ->
-                        AssertionItemRow(assertion = assertion)
+                        AssertionItemRow(
+                            assertion = assertion,
+                            entityDisplayNames = entityDisplayNames,
+                            onJumpToOrdinal = onJumpToOrdinal,
+                        )
                     }
                 }
             }
@@ -919,27 +948,42 @@ private fun EntityDossierInspectionSheet(
  * Single claim row displaying subject, predicate, object, epistemic status badge, and evidence anchor.
  */
 @Composable
-private fun AssertionItemRow(assertion: RevealedAssertion) {
+private fun AssertionItemRow(
+    assertion: RevealedAssertion,
+    entityDisplayNames: Map<String, String> = emptyMap(),
+    onJumpToOrdinal: ((Int) -> Unit)? = null,
+) {
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
     val epistemicStyle = eInkPolicy.getEpistemicStroke(assertion.currentStatus)
 
     val objectDesc =
         when (val obj = assertion.assertion.objectRef) {
-            is ObjectRef.Entity -> obj.entityId.value
+            is ObjectRef.Entity ->
+                entityDisplayNames[obj.entityId.value] ?: obj.entityId.value
             is ObjectRef.Literal -> "${obj.value} ${obj.unit ?: ""}".trim()
         }
 
-    Row(
-        modifier =
+    val rowMod =
+        if (onJumpToOrdinal != null) {
             Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
+                .clickable { onJumpToOrdinal(assertion.assertion.firstReveal) }
+                .padding(vertical = 4.dp)
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+        }
+
+    Row(
+        modifier = rowMod,
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            val sub = assertion.assertion.subjectId.value
+            val rawSub = assertion.assertion.subjectId.value
+            val sub = entityDisplayNames[rawSub] ?: rawSub
             val pred = assertion.assertion.predicate
             Text(
                 text = "$sub → $pred → $objectDesc",
@@ -953,7 +997,7 @@ private fun AssertionItemRow(assertion: RevealedAssertion) {
                         assertion.assertion.evidenceAnchorId.value,
                     ),
                 style = MixuTheme.typography.caption.copy(fontFamily = FontFamily.Monospace),
-                color = colors.onSurfaceVariant,
+                color = if (onJumpToOrdinal != null) colors.primary else colors.onSurfaceVariant,
             )
         }
 
@@ -979,6 +1023,8 @@ private fun AssertionItemRow(assertion: RevealedAssertion) {
 @Composable
 private fun ActiveClaimsList(
     assertions: List<RevealedAssertion>,
+    entityDisplayNames: Map<String, String> = emptyMap(),
+    onJumpToOrdinal: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
@@ -1004,7 +1050,11 @@ private fun ActiveClaimsList(
                     colors = CardDefaults.cardColors(containerColor = colors.surface),
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        AssertionItemRow(assertion = assertion)
+                        AssertionItemRow(
+                            assertion = assertion,
+                            entityDisplayNames = entityDisplayNames,
+                            onJumpToOrdinal = onJumpToOrdinal,
+                        )
                         val transitionReason = assertion.activeTransition?.reason
                         if (transitionReason != null) {
                             Spacer(modifier = Modifier.height(4.dp))

@@ -1,5 +1,72 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: MPL-2.0 -->
 <resources>
+    <!-- App Identity -->
     <string name="app_name">Mixu</string>
+    <string name="app_tagline">Narrative Knowledge Engineering System</string>
+
+    <!-- Navigation -->
+    <string name="nav_library">Library</string>
+    <string name="nav_reader">Reader</string>
+    <string name="nav_case_board">Case Board</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Theme Settings -->
+    <string name="theme_label">Theme</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_sepia">Paper / Sepia</string>
+    <string name="theme_eink">E-Ink (Monochrome)</string>
+
+    <!-- E-Ink Display Policy -->
+    <string name="eink_mode_label">E-Ink Display Policy</string>
+    <string name="eink_mode_auto">Auto Detect</string>
+    <string name="eink_mode_off">Standard (LCD/OLED)</string>
+    <string name="eink_mode_force_on">Force E-Ink Mode</string>
+    <string name="eink_refresh_interval_label">Full Refresh Interval</string>
+    <string name="eink_refresh_interval_pages">Every %1$d pages</string>
+    <string name="eink_refresh_manual_only">Manual only</string>
+    <string name="eink_animation_suppression">Animation Suppression</string>
+    <string name="eink_animation_suppression_desc">Snap views discretely to prevent electronic paper ghosting</string>
+    <string name="eink_manual_refresh_action">Trigger Full Refresh</string>
+    <string name="eink_active_badge">E-INK ACTIVE</string>
+    <string name="eink_standard_badge">STANDARD DISPLAY</string>
+
+    <!-- Reader Typography & Layout -->
+    <string name="typography_heading">Typography and Viewport</string>
+    <string name="font_size_label">Font Size</string>
+    <string name="font_scale_label">Scale Multiplier</string>
+    <string name="line_height_label">Line Spacing</string>
+    <string name="margin_label">Page Margins</string>
+    <string name="margin_compact">Compact (12 dp)</string>
+    <string name="margin_normal">Normal (20 dp)</string>
+    <string name="margin_wide">Wide (32 dp)</string>
+    <string name="font_family_label">Font Family</string>
+    <string name="font_family_serif">Serif</string>
+    <string name="font_family_sans">Sans-Serif</string>
+    <string name="font_family_mono">Monospace</string>
+
+    <!-- Epistemic Status (Knowledge Engineering) -->
+    <string name="epistemic_heading">Epistemic Status Markers</string>
+    <string name="epistemic_observed">Observed Fact</string>
+    <string name="epistemic_observed_desc">Direct textual evidence verified by observation</string>
+    <string name="epistemic_corroborated">Corroborated</string>
+    <string name="epistemic_corroborated_desc">Affirmed and cross-verified by multiple independent sources</string>
+    <string name="epistemic_claimed">Claim / Testimony</string>
+    <string name="epistemic_claimed_desc">Subjective statement made by a character, pending confirmation</string>
+    <string name="epistemic_inferred">Inference</string>
+    <string name="epistemic_inferred_desc">Deductive consequence derived logically from known evidence</string>
+    <string name="epistemic_contradicted">Contradicted</string>
+    <string name="epistemic_contradicted_desc">Directly conflicts with verified facts or conflicting testimony</string>
+    <string name="epistemic_retracted">Retracted</string>
+    <string name="epistemic_retracted_desc">Previously asserted claim admitted false or formally withdrawn</string>
+    <string name="epistemic_unresolved">Unresolved Hypothesis</string>
+    <string name="epistemic_unresolved_desc">Active investigative scenario without conclusive proof</string>
+
+    <!-- General Actions -->
+    <string name="action_save">Save Preferences</string>
+    <string name="action_reset">Reset to Defaults</string>
+    <string name="empty_library">No mystery books imported yet.</string>
+    <string name="sample_preview_title">Reading Surface Preview</string>
+    <string name="sample_preview_body">At eight in the evening, the butler found the study door locked from inside. Ten minutes later, the detective arrived at the scene and confirmed the master was dead. The maid claimed that she had remained in the kitchen the entire time.</string>
 </resources>

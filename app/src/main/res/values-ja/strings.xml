@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<resources>
+    <!-- App Identity -->
+    <string name="app_name">Mixu</string>
+    <string name="app_tagline">物語知識エンジニアリングシステム</string>
+
+    <!-- Navigation -->
+    <string name="nav_library">本棚</string>
+    <string name="nav_reader">読書</string>
+    <string name="nav_case_board">捜査ボード</string>
+    <string name="nav_settings">設定</string>
+
+    <!-- Theme Settings -->
+    <string name="theme_label">テーマ設定</string>
+    <string name="theme_light">ライト (昼間)</string>
+    <string name="theme_dark">ダーク (夜間)</string>
+    <string name="theme_sepia">セピア (紙質)</string>
+    <string name="theme_eink">E-Ink (白黒高コントラスト)</string>
+
+    <!-- E-Ink Display Policy -->
+    <string name="eink_mode_label">E-Ink 表示ポリシー</string>
+    <string name="eink_mode_auto">自動検出</string>
+    <string name="eink_mode_off">標準ディスプレイ (LCD/OLED)</string>
+    <string name="eink_mode_force_on">E-Ink モード強制有効</string>
+    <string name="eink_refresh_interval_label">全画面リフレッシュ間隔</string>
+    <string name="eink_refresh_interval_pages">%1$d ページごと</string>
+    <string name="eink_refresh_manual_only">手動のみ</string>
+    <string name="eink_animation_suppression">アニメーション抑制</string>
+    <string name="eink_animation_suppression_desc">残像・チラつきを防ぐため段階的に画面を切り替えます</string>
+    <string name="eink_manual_refresh_action">今すぐ全画面再描画</string>
+    <string name="eink_active_badge">E-INK 有効</string>
+    <string name="eink_standard_badge">標準カラー表示</string>
+
+    <!-- Reader Typography & Layout -->
+    <string name="typography_heading">文字組版とレイアウト</string>
+    <string name="font_size_label">フォントサイズ</string>
+    <string name="font_scale_label">フォント倍率</string>
+    <string name="line_height_label">行間</string>
+    <string name="margin_label">ページ余白</string>
+    <string name="margin_compact">狭い (12 dp)</string>
+    <string name="margin_normal">標準 (20 dp)</string>
+    <string name="margin_wide">広い (32 dp)</string>
+    <string name="font_family_label">フォント選択</string>
+    <string name="font_family_serif">明朝体 (Serif)</string>
+    <string name="font_family_sans">ゴシック体 (Sans-Serif)</string>
+    <string name="font_family_mono">等幅フォント</string>
+
+    <!-- Epistemic Status (Knowledge Engineering) -->
+    <string name="epistemic_heading">認識状態マーカー</string>
+    <string name="epistemic_observed">確証観察</string>
+    <string name="epistemic_observed_desc">本文で明確に裏付けられた客観的事実の証拠</string>
+    <string name="epistemic_corroborated">相互確証</string>
+    <string name="epistemic_corroborated_desc">複数の独立した証拠によって裏付けられた事実</string>
+    <string name="epistemic_claimed">証言・主張</string>
+    <string name="epistemic_claimed_desc">登場人物の主観的証言・未検証の主張</string>
+    <string name="epistemic_inferred">論理的推論</string>
+    <string name="epistemic_inferred_desc">既知の手がかりから論理的に導き出された帰結</string>
+    <string name="epistemic_contradicted">矛盾・齟齬</string>
+    <string name="epistemic_contradicted_desc">証言の食い違いやアリバイの破綻などの矛盾</string>
+    <string name="epistemic_retracted">供述撤回</string>
+    <string name="epistemic_retracted_desc">虚偽の証言が覆された、または撤回された状態</string>
+    <string name="epistemic_unresolved">未決の仮説</string>
+    <string name="epistemic_unresolved_desc">捜査過程で立てられた推測・未解決の仮説</string>
+
+    <!-- General Actions -->
+    <string name="action_save">設定を保存</string>
+    <string name="action_reset">デフォルトに戻す</string>
+    <string name="empty_library">本棚に書籍がありません。EPUB を追加してください。</string>
+    <string name="sample_preview_title">組版プレビュー</string>
+    <string name="sample_preview_body">夜の八時、執事は書斎の扉が内側から施錠されていることに気づいた。十分後、駆けつけた探偵が主人の死亡を確認した。メイドは自分はずっと台所にいたと主張している。</string>
+</resources>

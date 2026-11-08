@@ -241,21 +241,35 @@ object EpubMetadataParser {
      */
     internal fun parseXmlSafely(xmlContent: String): Document? =
         runCatching {
+            val normalizedXml = xmlContent.trimStart { it == '\uFEFF' || it.isWhitespace() }
+            if (normalizedXml.contains("<!DOCTYPE", ignoreCase = true) ||
+                normalizedXml.contains("<!ENTITY", ignoreCase = true)
+            ) {
+                return null
+            }
             val factory = DocumentBuilderFactory.newInstance()
             factory.isNamespaceAware = true
-            factory.isXIncludeAware = false
-            factory.isExpandEntityReferences = false
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            factory.setFeature(
-                "http://apache.org/xml/features/nonvalidating/load-external-dtd",
-                false,
-            )
+            runCatching { factory.isXIncludeAware = false }
+            runCatching { factory.isExpandEntityReferences = false }
+            runCatching {
+                factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+            }
+            runCatching {
+                factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
+            }
+            runCatching {
+                factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            }
+            runCatching {
+                factory.setFeature(
+                    "http://apache.org/xml/features/nonvalidating/load-external-dtd",
+                    false,
+                )
+            }
             val builder = factory.newDocumentBuilder()
             // Suppress default stderr printing from SAX parser on malformed XML
             builder.setErrorHandler(null)
-            val normalizedXml = xmlContent.trimStart { it == '\uFEFF' || it.isWhitespace() }
+            builder.setEntityResolver { _, _ -> InputSource(StringReader("")) }
             builder.parse(InputSource(StringReader(normalizedXml)))
         }.getOrNull()
 
@@ -263,7 +277,9 @@ object EpubMetadataParser {
         val nodes = containerDoc.getElementsByTagName("*")
         for (i in 0 until nodes.length) {
             val node = nodes.item(i) as? Element ?: continue
-            val localName = node.localName ?: node.tagName.substringAfterLast(':')
+            val localName =
+                node.localName?.takeIf { it.isNotEmpty() }
+                    ?: node.tagName.substringAfterLast(':')
             if (localName.equals("rootfile", ignoreCase = true)) {
                 val fullPath = node.getAttribute("full-path").trim()
                 if (fullPath.isNotEmpty()) {
@@ -291,7 +307,11 @@ object EpubMetadataParser {
         val allElements = opfDoc.getElementsByTagName("*")
         for (i in 0 until allElements.length) {
             val el = allElements.item(i) as? Element ?: continue
-            val local = (el.localName ?: el.tagName.substringAfterLast(':')).lowercase()
+            val local =
+                (
+                    el.localName?.takeIf { it.isNotEmpty() }
+                        ?: el.tagName.substringAfterLast(':')
+                ).lowercase()
             when (local) {
                 "title" -> {
                     val text = el.textContent?.trim().orEmpty()

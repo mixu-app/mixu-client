@@ -25,6 +25,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import app.mixu.client.auth.UserSession
 import app.mixu.client.caseboard.BookGraphPackLoader
 import app.mixu.client.caseboard.CaseBoardController
@@ -57,7 +65,19 @@ enum class MainScreenDestination {
     SETTINGS_PREVIEW,
 }
 
-class MainActivity : Activity() {
+class MainActivity :
+    Activity(),
+    LifecycleOwner,
+    SavedStateRegistryOwner {
+    private val lifecycleRegistry = LifecycleRegistry(this)
+    private val savedStateRegistryController = SavedStateRegistryController.create(this)
+
+    override val lifecycle: Lifecycle
+        get() = lifecycleRegistry
+
+    override val savedStateRegistry: SavedStateRegistry
+        get() = savedStateRegistryController.savedStateRegistry
+
     private lateinit var database: LocalLibraryDatabase
     private lateinit var importService: BookImportService
     private lateinit var packLoader: BookGraphPackLoader
@@ -66,7 +86,12 @@ class MainActivity : Activity() {
     private var onExternalBookImported: ((String?) -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        savedStateRegistryController.performAttach()
+        savedStateRegistryController.performRestore(savedInstanceState)
         super.onCreate(savedInstanceState)
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+        window.decorView.setViewTreeLifecycleOwner(this)
+        window.decorView.setViewTreeSavedStateRegistryOwner(this)
 
         val dbFile = File(filesDir, LocalLibraryDatabase.DATABASE_FILE_NAME)
         database = LocalLibraryDatabase.open(dbFile)
@@ -466,14 +491,35 @@ class MainActivity : Activity() {
         setContentView(composeView)
     }
 
+    override fun onStart() {
+        super.onStart()
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+    }
+
     override fun onResume() {
         super.onResume()
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         if (::packLoader.isInitialized && ::importService.isInitialized) {
             val synced = packLoader.syncImportDirectories(getImportDirectories(), importService)
             if (synced.isNotEmpty()) {
                 onExternalBookImported?.invoke(synced.first())
             }
         }
+    }
+
+    override fun onPause() {
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+        super.onPause()
+    }
+
+    override fun onStop() {
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        super.onStop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        savedStateRegistryController.performSave(outState)
     }
 
     @Deprecated("Deprecated in Android Activity API")
@@ -503,6 +549,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         if (::database.isInitialized) {
             runCatching { database.close() }
         }

@@ -57,7 +57,8 @@ class BookGraphPackLoaderTest {
                     .resolve("test-case.graph.json")
                     .writeText(GraphJson.encodeToString(customPack))
 
-                loader.syncImportDirectories(listOf(importDir), importService)
+                val secondSyncIds = loader.syncImportDirectories(listOf(importDir), importService)
+                assertTrue(secondSyncIds.isEmpty())
                 val loadedPack = loader.loadForBook(asset = asset, publication = pub)
                 assertEquals(9, loadedPack.entities.size)
                 assertEquals(8, loadedPack.assertions.size)

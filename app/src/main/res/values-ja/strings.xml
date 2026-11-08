@@ -69,4 +69,29 @@
     <string name="empty_library">本棚に書籍がありません。EPUB を追加してください。</string>
     <string name="sample_preview_title">組版プレビュー</string>
     <string name="sample_preview_body">夜の八時、執事は書斎の扉が内側から施錠されていることに気づいた。十分後、駆けつけた探偵が主人の死亡を確認した。メイドは自分はずっと台所にいたと主張している。</string>
+
+    <!-- Library Screen -->
+    <string name="library_title">本棚</string>
+    <string name="library_search_hint">書籍名または著者名で検索…</string>
+    <string name="library_empty_title">本棚に書籍がありません</string>
+    <string name="library_empty_description">EPUB 推理小説を取り込んで、タイムライン分析、証言追跡、知識グラフ探索を始めましょう。</string>
+    <string name="library_import_button">本を取り込む</string>
+    <string name="library_view_grid">グリッド表示</string>
+    <string name="library_view_list">リスト表示</string>
+    <string name="library_progress_format">%1$d%%</string>
+    <string name="library_last_read_format">前回: %1$s</string>
+    <string name="library_last_read_never">未読</string>
+    <string name="library_chapters_format">全 %1$d 章</string>
+    <string name="library_search_clear">検索条件をクリア</string>
+    <string name="library_search_no_results_title">書籍が見つかりません</string>
+    <string name="library_search_no_results_desc">「%1$s」に一致する書籍はありません。キーワードを変更してお試しください。</string>
+    <string name="library_sort_label">並び替え</string>
+    <string name="library_sort_last_read">最近読んだ順</string>
+    <string name="library_sort_title">タイトル順</string>
+    <string name="library_sort_progress">進捗順</string>
+    <string name="library_switch_to_settings">設定へ</string>
+    <string name="library_switch_to_library">本棚へ</string>
+    <string name="library_badge_reading">読書中</string>
+    <string name="library_badge_completed">読了</string>
+    <string name="library_badge_new">未読</string>
 </resources>

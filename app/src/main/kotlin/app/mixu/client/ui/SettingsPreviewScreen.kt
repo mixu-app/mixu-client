@@ -61,6 +61,7 @@ fun SettingsPreviewScreen(
     config: ReaderDisplayConfig,
     onConfigChange: (ReaderDisplayConfig) -> Unit,
     modifier: Modifier = Modifier,
+    onNavigateBack: (() -> Unit)? = null,
 ) {
     val colors = MixuTheme.colors
     val typography = MixuTheme.typography
@@ -83,6 +84,35 @@ fun SettingsPreviewScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
+                navigationIcon = {
+                    if (onNavigateBack != null) {
+                        OutlinedButton(
+                            onClick = onNavigateBack,
+                            modifier = Modifier.padding(start = 12.dp),
+                            border =
+                                BorderStroke(
+                                    width = if (einkPolicy.isActive) 2.dp else 1.dp,
+                                    color =
+                                        if (einkPolicy.isActive) {
+                                            colors.outline
+                                        } else {
+                                            colors.outlineVariant
+                                        },
+                                ),
+                            shape =
+                                RoundedCornerShape(
+                                    if (einkPolicy.isActive) 0.dp else 6.dp,
+                                ),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.library_switch_to_library),
+                                style = typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.onSurface,
+                            )
+                        }
+                    }
+                },
                 title = {
                     Column {
                         Text(

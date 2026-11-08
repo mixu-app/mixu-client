@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+<resources>
+    <!-- Library Layout Dimensions -->
+    <dimen name="library_screen_padding">16dp</dimen>
+    <dimen name="library_header_bottom_spacing">12dp</dimen>
+    <dimen name="library_grid_spacing">16dp</dimen>
+    <dimen name="library_grid_min_cell_width">150dp</dimen>
+    <dimen name="library_list_spacing">8dp</dimen>
+    <dimen name="library_card_elevation">0dp</dimen>
+    <dimen name="library_card_border_width">1dp</dimen>
+    <dimen name="library_card_border_width_eink">2.5dp</dimen>
+    <dimen name="library_card_corner_radius">8dp</dimen>
+    <dimen name="library_card_corner_radius_eink">0dp</dimen>
+    <dimen name="library_card_padding">12dp</dimen>
+    <dimen name="library_cover_height_grid">120dp</dimen>
+    <dimen name="library_cover_width_list">56dp</dimen>
+    <dimen name="library_cover_height_list">72dp</dimen>
+    <dimen name="library_cover_corner_radius">4dp</dimen>
+    <dimen name="library_cover_corner_radius_eink">0dp</dimen>
+    <dimen name="library_cover_border_width">1dp</dimen>
+    <dimen name="library_cover_border_width_eink">2dp</dimen>
+    <dimen name="library_progress_bar_height">6dp</dimen>
+    <dimen name="library_progress_bar_height_eink">8dp</dimen>
+    <dimen name="library_progress_segment_spacing">3dp</dimen>
+    <dimen name="library_progress_segment_corner_radius">2dp</dimen>
+    <dimen name="library_progress_segment_corner_radius_eink">0dp</dimen>
+    <dimen name="library_progress_border_width">1dp</dimen>
+    <dimen name="library_empty_icon_size">64dp</dimen>
+    <dimen name="library_empty_spacing">16dp</dimen>
+    <dimen name="library_empty_max_width">400dp</dimen>
+    <dimen name="library_search_bar_height">52dp</dimen>
+    <dimen name="library_badge_padding_horizontal">6dp</dimen>
+    <dimen name="library_badge_padding_vertical">2dp</dimen>
+    <dimen name="library_badge_corner_radius">4dp</dimen>
+    <dimen name="library_badge_corner_radius_eink">0dp</dimen>
+    <dimen name="library_control_spacing">8dp</dimen>
+    <dimen name="library_button_height">40dp</dimen>
+    <dimen name="library_button_corner_radius">8dp</dimen>
+    <dimen name="library_button_corner_radius_eink">0dp</dimen>
+    <dimen name="library_text_field_corner_radius">8dp</dimen>
+    <dimen name="library_text_field_corner_radius_eink">0dp</dimen>
+    <dimen name="library_sort_chip_corner_radius">6dp</dimen>
+    <dimen name="library_sort_chip_corner_radius_eink">0dp</dimen>
+    <dimen name="library_icon_size_small">18dp</dimen>
+    <dimen name="library_icon_size_medium">24dp</dimen>
+    <dimen name="library_header_action_spacing">8dp</dimen>
+</resources>

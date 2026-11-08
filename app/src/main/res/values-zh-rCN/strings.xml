@@ -69,4 +69,29 @@
     <string name="empty_library">书架中暂无推理小说，请导入 EPUB 书籍。</string>
     <string name="sample_preview_title">正文排版效果预览</string>
     <string name="sample_preview_body">晚上八点，管家发现书房的门从里面反锁着。十分钟后，侦探赶到现场，确认主人已经死亡。女仆声称自己当时一直待在厨房。</string>
+
+    <!-- Library Screen -->
+    <string name="library_title">书架</string>
+    <string name="library_search_hint">搜索书籍或作者…</string>
+    <string name="library_empty_title">书架空空如也</string>
+    <string name="library_empty_description">导入 EPUB 推理小说，开启叙事时序分析、人物证词追踪与认知图谱网络探索。</string>
+    <string name="library_import_button">导入书籍</string>
+    <string name="library_view_grid">网格视图</string>
+    <string name="library_view_list">列表视图</string>
+    <string name="library_progress_format">%1$d%%</string>
+    <string name="library_last_read_format">上次阅读：%1$s</string>
+    <string name="library_last_read_never">尚未阅读</string>
+    <string name="library_chapters_format">共 %1$d 章</string>
+    <string name="library_search_clear">清空搜索</string>
+    <string name="library_search_no_results_title">未找到相关书籍</string>
+    <string name="library_search_no_results_desc">没有找到与“%1$s”匹配的书籍，请尝试其他关键词。</string>
+    <string name="library_sort_label">排序</string>
+    <string name="library_sort_last_read">最近阅读</string>
+    <string name="library_sort_title">书名</string>
+    <string name="library_sort_progress">阅读进度</string>
+    <string name="library_switch_to_settings">前往设置</string>
+    <string name="library_switch_to_library">返回书架</string>
+    <string name="library_badge_reading">在读</string>
+    <string name="library_badge_completed">已读完</string>
+    <string name="library_badge_new">未读</string>
 </resources>

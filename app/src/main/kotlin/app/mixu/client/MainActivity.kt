@@ -10,9 +10,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import app.mixu.client.config.ReaderDisplayConfig
 import app.mixu.client.eink.EInkDetector
+import app.mixu.client.library.LibraryScreen
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.theme.createMixuTypography
 import app.mixu.client.ui.SettingsPreviewScreen
+
+/**
+ * Top-level destination screens in the Mixu client shell.
+ */
+enum class MainScreenDestination {
+    LIBRARY,
+    SETTINGS_PREVIEW,
+}
 
 class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -20,6 +29,9 @@ class MainActivity : Activity() {
         val composeView =
             ComposeView(this).apply {
                 setContent {
+                    var currentDestination by remember {
+                        mutableStateOf(MainScreenDestination.LIBRARY)
+                    }
                     var config by remember { mutableStateOf(ReaderDisplayConfig.DEFAULT) }
                     val einkPolicy =
                         remember(config.eInkMode, config.eInkFullRefreshInterval) {
@@ -46,10 +58,24 @@ class MainActivity : Activity() {
                         eInkPolicy = einkPolicy,
                         typography = typography,
                     ) {
-                        SettingsPreviewScreen(
-                            config = config,
-                            onConfigChange = { updated -> config = updated },
-                        )
+                        when (currentDestination) {
+                            MainScreenDestination.LIBRARY -> {
+                                LibraryScreen(
+                                    onNavigateToSettings = {
+                                        currentDestination = MainScreenDestination.SETTINGS_PREVIEW
+                                    },
+                                )
+                            }
+                            MainScreenDestination.SETTINGS_PREVIEW -> {
+                                SettingsPreviewScreen(
+                                    config = config,
+                                    onConfigChange = { updated -> config = updated },
+                                    onNavigateBack = {
+                                        currentDestination = MainScreenDestination.LIBRARY
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }

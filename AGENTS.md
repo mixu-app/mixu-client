@@ -15,12 +15,9 @@
 
 ## Current phase
 
-- Documentation-first, pre-implementation. No product code until a scoped
-  CarryCtx task authorizes it.
-- `just check` = markdownlint + Gradle when a wrapper exists. Until the wrapper
-  lands, the Gradle recipe prints a **documented phase exception**; once it
-  lands the same recipe must fail on broken code. Never weaken a recipe to keep
-  a broken tree green.
+- Implementation phase. Scoped CarryCtx tasks authorize incremental features.
+- `just check` = markdownlint + submodule pin audit (`script/check-pins.sh`) + Gradle (`./gradlew --no-daemon check`).
+  Never weaken a recipe to keep a broken tree green.
 
 ## Submodule mounts (read-only)
 
@@ -85,7 +82,7 @@
 ## Gates
 
 ```sh
-just check      # markdownlint + gradle (phase exception until wrapper lands)
+just check      # markdownlint + check-pins + gradle check
 ```
 
 A gate that cannot run fails loudly. A missing or broken tool runs from the pinned

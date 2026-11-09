@@ -246,4 +246,66 @@
     <string name="self_hosted_stateless_desc">All reading state and SQLite data stay on device; server acts as a pure stateless compute proxy</string>
     <string name="self_hosted_url_label">Self-Hosted API Base Endpoint URL</string>
     <string name="settings_reset">Done</string>
+
+    <!-- Minimalist Settings Groups, Help & About (CTX-0029) -->
+    <string name="settings_group_appearance">Appearance &amp; Reading</string>
+    <string name="settings_group_interaction">Reading Interaction &amp; Device</string>
+    <string name="settings_group_services">Dictionary, Translation &amp; Custom Server</string>
+    <string name="settings_group_help">Help &amp; Quick Guide</string>
+    <string name="settings_group_about">About Mixu</string>
+    <string name="help_guide_reader_title">Reading &amp; Page Turn</string>
+    <string name="help_guide_reader_desc">Tap left/right edges or use Volume/Arrow keys to turn pages; tap center to toggle toolbar.</string>
+    <string name="help_guide_spoiler_title">Spoiler Firewall &amp; Knowledge Horizon</string>
+    <string name="help_guide_spoiler_desc">The Case Board only reveals characters and claims up to your current reading chapter.</string>
+    <string name="help_guide_graph_title">2D Graph Drag &amp; Gravity</string>
+    <string name="help_guide_graph_desc">Drag any entity node directly to pull connected neighbors via spring attraction.</string>
+    <string name="help_epistemic_toggle">Epistemic Status Legend (7 Types)</string>
+    <string name="about_version_label">Version</string>
+    <string name="about_source_mixu_title">Source Code Repository (mixu)</string>
+    <string name="about_source_mixu_desc">github.com/mixu-app/mixu · Public Entry Point</string>
+    <string name="about_source_client_title">Client Source Code (mixu-client)</string>
+    <string name="about_source_client_desc">github.com/mixu-app/mixu-client · Kotlin / Compose · MPL-2.0</string>
+    <string name="about_source_engine_title">Core Graph &amp; Spoiler Engine</string>
+    <string name="about_source_engine_desc">mixu-graph · mixu-spoiler · mixu-renderer · Apache-2.0</string>
+    <string name="about_source_research_title">Research &amp; Synthetic Corpus</string>
+    <string name="about_source_research_desc">mixu-research · mixu-fixtures · CC0-1.0 / CC-BY-4.0</string>
+    <string name="about_issue_tracker_title">Issue Tracker &amp; Feedback</string>
+    <string name="about_issue_tracker_desc">github.com/mixu-app/mixu-client/issues</string>
+    <string name="about_license_title">Open-Source Licenses &amp; Trademarks</string>
+    <string name="about_license_desc">MPL-2.0 (App) · Apache-2.0 (Libraries) · CC0-1.0 (Fixtures)</string>
+    <string name="about_license_dialog_body">Mixu Client is licensed under the Mozilla Public License 2.0 (MPL-2.0).\nReusable engines (mixu-graph, mixu-spoiler, mixu-renderer, mixu-contracts) are licensed under Apache-2.0.\nSynthetic narrative fixtures (mixu-fixtures) are released under CC0-1.0.\n\nTrademark Notice: \"Mixu\", \"谜序\", and the open-book \'e\' logo mark are trademarks of the Mixu project and are not licensed under MPL-2.0 or Apache-2.0.</string>
+
+    <!-- Long-Press Text Selection, Highlight, Lookup, Translate & Note Toolbar -->
+    <string name="selection_toolbar_title">Text Selection &amp; Annotation</string>
+    <string name="selection_action_highlight">Highlight</string>
+    <string name="selection_action_lookup">Dictionary</string>
+    <string name="selection_action_translate">Translate</string>
+    <string name="selection_action_note">Add Note</string>
+    <string name="selection_action_copy">Copy</string>
+    <string name="selection_action_copied">✓ Copied</string>
+    <string name="selection_action_clear_highlight">Clear</string>
+    <string name="selection_note_hint">Write a reading note or mystery clue deduction…</string>
+    <string name="selection_note_save">Save Note</string>
+    <string name="selection_word_tokens_label">Tap a word to look up:</string>
+
+    <!-- Kindle-Style Home / Library / More Navigation & Mystery Tags Array -->
+    <string name="nav_home">Home</string>
+    <string name="nav_more">More</string>
+    <string name="nav_continue_reading_short">Reading</string>
+    <string name="home_continue_reading_heading">Continue Reading</string>
+    <string name="home_continue_reading_btn">Continue Reading ▶</string>
+    <string name="home_recent_books_heading">From Your Library</string>
+    <string name="home_mystery_tags_heading">Browse by Mystery Tags (Cloud Synced Array)</string>
+    <string name="home_collections_heading">Kindle Collections</string>
+    <string name="library_tags_all">All Tags</string>
+    <string name="library_tags_manage_short">Tags / Col</string>
+    <string name="library_tags_section_title">Mystery Novel Tags Array (Author, Subgenre, Trick)</string>
+    <string name="library_tags_new_hint">Add tag (e.g. Locked Room, Blizzard Villa, Author)…</string>
+    <string name="library_tags_sync_badge">☁ Tags Array Synced</string>
+    <string name="more_account_signin_btn">Sign In / Cloud Sync</string>
+    <string name="more_account_signed_in_badge">CLOUD SYNC ACTIVE</string>
+    <string name="more_account_signin_dialog_title">Account Sign-In &amp; Cloud Sync</string>
+    <string name="more_account_email_label">Account Email or Self-Hosted ID</string>
+    <string name="more_account_signin_confirm">Enable Sync</string>
+    <string name="more_account_switch_guest">Use Offline Guest Mode</string>
 </resources>

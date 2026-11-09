@@ -6,7 +6,7 @@
     <string name="app_tagline">面向叙事文本的知识工程系统</string>
 
     <!-- Navigation -->
-    <string name="nav_library">书架</string>
+    <string name="nav_library">图书馆</string>
     <string name="nav_reader">阅读</string>
     <string name="nav_case_board">案情图板</string>
     <string name="nav_settings">设置</string>
@@ -71,7 +71,7 @@
     <string name="sample_preview_body">晚上八点，管家发现书房的门从里面反锁着。十分钟后，侦探赶到现场，确认主人已经死亡。女仆声称自己当时一直待在厨房。</string>
 
     <!-- Library Screen -->
-    <string name="library_title">书架</string>
+    <string name="library_title">图书馆</string>
     <string name="library_search_hint">搜索书籍或作者…</string>
     <string name="library_empty_title">书架空空如也</string>
     <string name="library_empty_description">导入 EPUB 推理小说，开启叙事时序分析、人物证词追踪与认知图谱网络探索。</string>
@@ -246,4 +246,66 @@
     <string name="self_hosted_stateless_desc">服务端零数据库依赖，所有书籍、进度与图谱均保存在客户端本地 SQLite</string>
     <string name="self_hosted_url_label">自建 API 服务端点地址 (Base URL)</string>
     <string name="settings_reset">完成</string>
+
+    <!-- Minimalist Settings Groups, Help & About (CTX-0029) -->
+    <string name="settings_group_appearance">外观与排版</string>
+    <string name="settings_group_interaction">阅读交互与设备</string>
+    <string name="settings_group_services">查词翻译与自建服务</string>
+    <string name="settings_group_help">使用帮助与指南</string>
+    <string name="settings_group_about">关于 谜序 Mixu</string>
+    <string name="help_guide_reader_title">阅读与翻页操作</string>
+    <string name="help_guide_reader_desc">轻触屏幕左右侧、按音量键或方向键翻页；轻触屏幕中央呼出菜单与预设。</string>
+    <string name="help_guide_spoiler_title">防剧透防火墙与认知边界</string>
+    <string name="help_guide_spoiler_desc">案情图板严格按照当前阅读进度过滤人物与证词，绝不泄露未读章节剧透。</string>
+    <string name="help_guide_graph_title">2D 知识图谱拖拽与物理引力</string>
+    <string name="help_guide_graph_desc">在案情图板直接按住节点拖动，即可通过弹簧引力牵引关联人物群落。</string>
+    <string name="help_epistemic_toggle">认知状态色标说明 (7 类证据状态)</string>
+    <string name="about_version_label">当前版本</string>
+    <string name="about_source_mixu_title">源代码主仓库 (mixu)</string>
+    <string name="about_source_mixu_desc">github.com/mixu-app/mixu · 开源主入口仓库</string>
+    <string name="about_source_client_title">客户端源码仓库 (mixu-client)</string>
+    <string name="about_source_client_desc">github.com/mixu-app/mixu-client · Kotlin / Compose · MPL-2.0</string>
+    <string name="about_source_engine_title">核心图谱与防剧透引擎源码</string>
+    <string name="about_source_engine_desc">mixu-graph · mixu-spoiler · mixu-renderer · Apache-2.0</string>
+    <string name="about_source_research_title">学术研究与合成评测语料库</string>
+    <string name="about_source_research_desc">mixu-research · mixu-fixtures · CC0-1.0 / CC-BY-4.0</string>
+    <string name="about_issue_tracker_title">问题反馈与功能建议 (Issues)</string>
+    <string name="about_issue_tracker_desc">github.com/mixu-app/mixu-client/issues</string>
+    <string name="about_license_title">开源许可协议与商标声明</string>
+    <string name="about_license_desc">MPL-2.0 (客户端) · Apache-2.0 (核心库) · CC0-1.0 (语料)</string>
+    <string name="about_license_dialog_body">谜序客户端 (mixu-client) 基于 Mozilla Public License 2.0 (MPL-2.0) 开源发布。\n核心复用库 (mixu-graph、mixu-spoiler、mixu-renderer、mixu-contracts) 基于 Apache-2.0 许可发布。\n无版权合成推理语料 (mixu-fixtures) 基于 CC0-1.0 协议发布。\n\n商标声明：“Mixu”、“谜序”及翻开书页负空间小写 e 品牌标志受商标政策保护，不包含在代码开源许可授权范围内。</string>
+
+    <!-- Long-Press Text Selection, Highlight, Lookup, Translate & Note Toolbar -->
+    <string name="selection_toolbar_title">文本选择与标注</string>
+    <string name="selection_action_highlight">标记高亮</string>
+    <string name="selection_action_lookup">查词典</string>
+    <string name="selection_action_translate">段落翻译</string>
+    <string name="selection_action_note">写批注</string>
+    <string name="selection_action_copy">复制</string>
+    <string name="selection_action_copied">✓ 已复制</string>
+    <string name="selection_action_clear_highlight">清除标记</string>
+    <string name="selection_note_hint">输入阅读批注或案情线索推论…</string>
+    <string name="selection_note_save">保存批注</string>
+    <string name="selection_word_tokens_label">点选句中词汇立即查词：</string>
+
+    <!-- Kindle-Style Home / Library / More Navigation & Mystery Tags Array -->
+    <string name="nav_home">主页</string>
+    <string name="nav_more">更多</string>
+    <string name="nav_continue_reading_short">继续读</string>
+    <string name="home_continue_reading_heading">继续阅读</string>
+    <string name="home_continue_reading_btn">继续阅读 ▶</string>
+    <string name="home_recent_books_heading">近期藏书与在读</string>
+    <string name="home_mystery_tags_heading">推理小说标签速筛 (Tag 数组 · 云端同步)</string>
+    <string name="home_collections_heading">收藏夹分类</string>
+    <string name="library_tags_all">全部标签</string>
+    <string name="library_tags_manage_short">标签/收藏</string>
+    <string name="library_tags_section_title">推理小说标签数组 (作家 / 密室杀人 / 暴风雪山庄等)</string>
+    <string name="library_tags_new_hint">输入自定义标签 (如：密室杀人、暴风雪山庄、作家名)…</string>
+    <string name="library_tags_sync_badge">☁ 标签数组已同步</string>
+    <string name="more_account_signin_btn">登录 / 云同步</string>
+    <string name="more_account_signed_in_badge">云端同步已开启</string>
+    <string name="more_account_signin_dialog_title">账号登录与云端/自建同步</string>
+    <string name="more_account_email_label">账号邮箱或自建服务标识</string>
+    <string name="more_account_signin_confirm">开启云同步</string>
+    <string name="more_account_switch_guest">切换回离线访客模式</string>
 </resources>

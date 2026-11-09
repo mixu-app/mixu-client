@@ -13,6 +13,7 @@ import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.zip.ZipFile
 
 /**
  * Progress stages emitted during local book import.
@@ -333,6 +334,11 @@ class BookImportService(
             val assetId = "urn:mixu:asset:$shortHash"
             val bookId = "urn:mixu:book:$shortHash"
             val coverColor = selectCoverColor(sha256Hex)
+            val extractedCoverPath =
+                extractEpubCoverImage(
+                    epubFile = finalFile,
+                    destCoverFile = File(booksDirectory, "$sha256Hex.cover.img"),
+                )
 
             val workRecord =
                 WorkRecord(
@@ -374,6 +380,7 @@ class BookImportService(
                     editionId = editionId,
                     displayTitle = metadata.title,
                     displayAuthor = metadata.author,
+                    coverPath = extractedCoverPath,
                     coverPlaceholderColor = coverColor,
                     totalChapters = metadata.totalChapters,
                     addedAt = now,
@@ -398,6 +405,19 @@ class BookImportService(
                     lastReadOrdinal = 0,
                     progressPercent = 0,
                     lastReadEpochMs = now,
+                    collections =
+                        BookItem.defaultCollectionsFor(
+                            id = bookId,
+                            title = metadata.title,
+                            author = metadata.author,
+                        ),
+                    tags =
+                        BookItem.defaultTagsFor(
+                            id = bookId,
+                            title = metadata.title,
+                            author = metadata.author,
+                        ),
+                    coverPath = extractedCoverPath,
                 )
 
             onProgress(BookImportProgress.Completed)
@@ -461,5 +481,48 @@ class BookImportService(
                 0xFF37474FL,
                 0xFF4E342EL,
             )
+
+        fun extractEpubCoverImage(
+            epubFile: File,
+            destCoverFile: File,
+        ): String? =
+            runCatching {
+                ZipFile(epubFile).use { zip ->
+                    val imageEntries =
+                        zip
+                            .entries()
+                            .asSequence()
+                            .filter { !it.isDirectory }
+                            .filter { entry ->
+                                val lower = entry.name.lowercase()
+                                lower.endsWith(".jpg") ||
+                                    lower.endsWith(".jpeg") ||
+                                    lower.endsWith(".png") ||
+                                    lower.endsWith(".webp")
+                            }.toList()
+                    val chosenEntry =
+                        imageEntries.firstOrNull { entry ->
+                            entry.name
+                                .substringAfterLast('/')
+                                .lowercase()
+                                .contains("cover")
+                        } ?: imageEntries.maxByOrNull { it.size }
+                    if (chosenEntry != null) {
+                        zip.getInputStream(chosenEntry).use { input ->
+                            destCoverFile.outputStream().use { out ->
+                                input.copyTo(out)
+                            }
+                        }
+                        if (destCoverFile.length() > 128L) {
+                            destCoverFile.absolutePath
+                        } else {
+                            destCoverFile.delete()
+                            null
+                        }
+                    } else {
+                        null
+                    }
+                }
+            }.getOrNull()
     }
 }

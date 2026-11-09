@@ -959,6 +959,51 @@ class LocalLibraryDatabase private constructor(
         )
     }
 
+    /**
+     * Persists a book's mystery tags array (e.g. author, locked-room, blizzard-villa)
+     * and enqueues a cloud/self-hosted sync mutation into `sync_outbox`.
+     */
+    fun setBookTags(
+        bookId: String,
+        tags: List<String>,
+        updatedAt: Long = System.currentTimeMillis(),
+    ) {
+        ensureOpen()
+        val scopeKey = "book:$bookId"
+        val cleanTags =
+            tags
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+        val serialized = cleanTags.joinToString("|")
+        val script =
+            buildString {
+                appendLine("BEGIN IMMEDIATE;")
+                append("INSERT OR REPLACE INTO reader_settings(")
+                append("scope_key, setting_key, setting_value, updated_at) VALUES (")
+                append(sqlText(scopeKey)).append(", ")
+                append(sqlText("tags")).append(", ")
+                append(sqlText(serialized)).append(", ")
+                append(updatedAt).appendLine(");")
+                appendLine("COMMIT;")
+            }
+        engine.executeScript(script)
+        val jsonArray =
+            cleanTags.joinToString(prefix = "[", postfix = "]") {
+                "\"${it.replace("\"", "\\\"")}\""
+            }
+        enqueueSyncMutation(
+            SyncOutboxRecord(
+                mutationId = "tag-$bookId-$updatedAt",
+                entityTable = "book_tags",
+                entityId = bookId,
+                operation = "SET_TAGS",
+                payloadJson = """{"bookId":"$bookId","tags":$jsonArray}""",
+                createdAt = updatedAt,
+            ),
+        )
+    }
+
     private fun enrichBookItemsWithCollections(items: List<BookItem>): List<BookItem> {
         if (items.isEmpty()) return items
         val rows =
@@ -968,23 +1013,35 @@ class LocalLibraryDatabase private constructor(
             )
         val favByBook = mutableMapOf<String, Boolean>()
         val colsByBook = mutableMapOf<String, Set<String>>()
+        val tagsByBook = mutableMapOf<String, List<String>>()
         for (row in rows) {
             val bookId = row[0]!!.removePrefix("book:")
             val key = row[1]!!
             val value = row[2]!!
-            if (key == "is_favorite") {
-                favByBook[bookId] = value.toBooleanStrictOrNull() ?: false
-            } else if (key == "collections") {
-                colsByBook[bookId] =
-                    if (value.isBlank()) {
-                        emptySet()
-                    } else {
-                        value
-                            .split("|")
-                            .map { it.trim() }
-                            .filter { it.isNotEmpty() }
-                            .toSet()
-                    }
+            when (key) {
+                "is_favorite" -> favByBook[bookId] = value.toBooleanStrictOrNull() ?: false
+                "collections" ->
+                    colsByBook[bookId] =
+                        if (value.isBlank()) {
+                            emptySet()
+                        } else {
+                            value
+                                .split("|")
+                                .map { it.trim() }
+                                .filter { it.isNotEmpty() }
+                                .toSet()
+                        }
+                "tags" ->
+                    tagsByBook[bookId] =
+                        if (value.isBlank()) {
+                            emptyList()
+                        } else {
+                            value
+                                .split("|")
+                                .map { it.trim() }
+                                .filter { it.isNotEmpty() }
+                                .distinct()
+                        }
             }
         }
         return items.map { item ->
@@ -992,9 +1049,13 @@ class LocalLibraryDatabase private constructor(
             val cols =
                 colsByBook[item.id]
                     ?: BookItem.defaultCollectionsFor(item.id, item.title, item.author)
+            val tags =
+                tagsByBook[item.id]
+                    ?: BookItem.defaultTagsFor(item.id, item.title, item.author)
             item.copy(
                 isFavorite = isFav,
                 collections = cols,
+                tags = tags,
             )
         }
     }
@@ -1483,6 +1544,7 @@ class LocalLibraryDatabase private constructor(
                 "rp.progression",
                 "rp.knowledge_horizon_ordinal",
                 "rp.updated_at",
+                "li.cover_path",
             )
 
         val V1_SCHEMA_STATEMENTS: List<String> =
@@ -1727,6 +1789,7 @@ class LocalLibraryDatabase private constructor(
                 lastReadOrdinal = horizonOrdinal,
                 progressPercent = progressPercent,
                 lastReadEpochMs = maxOf(lastOpenedAt, progressUpdatedAt),
+                coverPath = row.getOrNull(10),
             )
         }
     }

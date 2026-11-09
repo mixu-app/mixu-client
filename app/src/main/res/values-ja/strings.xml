@@ -246,4 +246,66 @@
     <string name="self_hosted_stateless_desc">読書状態や SQLite データはすべて端末内に保持し、サーバーは純粋な計算プロキシとして動作</string>
     <string name="self_hosted_url_label">セルフホスト API エンドポイント URL</string>
     <string name="settings_reset">完了</string>
+
+    <!-- Minimalist Settings Groups, Help & About (CTX-0029) -->
+    <string name="settings_group_appearance">外観と組版</string>
+    <string name="settings_group_interaction">操作とデバイス</string>
+    <string name="settings_group_services">辞書・翻訳と自前サーバー</string>
+    <string name="settings_group_help">ヘルプと使い方</string>
+    <string name="settings_group_about">Mixu について</string>
+    <string name="help_guide_reader_title">読書とページめくり</string>
+    <string name="help_guide_reader_desc">画面の左右タップ、音量キー、矢印キーでページ移動。中央タップでメニューを開閉します。</string>
+    <string name="help_guide_spoiler_title">ネタバレ防止ファイアウォール</string>
+    <string name="help_guide_spoiler_desc">事件ボードは現在の読書進捗までの人物と証言のみを表示し、未読章のネタバレを防ぎます。</string>
+    <string name="help_guide_graph_title">2D 知識グラフのドラッグと引力</string>
+    <string name="help_guide_graph_desc">ノードを直接ドラッグすると、バネ引力によって関連する登場人物が連動して動きます。</string>
+    <string name="help_epistemic_toggle">認識状態マーカー凡例 (7種)</string>
+    <string name="about_version_label">バージョン</string>
+    <string name="about_source_mixu_title">ソースコードリポジトリ (mixu)</string>
+    <string name="about_source_mixu_desc">github.com/mixu-app/mixu · 公開メインリポジトリ</string>
+    <string name="about_source_client_title">クライアントソース (mixu-client)</string>
+    <string name="about_source_client_desc">github.com/mixu-app/mixu-client · Kotlin / Compose · MPL-2.0</string>
+    <string name="about_source_engine_title">コアグラフ＆ネタバレ防止エンジン</string>
+    <string name="about_source_engine_desc">mixu-graph · mixu-spoiler · mixu-renderer · Apache-2.0</string>
+    <string name="about_source_research_title">研究と評価用コーパス</string>
+    <string name="about_source_research_desc">mixu-research · mixu-fixtures · CC0-1.0 / CC-BY-4.0</string>
+    <string name="about_issue_tracker_title">問題報告とフィードバック (Issues)</string>
+    <string name="about_issue_tracker_desc">github.com/mixu-app/mixu-client/issues</string>
+    <string name="about_license_title">オープンソースライセンスと商標</string>
+    <string name="about_license_desc">MPL-2.0 (アプリ) · Apache-2.0 (ライブラリ) · CC0-1.0 (コーパス)</string>
+    <string name="about_license_dialog_body">Mixu クライアント (mixu-client) は Mozilla Public License 2.0 (MPL-2.0) の下で公開されています。\nコアライブラリ (mixu-graph, mixu-spoiler, mixu-renderer, mixu-contracts) は Apache-2.0 ライセンスです。\n合成コーパス (mixu-fixtures) は CC0-1.0 で提供されています。\n\n商標について：「Mixu」「谜序」およびロゴマークは商標ポリシーにより保護されています。</string>
+
+    <!-- Long-Press Text Selection, Highlight, Lookup, Translate & Note Toolbar -->
+    <string name="selection_toolbar_title">テキスト選択と注釈</string>
+    <string name="selection_action_highlight">ハイライト</string>
+    <string name="selection_action_lookup">辞書検索</string>
+    <string name="selection_action_translate">段落翻訳</string>
+    <string name="selection_action_note">メモ追加</string>
+    <string name="selection_action_copy">コピー</string>
+    <string name="selection_action_copied">✓ コピー済</string>
+    <string name="selection_action_clear_highlight">解除</string>
+    <string name="selection_note_hint">読書メモや推理の手がかりを入力…</string>
+    <string name="selection_note_save">メモを保存</string>
+    <string name="selection_word_tokens_label">単語をタップして辞書検索：</string>
+
+    <!-- Kindle-Style Home / Library / More Navigation & Mystery Tags Array -->
+    <string name="nav_home">ホーム</string>
+    <string name="nav_more">その他</string>
+    <string name="nav_continue_reading_short">続きを読む</string>
+    <string name="home_continue_reading_heading">続きを読む</string>
+    <string name="home_continue_reading_btn">続きを読む ▶</string>
+    <string name="home_recent_books_heading">最近の蔵書</string>
+    <string name="home_mystery_tags_heading">ミステリタグ絞り込み（配列・クラウド同期）</string>
+    <string name="home_collections_heading">コレクション</string>
+    <string name="library_tags_all">すべてのタグ</string>
+    <string name="library_tags_manage_short">タグ/分類</string>
+    <string name="library_tags_section_title">ミステリ小説タグ配列（作家・密室・クローズドサークル等）</string>
+    <string name="library_tags_new_hint">新しいタグを入力（例：密室殺人、館、作家名）…</string>
+    <string name="library_tags_sync_badge">☁ タグ配列同期済</string>
+    <string name="more_account_signin_btn">ログイン / 同期</string>
+    <string name="more_account_signed_in_badge">クラウド同期有効</string>
+    <string name="more_account_signin_dialog_title">アカウントログインとクラウド同期</string>
+    <string name="more_account_email_label">メールアドレスまたは自前サーバーID</string>
+    <string name="more_account_signin_confirm">同期を有効化</string>
+    <string name="more_account_switch_guest">オフラインゲストに戻す</string>
 </resources>

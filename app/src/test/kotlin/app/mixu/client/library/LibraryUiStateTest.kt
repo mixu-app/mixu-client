@@ -238,4 +238,34 @@ class LibraryUiStateTest {
         assertFalse(bookMoonstone.isStarted)
         assertEquals("T", bookMoonstone.initialLetter)
     }
+
+    @Test
+    fun mysteryTagArrayFilteringAndPresetTags() {
+        val taggedMorgue = bookMorgue.copy(tags = listOf("Edgar Allan Poe", "密室杀人", "古典本格"))
+        val taggedStyles = bookStyles.copy(tags = listOf("Agatha Christie", "暴风雪山庄", "毒杀诡计"))
+        val books = listOf(taggedMorgue, taggedStyles, bookMoonstone)
+
+        val filterLockedRoom = LibraryUiState(books = books, selectedTag = "密室杀人")
+        assertEquals(1, filterLockedRoom.filteredBooks.size)
+        assertEquals("The Murders in the Rue Morgue", filterLockedRoom.filteredBooks.first().title)
+
+        val filterBySearchTag = LibraryUiState(books = books, searchQuery = "毒杀诡计")
+        assertEquals(1, filterBySearchTag.filteredBooks.size)
+        assertEquals(
+            "The Mysterious Affair at Styles",
+            filterBySearchTag.filteredBooks.first().title,
+        )
+
+        assertTrue(filterLockedRoom.availableTags.contains("密室杀人"))
+        assertTrue(filterLockedRoom.availableTags.contains("Agatha Christie"))
+
+        val autoTags =
+            BookItem.defaultTagsFor(
+                id = "urn:mixu:book:test",
+                title = "冰冷密室与博士们",
+                author = "森博嗣",
+            )
+        assertTrue(autoTags.contains("森博嗣"))
+        assertTrue(autoTags.contains("密室杀人"))
+    }
 }

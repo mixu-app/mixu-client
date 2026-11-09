@@ -6,10 +6,18 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -21,9 +29,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -44,7 +55,9 @@ import app.mixu.client.eink.EInkDetector
 import app.mixu.client.importer.BookImportResult
 import app.mixu.client.importer.BookImportService
 import app.mixu.client.importer.SafBookPickerContract
+import app.mixu.client.library.BookCoverThumbnail
 import app.mixu.client.library.BookItem
+import app.mixu.client.library.KindleHomeScreen
 import app.mixu.client.library.LibraryScreen
 import app.mixu.client.reader.EpubBookPublication
 import app.mixu.client.reader.ReaderScreen
@@ -58,8 +71,11 @@ import java.io.File
 
 /**
  * Top-level destination screens in the Mixu client shell.
+ * Follows the Kindle App navigation model:
+ * `[左下角上次看的书封面] | HOME (默认主页) | LIBRARY (图书馆) | SETTINGS_PREVIEW (更多)`
  */
 enum class MainScreenDestination {
+    HOME,
     LIBRARY,
     READER,
     CASE_BOARD,
@@ -137,8 +153,12 @@ class MainActivity :
         }
         val destExtra = intent?.getStringExtra("destination")?.trim()?.uppercase()
         val startDestination =
-            MainScreenDestination.entries.firstOrNull { it.name == destExtra }
-                ?: MainScreenDestination.LIBRARY
+            when (destExtra) {
+                "MORE", "SETTINGS", "SETTINGS_PREVIEW" -> MainScreenDestination.SETTINGS_PREVIEW
+                else ->
+                    MainScreenDestination.entries.firstOrNull { it.name == destExtra }
+                        ?: MainScreenDestination.HOME
+            }
 
         val composeView =
             ComposeView(this).apply {
@@ -150,6 +170,8 @@ class MainActivity :
                     var userSession by remember { mutableStateOf(UserSession.DEFAULT) }
                     var libraryBooks by remember { mutableStateOf(loadLibraryBooks()) }
                     var activeBookId by remember { mutableStateOf(initialBookId) }
+                    var libraryFilterTag by remember { mutableStateOf<String?>(null) }
+                    var libraryFilterCollection by remember { mutableStateOf<String?>(null) }
                     var readerTick by remember { mutableIntStateOf(0) }
                     var hardwareKeyTurnSignal by remember { mutableIntStateOf(0) }
                     var hardwareKeyTurnDirection by remember { mutableIntStateOf(0) }
@@ -202,7 +224,6 @@ class MainActivity :
                                 readerSession.openBook(importedBookId)
                                 activeBookId = importedBookId
                                 readerTick++
-                                currentDestination = MainScreenDestination.READER
                             }
                         }
                     }
@@ -227,6 +248,42 @@ class MainActivity :
                             )
                         }
 
+                    val lastReadBook =
+                        remember(libraryBooks, activeBookId) {
+                            libraryBooks.firstOrNull { it.id == activeBookId }
+                                ?: libraryBooks.firstOrNull { it.isStarted }
+                                ?: libraryBooks.firstOrNull()
+                        }
+
+                    val openBookInReader: (BookItem) -> Unit = { book ->
+                        activeBookId = book.id
+                        if (database.getBookAssetForBook(book.id) != null) {
+                            runCatching {
+                                readerSession.openBook(book.id)
+                                readerTick++
+                            }
+                        }
+                        currentDestination = MainScreenDestination.READER
+                    }
+
+                    val triggerImportBooks: () -> Unit = {
+                        val synced =
+                            packLoader.syncImportDirectories(
+                                getImportDirectories(),
+                                importService,
+                            )
+                        libraryBooks = loadLibraryBooks()
+                        if (synced.isNotEmpty()) {
+                            val targetId = synced.first()
+                            runCatching {
+                                readerSession.openBook(targetId)
+                                activeBookId = targetId
+                                readerTick++
+                            }
+                        }
+                        launchSafPicker()
+                    }
+
                     MixuTheme(
                         themeMode = config.themeMode,
                         eInkPolicy = einkPolicy,
@@ -249,6 +306,115 @@ class MainActivity :
                                                 BorderStroke(strokeWidth, colors.outlineVariant),
                                             ),
                                     ) {
+                                        // Bottom-Left Corner: Last-Read Book Cover Quick Resume (Kindle-style)
+                                        if (lastReadBook != null) {
+                                            val isReaderActive =
+                                                currentDestination == MainScreenDestination.READER
+                                            Box(
+                                                modifier =
+                                                    Modifier
+                                                        .padding(
+                                                            start = 12.dp,
+                                                            end = 6.dp,
+                                                            top = 6.dp,
+                                                            bottom = 6.dp,
+                                                        ).border(
+                                                            BorderStroke(
+                                                                if (isReaderActive) 2.dp else 1.dp,
+                                                                if (isReaderActive) {
+                                                                    colors.primary
+                                                                } else {
+                                                                    colors.outlineVariant
+                                                                },
+                                                            ),
+                                                            RoundedCornerShape(8.dp),
+                                                        ).background(
+                                                            if (isReaderActive) {
+                                                                colors.primaryContainer.copy(
+                                                                    alpha = 0.35f,
+                                                                )
+                                                            } else {
+                                                                colors.surfaceVariant.copy(
+                                                                    alpha = 0.35f,
+                                                                )
+                                                            },
+                                                            RoundedCornerShape(8.dp),
+                                                        ).clickable {
+                                                            openBookInReader(lastReadBook)
+                                                        }.padding(
+                                                            horizontal = 8.dp,
+                                                            vertical = 4.dp,
+                                                        ),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement =
+                                                        Arrangement.spacedBy(6.dp),
+                                                ) {
+                                                    BookCoverThumbnail(
+                                                        book = lastReadBook,
+                                                        isGrid = false,
+                                                        showBadge = false,
+                                                        modifier =
+                                                            Modifier
+                                                                .width(30.dp)
+                                                                .height(42.dp),
+                                                    )
+                                                    Column(
+                                                        modifier = Modifier.width(56.dp),
+                                                        verticalArrangement =
+                                                            Arrangement.spacedBy(1.dp),
+                                                    ) {
+                                                        val resumeLabel =
+                                                            stringResource(
+                                                                R.string.nav_continue_reading_short,
+                                                            )
+                                                        Text(
+                                                            text = resumeLabel,
+                                                            style = typography.caption,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = colors.primary,
+                                                            maxLines = 1,
+                                                        )
+                                                        Text(
+                                                            text = lastReadBook.title,
+                                                            style = typography.caption,
+                                                            color = colors.onSurface,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Tab 1: Home (`主页` — Default)
+                                        NavigationBarItem(
+                                            selected =
+                                                currentDestination == MainScreenDestination.HOME,
+                                            onClick = {
+                                                libraryBooks = loadLibraryBooks()
+                                                currentDestination = MainScreenDestination.HOME
+                                            },
+                                            icon = {
+                                                Icon(
+                                                    imageVector = MixuIcons.Reader,
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                            label = { Text(stringResource(R.string.nav_home)) },
+                                            colors =
+                                                NavigationBarItemDefaults.colors(
+                                                    selectedIconColor = colors.primary,
+                                                    selectedTextColor = colors.primary,
+                                                    indicatorColor = colors.primaryContainer,
+                                                    unselectedIconColor = colors.onSurfaceVariant,
+                                                    unselectedTextColor = colors.onSurfaceVariant,
+                                                ),
+                                        )
+
+                                        // Tab 2: Library (`图书馆`)
                                         NavigationBarItem(
                                             selected =
                                                 currentDestination ==
@@ -273,70 +439,8 @@ class MainActivity :
                                                     unselectedTextColor = colors.onSurfaceVariant,
                                                 ),
                                         )
-                                        NavigationBarItem(
-                                            selected =
-                                                currentDestination == MainScreenDestination.READER,
-                                            onClick = {
-                                                if (readerSession.activeNavigator == null) {
-                                                    val candidateId =
-                                                        activeBookId
-                                                            ?: libraryBooks.firstOrNull()?.id
-                                                    if (candidateId != null &&
-                                                        database.getBookAssetForBook(
-                                                            candidateId,
-                                                        ) != null
-                                                    ) {
-                                                        runCatching {
-                                                            readerSession.openBook(candidateId)
-                                                            activeBookId = candidateId
-                                                            readerTick++
-                                                        }
-                                                    }
-                                                }
-                                                currentDestination = MainScreenDestination.READER
-                                            },
-                                            icon = {
-                                                Icon(
-                                                    imageVector = MixuIcons.Reader,
-                                                    contentDescription = null,
-                                                )
-                                            },
-                                            label = { Text(stringResource(R.string.nav_reader)) },
-                                            colors =
-                                                NavigationBarItemDefaults.colors(
-                                                    selectedIconColor = colors.primary,
-                                                    selectedTextColor = colors.primary,
-                                                    indicatorColor = colors.primaryContainer,
-                                                    unselectedIconColor = colors.onSurfaceVariant,
-                                                    unselectedTextColor = colors.onSurfaceVariant,
-                                                ),
-                                        )
-                                        NavigationBarItem(
-                                            selected =
-                                                currentDestination ==
-                                                    MainScreenDestination.CASE_BOARD,
-                                            onClick = {
-                                                currentDestination =
-                                                    MainScreenDestination.CASE_BOARD
-                                            },
-                                            icon = {
-                                                Icon(
-                                                    imageVector = MixuIcons.CaseBoard,
-                                                    contentDescription = null,
-                                                )
-                                            },
-                                            label = {
-                                                Text(stringResource(R.string.nav_case_board))
-                                            },
-                                            colors =
-                                                NavigationBarItemDefaults.colors(
-                                                    selectedIconColor = colors.primary,
-                                                    selectedTextColor = colors.primary,
-                                                    indicatorColor = colors.primaryContainer,
-                                                    unselectedIconColor = colors.onSurfaceVariant,
-                                                    unselectedTextColor = colors.onSurfaceVariant,
-                                                ),
-                                        )
+
+                                        // Tab 3: More (`更多` — Login, Settings, Help, About)
                                         NavigationBarItem(
                                             selected =
                                                 currentDestination ==
@@ -352,7 +456,7 @@ class MainActivity :
                                                 )
                                             },
                                             label = {
-                                                Text(stringResource(R.string.nav_settings))
+                                                Text(stringResource(R.string.nav_more))
                                             },
                                             colors =
                                                 NavigationBarItemDefaults.colors(
@@ -374,50 +478,56 @@ class MainActivity :
                                         .padding(innerPadding),
                             ) {
                                 when (currentDestination) {
-                                    MainScreenDestination.LIBRARY -> {
-                                        LibraryScreen(
-                                            initialBooks = libraryBooks,
-                                            onImportBook = {
-                                                val synced =
-                                                    packLoader.syncImportDirectories(
-                                                        getImportDirectories(),
-                                                        importService,
-                                                    )
-                                                libraryBooks = loadLibraryBooks()
-                                                if (synced.isNotEmpty()) {
-                                                    val targetId = synced.first()
-                                                    runCatching {
-                                                        readerSession.openBook(targetId)
-                                                        activeBookId = targetId
-                                                        readerTick++
-                                                    }
-                                                }
-                                                launchSafPicker()
-                                            },
-                                            onNavigateToSettings = {
-                                                currentDestination =
-                                                    MainScreenDestination.SETTINGS_PREVIEW
-                                            },
-                                            onBookClick = { book ->
+                                    MainScreenDestination.HOME -> {
+                                        KindleHomeScreen(
+                                            books = libraryBooks,
+                                            activeBookId = activeBookId,
+                                            onContinueReading = openBookInReader,
+                                            onOpenCaseBoard = { book ->
                                                 activeBookId = book.id
                                                 if (database.getBookAssetForBook(book.id) != null) {
                                                     runCatching {
                                                         readerSession.openBook(book.id)
                                                         readerTick++
                                                     }
-                                                    currentDestination =
-                                                        MainScreenDestination.READER
-                                                } else {
-                                                    currentDestination =
-                                                        MainScreenDestination.CASE_BOARD
                                                 }
+                                                currentDestination =
+                                                    MainScreenDestination.CASE_BOARD
                                             },
+                                            onSelectTagAndOpenLibrary = { tag ->
+                                                libraryFilterTag = tag
+                                                libraryFilterCollection = null
+                                                currentDestination = MainScreenDestination.LIBRARY
+                                            },
+                                            onSelectCollectionAndOpenLibrary = { col ->
+                                                libraryFilterCollection = col
+                                                libraryFilterTag = null
+                                                currentDestination = MainScreenDestination.LIBRARY
+                                            },
+                                            onImportBook = triggerImportBooks,
+                                        )
+                                    }
+                                    MainScreenDestination.LIBRARY -> {
+                                        LibraryScreen(
+                                            initialBooks = libraryBooks,
+                                            initialSelectedCollection = libraryFilterCollection,
+                                            initialSelectedTag = libraryFilterTag,
+                                            onImportBook = triggerImportBooks,
+                                            onNavigateToSettings = {
+                                                currentDestination =
+                                                    MainScreenDestination.SETTINGS_PREVIEW
+                                            },
+                                            onBookClick = openBookInReader,
                                             onToggleFavorite = { book ->
                                                 database.setBookFavorite(book.id, !book.isFavorite)
                                                 libraryBooks = loadLibraryBooks()
                                             },
                                             onUpdateCollections = { book, nextCols ->
                                                 database.setBookCollections(book.id, nextCols)
+                                                libraryBooks = loadLibraryBooks()
+                                            },
+                                            onUpdateTags = { book, nextTags ->
+                                                database.setBookTags(book.id, nextTags)
                                                 libraryBooks = loadLibraryBooks()
                                             },
                                         )
@@ -490,7 +600,7 @@ class MainActivity :
                                             },
                                             onNavigateBack = {
                                                 libraryBooks = loadLibraryBooks()
-                                                currentDestination = MainScreenDestination.LIBRARY
+                                                currentDestination = MainScreenDestination.HOME
                                             },
                                             onUpdateConfig = { updated ->
                                                 config = updated
@@ -530,7 +640,7 @@ class MainActivity :
                                                         MainScreenDestination.READER
                                                 } else {
                                                     currentDestination =
-                                                        MainScreenDestination.LIBRARY
+                                                        MainScreenDestination.HOME
                                                 }
                                             },
                                             onNavigateToSettings = {
@@ -561,7 +671,7 @@ class MainActivity :
                                             },
                                             userSession = userSession,
                                             onNavigateBack = {
-                                                currentDestination = MainScreenDestination.LIBRARY
+                                                currentDestination = MainScreenDestination.HOME
                                             },
                                         )
                                     }
@@ -650,10 +760,33 @@ class MainActivity :
 
     private fun loadLibraryBooks(): List<BookItem> {
         val persisted = database.listLibraryItems()
-        return if (persisted.isNotEmpty()) {
-            persisted
-        } else {
-            BookItem.SAMPLE_BOOKS
+        if (persisted.isEmpty()) {
+            return BookItem.SAMPLE_BOOKS
+        }
+        val booksDir = File(filesDir, "books")
+        return persisted.map { item ->
+            if (!item.coverPath.isNullOrBlank() && File(item.coverPath).exists()) {
+                item
+            } else {
+                val asset = database.getBookAssetForBook(item.id)
+                val epubFile = asset?.let { File(it.localStoragePath) }
+                if (epubFile != null && epubFile.exists() && asset.sha256Checksum.isNotBlank()) {
+                    val coverFile = File(booksDir, "${asset.sha256Checksum}.cover.img")
+                    val resolvedCover =
+                        if (coverFile.exists() && coverFile.length() > 0L) {
+                            coverFile.absolutePath
+                        } else {
+                            BookImportService.extractEpubCoverImage(epubFile, coverFile)
+                        }
+                    if (resolvedCover != null) {
+                        item.copy(coverPath = resolvedCover)
+                    } else {
+                        item
+                    }
+                } else {
+                    item
+                }
+            }
         }
     }
 
@@ -672,7 +805,13 @@ class MainActivity :
                 readerSession.activeNavigator?.takeIf {
                     it.viewportState.bookId == bookId
                 }
-            val pack = packLoader.loadForBook(asset = asset, publication = nav?.publication)
+            val publication =
+                nav?.publication
+                    ?: runCatching {
+                        val f = File(asset.localStoragePath)
+                        if (f.isFile) EpubBookPublication.open(f) else null
+                    }.getOrNull()
+            val pack = packLoader.loadForBook(asset = asset, publication = publication)
             val maxAnchorOrdinal = (pack.anchors.maxOfOrNull { it.ordinal } ?: 0).coerceAtLeast(0)
             val navState = readerSession.navigationStateMachine
             val totalProg = (nav?.currentLocator?.totalProgression ?: 1.0).coerceIn(0.0, 1.0)
@@ -689,7 +828,7 @@ class MainActivity :
             val viewPos = horizon
             val title =
                 database.getLibraryItem(bookId)?.displayTitle
-                    ?: nav?.publication?.metadata?.title
+                    ?: publication?.metadata?.title
                     ?: "Mystery Novel"
             return CaseBoardController(
                 graphPack = pack,

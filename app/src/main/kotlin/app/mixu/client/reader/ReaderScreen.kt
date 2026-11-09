@@ -3,6 +3,8 @@
 
 package app.mixu.client.reader
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -30,6 +33,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -51,18 +55,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextIndent
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -79,6 +92,7 @@ import app.mixu.client.config.ReadingLayoutMode
 import app.mixu.client.lookup.LookupAndTranslationEngine
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.theme.MixuThemeMode
+import app.mixu.client.ui.MixuBrandLogo
 import kotlin.math.roundToInt
 
 /**
@@ -376,6 +390,42 @@ fun ReaderScreen(
         mutableStateOf(fullChapterParagraphs.firstOrNull().orEmpty())
     }
 
+    // Long-press text selection, highlights, and reading notes state
+    var selectedPassage by remember { mutableStateOf<String?>(null) }
+    var selectedWord by remember { mutableStateOf("alibi") }
+    var passageHighlights by remember { mutableStateOf<Map<String, Color>>(emptyMap()) }
+    var passageNotes by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var viewportWidthPx by remember { mutableIntStateOf(1) }
+
+    val handleViewportTapAtRootX: (Float) -> Unit = { rootX ->
+        if (selectedPassage != null) {
+            selectedPassage = null
+        } else if (showTocSheet) {
+            showTocSheet = false
+        } else {
+            val width = viewportWidthPx.toFloat().coerceAtLeast(1f)
+            val xFraction = (rootX / width).coerceIn(0f, 1f)
+            if (config.readingLayoutMode == ReadingLayoutMode.PAGED && !showMenuOverlay) {
+                when {
+                    xFraction < 0.30f -> handlePrevious()
+                    xFraction > 0.70f -> handleNext()
+                    else -> showMenuOverlay = !showMenuOverlay
+                }
+            } else {
+                showMenuOverlay = !showMenuOverlay
+            }
+        }
+    }
+
+    val handleLongPressOnParagraph: (String, Int) -> Unit = { paragraphText, charOffset ->
+        val token = extractWordAtOffset(paragraphText, charOffset)
+        selectedPassage = paragraphText
+        selectedWord = token
+        currentVisibleSampleText = paragraphText
+        showMenuOverlay = false
+        showTocSheet = false
+    }
+
     Box(
         modifier =
             modifier
@@ -427,32 +477,27 @@ fun ReaderScreen(
                     Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .pointerInput(
+                        .onGloballyPositioned { coords ->
+                            viewportWidthPx = coords.size.width.coerceAtLeast(1)
+                        }.pointerInput(
                             config.readingLayoutMode,
                             canGoPrev,
                             canGoNext,
                             showMenuOverlay,
                             showTocSheet,
+                            selectedPassage,
+                            currentVisibleSampleText,
                         ) {
-                            detectTapGestures { tapOffset ->
-                                if (showTocSheet) {
-                                    showTocSheet = false
-                                    return@detectTapGestures
-                                }
-                                val width = size.width.toFloat().coerceAtLeast(1f)
-                                val xFraction = tapOffset.x / width
-                                if (config.readingLayoutMode == ReadingLayoutMode.PAGED &&
-                                    !showMenuOverlay
-                                ) {
-                                    when {
-                                        xFraction < 0.30f -> handlePrevious()
-                                        xFraction > 0.70f -> handleNext()
-                                        else -> showMenuOverlay = !showMenuOverlay
+                            detectTapGestures(
+                                onTap = { tapOffset ->
+                                    handleViewportTapAtRootX(tapOffset.x)
+                                },
+                                onLongPress = {
+                                    if (currentVisibleSampleText.isNotBlank()) {
+                                        handleLongPressOnParagraph(currentVisibleSampleText, 0)
                                     }
-                                } else {
-                                    showMenuOverlay = !showMenuOverlay
-                                }
-                            }
+                                },
+                            )
                         },
                 contentAlignment = Alignment.TopCenter,
             ) {
@@ -569,7 +614,7 @@ fun ReaderScreen(
                                     Arrangement.spacedBy(config.paragraphSpacingDp.dp),
                             ) {
                                 for (slice in leftColumnSlices) {
-                                    Text(
+                                    SelectableReaderParagraph(
                                         text = slice.text,
                                         style =
                                             if (slice.isContinuation) {
@@ -577,7 +622,19 @@ fun ReaderScreen(
                                             } else {
                                                 indentedTextStyle
                                             },
-                                        modifier = Modifier.fillMaxWidth(),
+                                        isSelected = selectedPassage == slice.text,
+                                        selectedWord =
+                                            if (selectedPassage == slice.text) {
+                                                selectedWord
+                                            } else {
+                                                null
+                                            },
+                                        highlightColor = passageHighlights[slice.text],
+                                        noteText = passageNotes[slice.text],
+                                        onTapRootX = handleViewportTapAtRootX,
+                                        onLongPressAtChar = { charIdx ->
+                                            handleLongPressOnParagraph(slice.text, charIdx)
+                                        },
                                     )
                                 }
                             }
@@ -609,7 +666,7 @@ fun ReaderScreen(
                                     Arrangement.spacedBy(config.paragraphSpacingDp.dp),
                             ) {
                                 for (slice in rightColumnSlices) {
-                                    Text(
+                                    SelectableReaderParagraph(
                                         text = slice.text,
                                         style =
                                             if (slice.isContinuation) {
@@ -617,7 +674,19 @@ fun ReaderScreen(
                                             } else {
                                                 indentedTextStyle
                                             },
-                                        modifier = Modifier.fillMaxWidth(),
+                                        isSelected = selectedPassage == slice.text,
+                                        selectedWord =
+                                            if (selectedPassage == slice.text) {
+                                                selectedWord
+                                            } else {
+                                                null
+                                            },
+                                        highlightColor = passageHighlights[slice.text],
+                                        noteText = passageNotes[slice.text],
+                                        onTapRootX = handleViewportTapAtRootX,
+                                        onLongPressAtChar = { charIdx ->
+                                            handleLongPressOnParagraph(slice.text, charIdx)
+                                        },
                                     )
                                 }
                             }
@@ -634,7 +703,7 @@ fun ReaderScreen(
                                 Arrangement.spacedBy(config.paragraphSpacingDp.dp),
                         ) {
                             for (slice in leftColumnSlices) {
-                                Text(
+                                SelectableReaderParagraph(
                                     text = slice.text,
                                     style =
                                         if (slice.isContinuation) {
@@ -642,7 +711,19 @@ fun ReaderScreen(
                                         } else {
                                             indentedTextStyle
                                         },
-                                    modifier = Modifier.fillMaxWidth(),
+                                    isSelected = selectedPassage == slice.text,
+                                    selectedWord =
+                                        if (selectedPassage == slice.text) {
+                                            selectedWord
+                                        } else {
+                                            null
+                                        },
+                                    highlightColor = passageHighlights[slice.text],
+                                    noteText = passageNotes[slice.text],
+                                    onTapRootX = handleViewportTapAtRootX,
+                                    onLongPressAtChar = { charIdx ->
+                                        handleLongPressOnParagraph(slice.text, charIdx)
+                                    },
                                 )
                             }
                         }
@@ -675,10 +756,22 @@ fun ReaderScreen(
                             )
                         }
                         items(chapterParagraphs) { paragraph ->
-                            Text(
+                            SelectableReaderParagraph(
                                 text = paragraph,
                                 style = indentedTextStyle,
-                                modifier = Modifier.fillMaxWidth(),
+                                isSelected = selectedPassage == paragraph,
+                                selectedWord =
+                                    if (selectedPassage == paragraph) {
+                                        selectedWord
+                                    } else {
+                                        null
+                                    },
+                                highlightColor = passageHighlights[paragraph],
+                                noteText = passageNotes[paragraph],
+                                onTapRootX = handleViewportTapAtRootX,
+                                onLongPressAtChar = { charIdx ->
+                                    handleLongPressOnParagraph(paragraph, charIdx)
+                                },
                             )
                         }
                         item {
@@ -865,27 +958,36 @@ fun ReaderScreen(
                         )
                     }
 
-                    Column(
+                    Row(
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                        horizontalAlignment = Alignment.Start,
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text(
-                            text = page.chapterTitle,
-                            style =
-                                MixuTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                            color = colors.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                        MixuBrandLogo(
+                            size = 26.dp,
+                            cornerRadius = 6.dp,
                         )
-                        Text(
-                            text = viewportState.bookTitle,
-                            style = MixuTheme.typography.caption,
-                            color = colors.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.Start,
+                        ) {
+                            Text(
+                                text = page.chapterTitle,
+                                style =
+                                    MixuTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                    ),
+                                color = colors.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = viewportState.bookTitle,
+                                style = MixuTheme.typography.caption,
+                                color = colors.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
 
                     Row(
@@ -1355,10 +1457,49 @@ fun ReaderScreen(
             }
         }
 
+        // 5B. Floating Long-Press Text Selection, Highlight, Lookup, Translate & Note Overlay
+        val activeSelectedPassage = selectedPassage
+        if (activeSelectedPassage != null) {
+            TextSelectionActionOverlay(
+                passage = activeSelectedPassage,
+                selectedWord = selectedWord,
+                currentHighlightColor = passageHighlights[activeSelectedPassage],
+                currentNote = passageNotes[activeSelectedPassage].orEmpty(),
+                config = config,
+                onSelectWord = { selectedWord = it },
+                onHighlightChange = { color ->
+                    passageHighlights =
+                        if (color == null) {
+                            passageHighlights - activeSelectedPassage
+                        } else {
+                            passageHighlights + (activeSelectedPassage to color)
+                        }
+                },
+                onSaveNote = { note ->
+                    passageNotes =
+                        if (note.isBlank()) {
+                            passageNotes - activeSelectedPassage
+                        } else {
+                            passageNotes + (activeSelectedPassage to note.trim())
+                        }
+                },
+                onOpenFullDictionary = {
+                    showLookupSheet = true
+                },
+                onDismiss = { selectedPassage = null },
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
+
         // 6. Offline + Online Dictionary Lookup & Passage Translation Sheet
         if (showLookupSheet) {
             LookupAndTranslationDialog(
-                sampleParagraph = currentVisibleSampleText,
+                sampleParagraph = selectedPassage ?: currentVisibleSampleText,
+                initialQuery = selectedWord,
                 config = config,
                 onUpdateProviderMode = { mode ->
                     applyConfigChange(config.copy(lookupProviderMode = mode))
@@ -1369,15 +1510,609 @@ fun ReaderScreen(
     }
 }
 
+/**
+ * Extracts a single word or CJK term around [charOffset] inside [text].
+ *
+ * Time complexity: O(N) where N is the length of [text].
+ * Space complexity: O(1) beyond the returned substring.
+ */
+internal fun extractWordAtOffset(
+    text: String,
+    charOffset: Int,
+): String {
+    if (text.isBlank()) return "alibi"
+    val knownTerms =
+        listOf(
+            "alibi",
+            "mustache",
+            "inquest",
+            "veronal",
+            "coroner",
+            "hairdresser",
+            "blackmail",
+            "密室",
+            "不在场证明",
+            "怀表",
+            "アリバイ",
+            "密室",
+        )
+    for (term in knownTerms) {
+        val idx = text.indexOf(term, ignoreCase = true)
+        if (idx >= 0 && charOffset in (idx - 4)..(idx + term.length + 4)) {
+            return term
+        }
+    }
+
+    val safeIdx = charOffset.coerceIn(0, (text.length - 1).coerceAtLeast(0))
+    val ch = text[safeIdx]
+    if (ch.code >= 0x3000) {
+        // CJK character: extract 2-char phrase skipping punctuation
+        val cjkChars =
+            text
+                .drop((safeIdx - 1).coerceAtLeast(0))
+                .filter { it.isLetterOrDigit() && it.code >= 0x3000 }
+                .take(2)
+        if (cjkChars.isNotEmpty()) return cjkChars
+    }
+
+    var start = safeIdx
+    while (start > 0 && (text[start - 1].isLetterOrDigit() || text[start - 1] == '\'')) {
+        start--
+    }
+    var end = safeIdx
+    while (end < text.length && (text[end].isLetterOrDigit() || text[end] == '\'')) {
+        end++
+    }
+    val word = text.substring(start, end).trim('\'', '"', '“', '”', '‘', '’')
+    if (word.length >= 2) return word
+
+    return extractCandidateTokens(text).firstOrNull() ?: "alibi"
+}
+
+/**
+ * Extracts up to 10 candidate lookup words or CJK terms from [text] for quick single-tap selection.
+ *
+ * Time complexity: O(N) where N is the length of [text].
+ * Space complexity: O(K) where K <= 10 is the number of extracted tokens.
+ */
+internal fun extractCandidateTokens(text: String): List<String> {
+    val result = LinkedHashSet<String>()
+    val knownTerms =
+        listOf(
+            "alibi",
+            "mustache",
+            "inquest",
+            "veronal",
+            "coroner",
+            "hairdresser",
+            "passport",
+            "密室",
+            "不在场证明",
+            "怀表",
+            "钟楼",
+            "毒药",
+            "证词",
+            "アリバイ",
+        )
+    for (term in knownTerms) {
+        if (text.contains(term, ignoreCase = true)) {
+            result.add(term)
+        }
+    }
+    val latinRegex = Regex("[A-Za-z]{4,}")
+    for (match in latinRegex.findAll(text)) {
+        val token = match.value
+        if (token.lowercase() !in
+            setOf("that", "this", "with", "from", "have", "what", "when", "been", "they", "were")
+        ) {
+            result.add(token)
+        }
+        if (result.size >= 10) break
+    }
+    if (result.size < 8) {
+        val cjkRuns = Regex("[\\u4E00-\\u9FFF]{2,4}").findAll(text)
+        for (match in cjkRuns) {
+            result.add(match.value.take(2))
+            if (result.size >= 10) break
+        }
+    }
+    if (result.isEmpty()) {
+        result.add("alibi")
+    }
+    return result.toList()
+}
+
+@Composable
+private fun SelectableReaderParagraph(
+    text: String,
+    style: TextStyle,
+    isSelected: Boolean,
+    selectedWord: String?,
+    highlightColor: Color?,
+    noteText: String?,
+    onTapRootX: (Float) -> Unit,
+    onLongPressAtChar: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MixuTheme.colors
+    val einkPolicy = MixuTheme.einkPolicy
+    var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    var rootXOffset by remember { mutableStateOf(0f) }
+
+    val annotated =
+        remember(
+            text,
+            isSelected,
+            selectedWord,
+            highlightColor,
+            colors.primary,
+            einkPolicy.isActive,
+        ) {
+            buildAnnotatedString {
+                append(text)
+                val activeBg =
+                    when {
+                        highlightColor != null ->
+                            if (einkPolicy.isActive) {
+                                colors.surfaceVariant
+                            } else {
+                                highlightColor.copy(alpha = 0.34f)
+                            }
+                        isSelected ->
+                            colors.primaryContainer.copy(
+                                alpha = if (einkPolicy.isActive) 0.35f else 0.50f,
+                            )
+                        else -> null
+                    }
+                if (activeBg != null) {
+                    addStyle(
+                        style =
+                            SpanStyle(
+                                background = activeBg,
+                                textDecoration =
+                                    if (einkPolicy.isActive || highlightColor != null) {
+                                        TextDecoration.Underline
+                                    } else {
+                                        null
+                                    },
+                            ),
+                        start = 0,
+                        end = text.length,
+                    )
+                }
+                if (isSelected && !selectedWord.isNullOrBlank()) {
+                    val wordIdx = text.indexOf(selectedWord, ignoreCase = true)
+                    if (wordIdx >= 0) {
+                        addStyle(
+                            style =
+                                SpanStyle(
+                                    background = colors.primary.copy(alpha = 0.28f),
+                                    fontWeight = FontWeight.Bold,
+                                    textDecoration = TextDecoration.Underline,
+                                ),
+                            start = wordIdx,
+                            end = (wordIdx + selectedWord.length).coerceAtMost(text.length),
+                        )
+                    }
+                }
+            }
+        }
+
+    Column(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .onGloballyPositioned { coords ->
+                    rootXOffset = coords.positionInRoot().x
+                }.pointerInput(text) {
+                    detectTapGestures(
+                        onTap = { localOffset ->
+                            onTapRootX(rootXOffset + localOffset.x)
+                        },
+                        onLongPress = { localOffset ->
+                            val charIdx = layoutResult?.getOffsetForPosition(localOffset) ?: 0
+                            onLongPressAtChar(charIdx)
+                        },
+                    )
+                },
+    ) {
+        Text(
+            text = annotated,
+            style = style,
+            onTextLayout = { layoutResult = it },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (!noteText.isNullOrBlank()) {
+            Row(
+                modifier =
+                    Modifier
+                        .padding(top = 4.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(colors.primaryContainer.copy(alpha = 0.65f))
+                        .border(
+                            0.8.dp,
+                            colors.primary.copy(alpha = 0.5f),
+                            RoundedCornerShape(6.dp),
+                        ).clickable { onLongPressAtChar(0) }
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = "📝 $noteText",
+                    style = MixuTheme.typography.caption,
+                    color = colors.onPrimaryContainer,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+private enum class SelectionToolTab {
+    LOOKUP,
+    TRANSLATE,
+    NOTE,
+}
+
+@Composable
+private fun TextSelectionActionOverlay(
+    passage: String,
+    selectedWord: String,
+    currentHighlightColor: Color?,
+    currentNote: String,
+    config: ReaderDisplayConfig,
+    onSelectWord: (String) -> Unit,
+    onHighlightChange: (Color?) -> Unit,
+    onSaveNote: (String) -> Unit,
+    onOpenFullDictionary: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MixuTheme.colors
+    val eInkPolicy = MixuTheme.einkPolicy
+    val context = LocalContext.current
+    var activeTab by remember { mutableStateOf(SelectionToolTab.LOOKUP) }
+    var noteDraft by remember(passage, currentNote) { mutableStateOf(currentNote) }
+    var copiedFeedback by remember(passage) { mutableStateOf(false) }
+
+    val candidateTokens = remember(passage) { extractCandidateTokens(passage) }
+
+    val lookupResult =
+        remember(
+            selectedWord,
+            config.lookupProviderMode,
+            config.selfHostedApiEnabled,
+            config.selfHostedApiUrl,
+        ) {
+            LookupAndTranslationEngine.lookupWord(
+                query = selectedWord,
+                providerMode = config.lookupProviderMode,
+                selfHostedEnabled = config.selfHostedApiEnabled,
+                selfHostedUrl = config.selfHostedApiUrl,
+            )
+        }
+
+    val translationResult =
+        remember(
+            passage,
+            config.lookupProviderMode,
+            config.selfHostedApiEnabled,
+            config.selfHostedApiUrl,
+        ) {
+            LookupAndTranslationEngine.translatePassage(
+                passage = passage,
+                providerMode = config.lookupProviderMode,
+                selfHostedEnabled = config.selfHostedApiEnabled,
+                selfHostedUrl = config.selfHostedApiUrl,
+            )
+        }
+
+    val highlightSwatches =
+        listOf(
+            Color(0xFFF59E0B),
+            Color(0xFF10B981),
+            Color(0xFF3B82F6),
+            Color(0xFFEC4899),
+        )
+
+    Surface(
+        modifier = modifier.widthIn(max = 760.dp),
+        shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 14.dp),
+        color = colors.surface.copy(alpha = if (eInkPolicy.isActive) 1f else 0.98f),
+        border = BorderStroke(if (eInkPolicy.isActive) 2.dp else 1.dp, colors.outline),
+        shadowElevation = if (eInkPolicy.isActive) 0.dp else 10.dp,
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // Row 1: Title + Highlight Color Swatches + Copy + Dismiss
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.selection_action_highlight),
+                        style = MixuTheme.typography.caption,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onSurface,
+                    )
+                    for (swatch in highlightSwatches) {
+                        val isChosen = currentHighlightColor == swatch
+                        Box(
+                            modifier =
+                                Modifier
+                                    .size(22.dp)
+                                    .clip(CircleShape)
+                                    .background(swatch, CircleShape)
+                                    .border(
+                                        width = if (isChosen) 2.5.dp else 1.dp,
+                                        color =
+                                            if (isChosen) {
+                                                colors.onSurface
+                                            } else {
+                                                colors.outlineVariant
+                                            },
+                                        shape = CircleShape,
+                                    ).clickable {
+                                        onHighlightChange(if (isChosen) null else swatch)
+                                    },
+                        )
+                    }
+                    if (currentHighlightColor != null) {
+                        QuickConfigPill(
+                            label = stringResource(R.string.selection_action_clear_highlight),
+                            selected = false,
+                            onClick = { onHighlightChange(null) },
+                        )
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    QuickConfigPill(
+                        label =
+                            if (copiedFeedback) {
+                                stringResource(R.string.selection_action_copied)
+                            } else {
+                                stringResource(R.string.selection_action_copy)
+                            },
+                        selected = copiedFeedback,
+                        onClick = {
+                            runCatching {
+                                val cm =
+                                    context.getSystemService(
+                                        ClipboardManager::class.java,
+                                    )
+                                cm?.setPrimaryClip(ClipData.newPlainText("Mixu", passage))
+                            }
+                            copiedFeedback = true
+                        },
+                    )
+                    Text(
+                        text = "✕",
+                        style = MixuTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onSurfaceVariant,
+                        modifier =
+                            Modifier
+                                .clickable(onClick = onDismiss)
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
+
+            // Row 2: Selected Text Preview (wrapped in SelectionContainer for native handles)
+            SelectionContainer {
+                Text(
+                    text = "“$passage”",
+                    style = MixuTheme.typography.caption,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            // Row 3: Action Mode Switcher (Dictionary | Translate | Note | Full Dict)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                QuickConfigPill(
+                    label = "📖 " + stringResource(R.string.selection_action_lookup),
+                    selected = activeTab == SelectionToolTab.LOOKUP,
+                    onClick = { activeTab = SelectionToolTab.LOOKUP },
+                    modifier = Modifier.weight(1f),
+                )
+                QuickConfigPill(
+                    label = "🌐 " + stringResource(R.string.selection_action_translate),
+                    selected = activeTab == SelectionToolTab.TRANSLATE,
+                    onClick = { activeTab = SelectionToolTab.TRANSLATE },
+                    modifier = Modifier.weight(1f),
+                )
+                QuickConfigPill(
+                    label = "📝 " + stringResource(R.string.selection_action_note),
+                    selected = activeTab == SelectionToolTab.NOTE,
+                    onClick = { activeTab = SelectionToolTab.NOTE },
+                    modifier = Modifier.weight(1f),
+                )
+                QuickConfigPill(
+                    label = stringResource(R.string.reader_lookup_button) + " ↗",
+                    selected = false,
+                    onClick = onOpenFullDictionary,
+                )
+            }
+
+            // Row 4: Active Tool Content
+            when (activeTab) {
+                SelectionToolTab.LOOKUP -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.selection_word_tokens_label),
+                                style = MixuTheme.typography.caption,
+                                color = colors.onSurfaceVariant,
+                            )
+                            for (token in candidateTokens) {
+                                QuickConfigPill(
+                                    label = token,
+                                    selected = selectedWord.equals(token, ignoreCase = true),
+                                    onClick = { onSelectWord(token) },
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = colors.surfaceVariant.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, colors.outlineVariant),
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        text =
+                                            "${lookupResult.headword}  ${lookupResult.phonetic}  " +
+                                                lookupResult.partOfSpeech,
+                                        style = MixuTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colors.primary,
+                                    )
+                                    Text(
+                                        text =
+                                            "${lookupResult.providerLabel} · ${lookupResult.latencyMs}ms",
+                                        style = MixuTheme.typography.caption,
+                                        color = colors.onSurfaceVariant,
+                                    )
+                                }
+                                Text(
+                                    text = lookupResult.primaryDefinition,
+                                    style = MixuTheme.typography.caption,
+                                    color = colors.onSurface,
+                                )
+                                if (lookupResult.mysteryContextNote != null) {
+                                    Text(
+                                        text = "🔍 " + lookupResult.mysteryContextNote,
+                                        style = MixuTheme.typography.caption,
+                                        color = colors.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SelectionToolTab.TRANSLATE -> {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colors.surfaceVariant.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, colors.outlineVariant),
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = translationResult.endpointSummary,
+                                style = MixuTheme.typography.caption,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.primary,
+                            )
+                            Text(
+                                text = translationResult.offlineTranslation,
+                                style = MixuTheme.typography.caption,
+                                color = colors.onSurface,
+                            )
+                            if (translationResult.onlineTranslation != null) {
+                                Text(
+                                    text = translationResult.onlineTranslation,
+                                    style = MixuTheme.typography.caption,
+                                    color = colors.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                SelectionToolTab.NOTE -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = noteDraft,
+                            onValueChange = { noteDraft = it },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            placeholder = {
+                                Text(
+                                    text = stringResource(R.string.selection_note_hint),
+                                    style = MixuTheme.typography.caption,
+                                )
+                            },
+                        )
+                        Button(
+                            onClick = {
+                                onSaveNote(noteDraft)
+                                if (currentHighlightColor == null && noteDraft.isNotBlank()) {
+                                    onHighlightChange(Color(0xFFF59E0B))
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            colors =
+                                ButtonDefaults.buttonColors(
+                                    containerColor = colors.primary,
+                                    contentColor = colors.onPrimary,
+                                ),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.selection_note_save),
+                                style = MixuTheme.typography.caption,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun LookupAndTranslationDialog(
     sampleParagraph: String,
+    initialQuery: String = "alibi",
     config: ReaderDisplayConfig,
     onUpdateProviderMode: (LookupProviderMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = MixuTheme.colors
-    var wordQuery by remember { mutableStateOf("alibi") }
+    var wordQuery by remember(initialQuery) { mutableStateOf(initialQuery) }
     var downloadedPackIds by remember {
         mutableStateOf(
             LookupAndTranslationEngine

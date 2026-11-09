@@ -6,22 +6,29 @@ package app.mixu.client.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.gestures.ScrollableDefaults
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,26 +37,29 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.mixu.client.R
 import app.mixu.client.auth.UserSession
 import app.mixu.client.config.FontFamilyChoice
-import app.mixu.client.config.GraphDimensionMode
 import app.mixu.client.config.GraphPhysicsMode
 import app.mixu.client.config.LookupProviderMode
 import app.mixu.client.config.MarginPreset
@@ -58,10 +68,17 @@ import app.mixu.client.config.ReaderDisplayConfig
 import app.mixu.client.config.ReaderPreset
 import app.mixu.client.config.ReadingLayoutMode
 import app.mixu.client.eink.EInkMode
-import app.mixu.client.eink.StrokePattern
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.theme.MixuThemeMode
 import app.mixu.graph.EpistemicStatus
+import kotlin.math.roundToInt
+
+private const val REPO_URL_MIXU = "https://github.com/mixu-app/mixu"
+private const val REPO_URL_CLIENT = "https://github.com/mixu-app/mixu-client"
+private const val REPO_URL_ENGINE = "https://github.com/mixu-app/mixu-graph"
+private const val REPO_URL_RESEARCH = "https://github.com/mixu-app/mixu-research"
+private const val REPO_URL_ISSUES = "https://github.com/mixu-app/mixu-client/issues"
+private const val APP_VERSION_NAME = "v0.1.0 (KMP · Compose)"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,7 +92,14 @@ fun SettingsPreviewScreen(
     val colors = MixuTheme.colors
     val typography = MixuTheme.typography
     val einkPolicy = MixuTheme.einkPolicy
+    val uriHandler = LocalUriHandler.current
     val scrollState = rememberScrollState()
+
+    var showEpistemicLegend by remember { mutableStateOf(false) }
+    var showLicenseDialog by remember { mutableStateOf(false) }
+    var showSignInDialog by remember { mutableStateOf(false) }
+    var signedInAccount by remember { mutableStateOf<String?>(null) }
+    var accountDraft by remember { mutableStateOf("reader@mixu.local") }
 
     val flingBehavior =
         if (einkPolicy.isActive) {
@@ -95,88 +119,48 @@ fun SettingsPreviewScreen(
             TopAppBar(
                 navigationIcon = {
                     if (onNavigateBack != null) {
-                        OutlinedButton(
+                        TextButton(
                             onClick = onNavigateBack,
-                            modifier = Modifier.padding(start = 12.dp),
-                            border =
-                                BorderStroke(
-                                    width = if (einkPolicy.isActive) 2.dp else 1.dp,
-                                    color =
-                                        if (einkPolicy.isActive) {
-                                            colors.outline
-                                        } else {
-                                            colors.outlineVariant
-                                        },
-                                ),
-                            shape =
-                                RoundedCornerShape(
-                                    if (einkPolicy.isActive) 0.dp else 6.dp,
-                                ),
+                            modifier = Modifier.padding(start = 4.dp),
                         ) {
                             Text(
-                                text = stringResource(R.string.library_switch_to_library),
-                                style = typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.onSurface,
+                                text = "← " + stringResource(R.string.library_switch_to_library),
+                                style = typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.primary,
                             )
                         }
                     }
                 },
                 title = {
-                    Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        MixuBrandLogo(
+                            size = 28.dp,
+                            cornerRadius = 6.dp,
+                        )
                         Text(
-                            text = stringResource(R.string.app_name),
+                            text =
+                                stringResource(R.string.nav_more) +
+                                    " · " +
+                                    stringResource(R.string.nav_settings),
                             style = typography.titleLarge,
                             color = colors.onSurface,
                             fontWeight = FontWeight.Bold,
                         )
-                        Text(
-                            text = stringResource(R.string.app_tagline),
-                            style = typography.caption,
-                            color = colors.onSurfaceVariant,
-                        )
                     }
                 },
                 actions = {
-                    val badgeText =
-                        if (einkPolicy.isActive) {
-                            stringResource(R.string.eink_active_badge)
-                        } else {
-                            stringResource(R.string.eink_standard_badge)
-                        }
-                    val badgeBg =
-                        if (einkPolicy.isActive) {
-                            colors.surface
-                        } else {
-                            colors.primaryContainer
-                        }
-                    val badgeFg =
-                        if (einkPolicy.isActive) {
-                            colors.onSurface
-                        } else {
-                            colors.onPrimaryContainer
-                        }
-                    Box(
-                        modifier =
-                            Modifier
-                                .padding(end = 12.dp)
-                                .border(
-                                    border =
-                                        BorderStroke(
-                                            width = if (einkPolicy.isActive) 2.dp else 1.dp,
-                                            color = colors.primary,
-                                        ),
-                                    shape = RoundedCornerShape(4.dp),
-                                ).background(
-                                    color = badgeBg,
-                                    shape = RoundedCornerShape(4.dp),
-                                ).padding(horizontal = 8.dp, vertical = 4.dp),
+                    TextButton(
+                        onClick = { onConfigChange(ReaderDisplayConfig.DEFAULT) },
+                        modifier = Modifier.padding(end = 8.dp),
                     ) {
                         Text(
-                            text = badgeText,
+                            text = stringResource(R.string.action_reset),
                             style = typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = badgeFg,
+                            color = colors.onSurfaceVariant,
                         )
                     }
                 },
@@ -188,916 +172,1037 @@ fun SettingsPreviewScreen(
         },
         containerColor = colors.background,
     ) { innerPadding ->
-        Column(
+        Box(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
-                    .verticalScroll(state = scrollState, flingBehavior = flingBehavior)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                    .padding(innerPadding),
+            contentAlignment = Alignment.TopCenter,
         ) {
-            // Section 1: Account & Privacy (Guest Mode status)
-            SectionCard(title = stringResource(R.string.account_heading)) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier =
+                    Modifier
+                        .widthIn(max = 760.dp)
+                        .fillMaxWidth()
+                        .verticalScroll(state = scrollState, flingBehavior = flingBehavior)
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                // =========================================================================
+                // Group 0: Account, Sign-In & Cloud Sync (账号、登录与云端同步)
+                // =========================================================================
+                SettingsGroupCard(title = stringResource(R.string.account_heading)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = stringResource(R.string.account_guest_title),
-                            style = typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.onSurface,
-                        )
-                        Box(
-                            modifier =
-                                Modifier
-                                    .border(
-                                        border =
-                                            BorderStroke(
-                                                width = if (einkPolicy.isActive) 2.dp else 1.dp,
-                                                color = colors.primary,
-                                            ),
-                                        shape = RoundedCornerShape(4.dp),
-                                    ).background(
-                                        color =
-                                            if (einkPolicy.isActive) {
-                                                colors.surface
-                                            } else {
-                                                colors.primaryContainer
-                                            },
-                                        shape = RoundedCornerShape(4.dp),
-                                    ).padding(horizontal = 8.dp, vertical = 3.dp),
+                        Column(
+                            modifier = Modifier.weight(1f).padding(end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
                             Text(
-                                text = stringResource(R.string.account_guest_badge),
-                                style = typography.labelMedium,
+                                text =
+                                    signedInAccount
+                                        ?: stringResource(R.string.account_guest_title),
+                                style = typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
-                                color =
-                                    if (einkPolicy.isActive) {
-                                        colors.onSurface
+                                color = colors.onSurface,
+                            )
+                            Text(
+                                text =
+                                    if (signedInAccount != null) {
+                                        stringResource(R.string.more_account_signed_in_badge) +
+                                            " · " +
+                                            stringResource(R.string.library_tags_sync_badge)
                                     } else {
-                                        colors.onPrimaryContainer
+                                        stringResource(R.string.account_guest_badge) +
+                                            " · " +
+                                            userSession.anonymousId
                                     },
+                                style = typography.caption,
+                                color = colors.primary,
                             )
                         }
+                        CompactSegmentPill(
+                            label = stringResource(R.string.more_account_signin_btn),
+                            isSelected = signedInAccount != null,
+                            onClick = { showSignInDialog = true },
+                        )
                     }
-
                     Text(
                         text = stringResource(R.string.account_guest_desc),
                         style = typography.caption,
                         color = colors.onSurfaceVariant,
                     )
+                }
 
-                    HorizontalDivider(color = colors.outlineVariant)
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
+                // =========================================================================
+                // Group 1: Appearance & Reading (外观与排版)
+                // =========================================================================
+                SettingsGroupCard(title = stringResource(R.string.settings_group_appearance)) {
+                    // 1. Curated Presets Row
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = stringResource(R.string.account_session_id_label),
-                            style = typography.caption,
+                            text = stringResource(R.string.preset_heading),
+                            style = typography.labelMedium,
                             color = colors.onSurfaceVariant,
                         )
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CompactSegmentPill(
+                                label = stringResource(R.string.preset_kindle),
+                                isSelected = config.activePreset == ReaderPreset.KINDLE_CLASSIC,
+                                onClick = {
+                                    onConfigChange(config.applyPreset(ReaderPreset.KINDLE_CLASSIC))
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.preset_readest),
+                                isSelected = config.activePreset == ReaderPreset.READEST_MODERN,
+                                onClick = {
+                                    onConfigChange(config.applyPreset(ReaderPreset.READEST_MODERN))
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.preset_koodo),
+                                isSelected = config.activePreset == ReaderPreset.KOODO_EYECARE,
+                                onClick = {
+                                    onConfigChange(config.applyPreset(ReaderPreset.KOODO_EYECARE))
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.preset_night),
+                                isSelected = config.activePreset == ReaderPreset.NIGHT_DETECTIVE,
+                                onClick = {
+                                    onConfigChange(config.applyPreset(ReaderPreset.NIGHT_DETECTIVE))
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.preset_eink),
+                                isSelected = config.activePreset == ReaderPreset.EINK_CRISP,
+                                onClick = {
+                                    onConfigChange(config.applyPreset(ReaderPreset.EINK_CRISP))
+                                },
+                            )
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    // 2. Color Theme Swatches
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = userSession.anonymousId,
-                            style = typography.caption,
+                            text = stringResource(R.string.theme_label),
+                            style = typography.labelMedium,
+                            color = colors.onSurfaceVariant,
+                        )
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            ThemeSwatchChip(
+                                label = stringResource(R.string.theme_light),
+                                bg = Color(0xFFFAF8F5),
+                                fg = Color(0xFF1A1917),
+                                isSelected = config.themeMode == MixuThemeMode.LIGHT,
+                                onClick = {
+                                    onConfigChange(config.copy(themeMode = MixuThemeMode.LIGHT))
+                                },
+                            )
+                            ThemeSwatchChip(
+                                label = stringResource(R.string.theme_sepia),
+                                bg = Color(0xFFF4ECD8),
+                                fg = Color(0xFF3B3228),
+                                isSelected = config.themeMode == MixuThemeMode.SEPIA,
+                                onClick = {
+                                    onConfigChange(config.copy(themeMode = MixuThemeMode.SEPIA))
+                                },
+                            )
+                            ThemeSwatchChip(
+                                label = stringResource(R.string.theme_mint),
+                                bg = Color(0xFFE4F0E6),
+                                fg = Color(0xFF1E2D22),
+                                isSelected = config.themeMode == MixuThemeMode.MINT,
+                                onClick = {
+                                    onConfigChange(config.copy(themeMode = MixuThemeMode.MINT))
+                                },
+                            )
+                            ThemeSwatchChip(
+                                label = stringResource(R.string.theme_solarized),
+                                bg = Color(0xFFFDF6E3),
+                                fg = Color(0xFF334248),
+                                isSelected = config.themeMode == MixuThemeMode.SOLARIZED,
+                                onClick = {
+                                    onConfigChange(config.copy(themeMode = MixuThemeMode.SOLARIZED))
+                                },
+                            )
+                            ThemeSwatchChip(
+                                label = stringResource(R.string.theme_dark),
+                                bg = Color(0xFF161618),
+                                fg = Color(0xFFE6E1E5),
+                                isSelected = config.themeMode == MixuThemeMode.DARK,
+                                onClick = {
+                                    onConfigChange(config.copy(themeMode = MixuThemeMode.DARK))
+                                },
+                            )
+                            ThemeSwatchChip(
+                                label = stringResource(R.string.theme_nord),
+                                bg = Color(0xFF1E2430),
+                                fg = Color(0xFFD8DEE9),
+                                isSelected = config.themeMode == MixuThemeMode.NORD_DARK,
+                                onClick = {
+                                    onConfigChange(config.copy(themeMode = MixuThemeMode.NORD_DARK))
+                                },
+                            )
+                            ThemeSwatchChip(
+                                label = stringResource(R.string.theme_eink),
+                                bg = Color(0xFFFFFFFF),
+                                fg = Color(0xFF000000),
+                                isSelected = config.themeMode == MixuThemeMode.EINK,
+                                onClick = {
+                                    onConfigChange(config.copy(themeMode = MixuThemeMode.EINK))
+                                },
+                            )
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    // 3. Font Size Stepper Row
+                    SettingsInlineRow(label = stringResource(R.string.font_size_label)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CompactSegmentPill(
+                                label = stringResource(R.string.reader_font_smaller),
+                                isSelected = false,
+                                onClick = {
+                                    val next = (config.fontSizeSp - 1f).coerceIn(12f, 36f)
+                                    onConfigChange(
+                                        config.copy(
+                                            fontSizeSp = next,
+                                            fontScaleMultiplier = 1.0f,
+                                        ),
+                                    )
+                                },
+                            )
+                            Text(
+                                text = "${config.effectiveFontSizeSp().roundToInt()} sp",
+                                style = typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.onSurface,
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.reader_font_larger),
+                                isSelected = false,
+                                onClick = {
+                                    val next = (config.fontSizeSp + 1f).coerceIn(12f, 36f)
+                                    onConfigChange(
+                                        config.copy(
+                                            fontSizeSp = next,
+                                            fontScaleMultiplier = 1.0f,
+                                        ),
+                                    )
+                                },
+                            )
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    // 4. Line Height Inline Selector
+                    SettingsInlineRow(label = stringResource(R.string.line_height_label)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(1.3f, 1.5f, 1.7f, 1.9f).forEach { lh ->
+                                val selected =
+                                    kotlin.math.abs(config.lineHeightMultiplier - lh) < 0.09f
+                                CompactSegmentPill(
+                                    label = "${lh}x",
+                                    isSelected = selected,
+                                    onClick = {
+                                        onConfigChange(config.copy(lineHeightMultiplier = lh))
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    // 5. Font Family Inline Selector
+                    SettingsInlineRow(label = stringResource(R.string.font_family_label)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CompactSegmentPill(
+                                label = stringResource(R.string.font_family_serif),
+                                isSelected = config.fontFamilyChoice == FontFamilyChoice.SERIF,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(fontFamilyChoice = FontFamilyChoice.SERIF),
+                                    )
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.font_family_sans),
+                                isSelected = config.fontFamilyChoice == FontFamilyChoice.SANS_SERIF,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(fontFamilyChoice = FontFamilyChoice.SANS_SERIF),
+                                    )
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.font_family_mono),
+                                isSelected = config.fontFamilyChoice == FontFamilyChoice.MONOSPACE,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(fontFamilyChoice = FontFamilyChoice.MONOSPACE),
+                                    )
+                                },
+                            )
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    // 6. Multi-Column Spread Inline Selector
+                    SettingsInlineRow(label = stringResource(R.string.column_mode_label)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CompactSegmentPill(
+                                label = stringResource(R.string.column_mode_auto),
+                                isSelected = config.pageColumnMode == PageColumnMode.AUTO,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(pageColumnMode = PageColumnMode.AUTO),
+                                    )
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.column_mode_single),
+                                isSelected = config.pageColumnMode == PageColumnMode.SINGLE,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(pageColumnMode = PageColumnMode.SINGLE),
+                                    )
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.column_mode_double),
+                                isSelected = config.pageColumnMode == PageColumnMode.DOUBLE,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(pageColumnMode = PageColumnMode.DOUBLE),
+                                    )
+                                },
+                            )
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    // 7. Page Margins Inline Selector
+                    SettingsInlineRow(label = stringResource(R.string.margin_label)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CompactSegmentPill(
+                                label = stringResource(R.string.margin_compact),
+                                isSelected = config.marginPreset == MarginPreset.COMPACT,
+                                onClick = {
+                                    onConfigChange(config.copy(marginPreset = MarginPreset.COMPACT))
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.margin_normal),
+                                isSelected = config.marginPreset == MarginPreset.NORMAL,
+                                onClick = {
+                                    onConfigChange(config.copy(marginPreset = MarginPreset.NORMAL))
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.margin_wide),
+                                isSelected = config.marginPreset == MarginPreset.WIDE,
+                                onClick = {
+                                    onConfigChange(config.copy(marginPreset = MarginPreset.WIDE))
+                                },
+                            )
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    // 8. Reading Mode (Paged vs Continuous)
+                    SettingsInlineRow(label = stringResource(R.string.reader_layout_mode_label)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CompactSegmentPill(
+                                label = stringResource(R.string.reader_layout_paged),
+                                isSelected = config.readingLayoutMode == ReadingLayoutMode.PAGED,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(readingLayoutMode = ReadingLayoutMode.PAGED),
+                                    )
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.reader_layout_continuous),
+                                isSelected =
+                                    config.readingLayoutMode == ReadingLayoutMode.CONTINUOUS,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(
+                                            readingLayoutMode = ReadingLayoutMode.CONTINUOUS,
+                                        ),
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+
+                // =========================================================================
+                // Group 2: Reading Interaction & Device (阅读交互与设备)
+                // =========================================================================
+                SettingsGroupCard(title = stringResource(R.string.settings_group_interaction)) {
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.reader_immersive_label),
+                        description = stringResource(R.string.reader_immersive_desc),
+                        checked = config.immersiveReaderMode,
+                        onCheckedChange = {
+                            onConfigChange(config.copy(immersiveReaderMode = it))
+                        },
+                    )
+
+                    SettingsDivider()
+
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.reading_volume_key_turn),
+                        description = stringResource(R.string.reading_volume_key_turn_desc),
+                        checked = config.volumeKeyPageTurn,
+                        onCheckedChange = {
+                            onConfigChange(config.copy(volumeKeyPageTurn = it))
+                        },
+                    )
+
+                    SettingsDivider()
+
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.reading_keyboard_turn),
+                        description = stringResource(R.string.reading_keyboard_turn_desc),
+                        checked = config.keyboardPageTurn,
+                        onCheckedChange = {
+                            onConfigChange(config.copy(keyboardPageTurn = it))
+                        },
+                    )
+
+                    SettingsDivider()
+
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.reading_keep_screen_on),
+                        description = stringResource(R.string.reading_keep_screen_on_desc),
+                        checked = config.keepScreenOn,
+                        onCheckedChange = {
+                            onConfigChange(config.copy(keepScreenOn = it))
+                        },
+                    )
+
+                    SettingsDivider()
+
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.reading_auto_bookmark),
+                        description = stringResource(R.string.reading_auto_bookmark_desc),
+                        checked = config.autoBookmark,
+                        onCheckedChange = {
+                            onConfigChange(config.copy(autoBookmark = it))
+                        },
+                    )
+
+                    SettingsDivider()
+
+                    SettingsInlineRow(label = stringResource(R.string.eink_mode_label)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CompactSegmentPill(
+                                label = stringResource(R.string.eink_mode_auto),
+                                isSelected = config.eInkMode == EInkMode.AUTO,
+                                onClick = {
+                                    onConfigChange(config.copy(eInkMode = EInkMode.AUTO))
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.eink_mode_off),
+                                isSelected = config.eInkMode == EInkMode.OFF,
+                                onClick = {
+                                    onConfigChange(config.copy(eInkMode = EInkMode.OFF))
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.eink_mode_force_on),
+                                isSelected = config.eInkMode == EInkMode.FORCE_ON,
+                                onClick = {
+                                    onConfigChange(config.copy(eInkMode = EInkMode.FORCE_ON))
+                                },
+                            )
+                        }
+                    }
+
+                    if (einkPolicy.isActive || config.eInkMode == EInkMode.FORCE_ON) {
+                        SettingsDivider()
+                        SettingsInlineRow(
+                            label = stringResource(R.string.eink_refresh_interval_label),
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf(5, 10, 20, 0).forEach { interval ->
+                                    val text =
+                                        if (interval == 0) {
+                                            stringResource(R.string.eink_refresh_manual_only)
+                                        } else {
+                                            stringResource(
+                                                R.string.eink_refresh_interval_pages,
+                                                interval,
+                                            )
+                                        }
+                                    CompactSegmentPill(
+                                        label = text,
+                                        isSelected = config.eInkFullRefreshInterval == interval,
+                                        onClick = {
+                                            onConfigChange(
+                                                config.copy(eInkFullRefreshInterval = interval),
+                                            )
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    SettingsInlineRow(label = stringResource(R.string.caseboard_physics_label)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CompactSegmentPill(
+                                label = stringResource(R.string.caseboard_physics_spring),
+                                isSelected =
+                                    config.graphPhysicsMode == GraphPhysicsMode.LIVE_SPRING,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(
+                                            graphPhysicsMode = GraphPhysicsMode.LIVE_SPRING,
+                                        ),
+                                    )
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.caseboard_physics_gravity),
+                                isSelected =
+                                    config.graphPhysicsMode == GraphPhysicsMode.STRONG_GRAVITY,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(
+                                            graphPhysicsMode = GraphPhysicsMode.STRONG_GRAVITY,
+                                        ),
+                                    )
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.caseboard_physics_pin),
+                                isSelected = config.graphPhysicsMode == GraphPhysicsMode.PIN_NODE,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(graphPhysicsMode = GraphPhysicsMode.PIN_NODE),
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+
+                // =========================================================================
+                // Group 3: Dictionary, Translation & Custom Server (查词翻译与自建服务)
+                // =========================================================================
+                SettingsGroupCard(title = stringResource(R.string.settings_group_services)) {
+                    SettingsInlineRow(label = stringResource(R.string.reader_lookup_button)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CompactSegmentPill(
+                                label = stringResource(R.string.lookup_mode_hybrid),
+                                isSelected =
+                                    config.lookupProviderMode == LookupProviderMode.HYBRID_AUTO,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(
+                                            lookupProviderMode = LookupProviderMode.HYBRID_AUTO,
+                                        ),
+                                    )
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.lookup_mode_offline),
+                                isSelected =
+                                    config.lookupProviderMode == LookupProviderMode.OFFLINE_LOCAL,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(
+                                            lookupProviderMode = LookupProviderMode.OFFLINE_LOCAL,
+                                        ),
+                                    )
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.lookup_mode_online),
+                                isSelected =
+                                    config.lookupProviderMode == LookupProviderMode.ONLINE_API,
+                                onClick = {
+                                    onConfigChange(
+                                        config.copy(
+                                            lookupProviderMode = LookupProviderMode.ONLINE_API,
+                                        ),
+                                    )
+                                },
+                            )
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    SettingsSwitchRow(
+                        title = stringResource(R.string.self_hosted_enable_label),
+                        description = stringResource(R.string.self_hosted_enable_desc),
+                        checked = config.selfHostedApiEnabled,
+                        onCheckedChange = { enabled ->
+                            onConfigChange(config.copy(selfHostedApiEnabled = enabled))
+                        },
+                    )
+
+                    if (config.selfHostedApiEnabled) {
+                        SettingsDivider()
+
+                        SettingsSwitchRow(
+                            title = stringResource(R.string.self_hosted_stateless_label),
+                            description = stringResource(R.string.self_hosted_stateless_desc),
+                            checked = config.selfHostedStatelessMode,
+                            onCheckedChange = { stateless ->
+                                onConfigChange(config.copy(selfHostedStatelessMode = stateless))
+                            },
+                        )
+
+                        OutlinedTextField(
+                            value = config.selfHostedApiUrl,
+                            onValueChange = { url ->
+                                onConfigChange(config.copy(selfHostedApiUrl = url))
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            singleLine = true,
+                            label = {
+                                Text(
+                                    text = stringResource(R.string.self_hosted_url_label),
+                                    style = typography.caption,
+                                )
+                            },
+                        )
+                    }
+                }
+
+                // =========================================================================
+                // Group 4: Help & Quick Guide (使用帮助与指南)
+                // =========================================================================
+                SettingsGroupCard(title = stringResource(R.string.settings_group_help)) {
+                    HelpGuideItem(
+                        title = stringResource(R.string.help_guide_reader_title),
+                        description = stringResource(R.string.help_guide_reader_desc),
+                    )
+
+                    SettingsDivider()
+
+                    HelpGuideItem(
+                        title = stringResource(R.string.help_guide_spoiler_title),
+                        description = stringResource(R.string.help_guide_spoiler_desc),
+                    )
+
+                    SettingsDivider()
+
+                    HelpGuideItem(
+                        title = stringResource(R.string.help_guide_graph_title),
+                        description = stringResource(R.string.help_guide_graph_desc),
+                    )
+
+                    SettingsDivider()
+
+                    // Collapsible Epistemic Status Legend (collapsed by default)
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { showEpistemicLegend = !showEpistemicLegend }
+                                .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.help_epistemic_toggle),
+                            style = typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                             color = colors.onSurface,
                         )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
                         Text(
-                            text = stringResource(R.string.account_cloud_sync_label),
-                            style = typography.caption,
+                            text = if (showEpistemicLegend) "▴" else "▾",
+                            style = typography.bodyMedium,
                             color = colors.onSurfaceVariant,
                         )
-                        Text(
-                            text = stringResource(R.string.account_cloud_sync_status),
-                            style = typography.caption,
-                            fontWeight = FontWeight.Medium,
-                            color = colors.onSurface,
-                        )
+                    }
+
+                    if (showEpistemicLegend) {
+                        Column(
+                            modifier = Modifier.padding(top = 6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            CompactEpistemicLegendRow(
+                                status = EpistemicStatus.OBSERVED,
+                                title = stringResource(R.string.epistemic_observed),
+                                desc = stringResource(R.string.epistemic_observed_desc),
+                                color = colors.observed,
+                            )
+                            CompactEpistemicLegendRow(
+                                status = EpistemicStatus.CORROBORATED,
+                                title = stringResource(R.string.epistemic_corroborated),
+                                desc = stringResource(R.string.epistemic_corroborated_desc),
+                                color = colors.corroborated,
+                            )
+                            CompactEpistemicLegendRow(
+                                status = EpistemicStatus.CLAIMED,
+                                title = stringResource(R.string.epistemic_claimed),
+                                desc = stringResource(R.string.epistemic_claimed_desc),
+                                color = colors.claimed,
+                            )
+                            CompactEpistemicLegendRow(
+                                status = EpistemicStatus.INFERRED,
+                                title = stringResource(R.string.epistemic_inferred),
+                                desc = stringResource(R.string.epistemic_inferred_desc),
+                                color = colors.inferred,
+                            )
+                            CompactEpistemicLegendRow(
+                                status = EpistemicStatus.CONTRADICTED,
+                                title = stringResource(R.string.epistemic_contradicted),
+                                desc = stringResource(R.string.epistemic_contradicted_desc),
+                                color = colors.contradicted,
+                            )
+                            CompactEpistemicLegendRow(
+                                status = EpistemicStatus.RETRACTED,
+                                title = stringResource(R.string.epistemic_retracted),
+                                desc = stringResource(R.string.epistemic_retracted_desc),
+                                color = colors.retracted,
+                            )
+                            CompactEpistemicLegendRow(
+                                status = EpistemicStatus.UNRESOLVED,
+                                title = stringResource(R.string.epistemic_unresolved),
+                                desc = stringResource(R.string.epistemic_unresolved_desc),
+                                color = colors.unresolved,
+                            )
+                        }
                     }
                 }
-            }
 
-            // Section 2: One-Tap Configuration Presets & Themes
-            SectionCard(title = stringResource(R.string.preset_heading)) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // =========================================================================
+                // Group 5: About Mixu & Source Code Repositories (关于 谜序 Mixu)
+                // =========================================================================
+                SettingsGroupCard(title = stringResource(R.string.settings_group_about)) {
+                    // Brand Identity Header
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.preset_kindle),
-                            isSelected = config.activePreset == ReaderPreset.KINDLE_CLASSIC,
-                            onClick = {
-                                onConfigChange(config.applyPreset(ReaderPreset.KINDLE_CLASSIC))
-                            },
-                            modifier = Modifier.weight(1f),
+                        MixuBrandLogo(
+                            size = 46.dp,
+                            cornerRadius = 11.dp,
                         )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.preset_readest),
-                            isSelected = config.activePreset == ReaderPreset.READEST_MODERN,
-                            onClick = {
-                                onConfigChange(config.applyPreset(ReaderPreset.READEST_MODERN))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.preset_koodo),
-                            isSelected = config.activePreset == ReaderPreset.KOODO_EYECARE,
-                            onClick = {
-                                onConfigChange(config.applyPreset(ReaderPreset.KOODO_EYECARE))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.app_name) + " · Mixu",
+                                    style = typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.onSurface,
+                                )
+                                Text(
+                                    text = APP_VERSION_NAME,
+                                    style = typography.caption,
+                                    color = colors.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                text = stringResource(R.string.app_tagline),
+                                style = typography.caption,
+                                color = colors.onSurfaceVariant,
+                            )
+                            Text(
+                                text =
+                                    stringResource(R.string.account_guest_title) +
+                                        " · " +
+                                        userSession.anonymousId,
+                                style = typography.caption,
+                                color = colors.onSurfaceVariant.copy(alpha = 0.8f),
+                            )
+                        }
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.preset_night),
-                            isSelected = config.activePreset == ReaderPreset.NIGHT_DETECTIVE,
-                            onClick = {
-                                onConfigChange(config.applyPreset(ReaderPreset.NIGHT_DETECTIVE))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.preset_eink),
-                            isSelected = config.activePreset == ReaderPreset.EINK_CRISP,
-                            onClick = {
-                                onConfigChange(config.applyPreset(ReaderPreset.EINK_CRISP))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
+
+                    SettingsDivider()
+
+                    // Source Code: Public Entry Point (mixu)
+                    AboutLinkRow(
+                        title = stringResource(R.string.about_source_mixu_title),
+                        subtitle = stringResource(R.string.about_source_mixu_desc),
+                        trailingSymbol = "↗",
+                        onClick = { runCatching { uriHandler.openUri(REPO_URL_MIXU) } },
+                    )
+
+                    SettingsDivider()
+
+                    // Source Code: Client Repository (mixu-client)
+                    AboutLinkRow(
+                        title = stringResource(R.string.about_source_client_title),
+                        subtitle = stringResource(R.string.about_source_client_desc),
+                        trailingSymbol = "↗",
+                        onClick = { runCatching { uriHandler.openUri(REPO_URL_CLIENT) } },
+                    )
+
+                    SettingsDivider()
+
+                    // Source Code: Core Graph & Spoiler Engine
+                    AboutLinkRow(
+                        title = stringResource(R.string.about_source_engine_title),
+                        subtitle = stringResource(R.string.about_source_engine_desc),
+                        trailingSymbol = "↗",
+                        onClick = { runCatching { uriHandler.openUri(REPO_URL_ENGINE) } },
+                    )
+
+                    SettingsDivider()
+
+                    // Source Code: Research & Synthetic Corpus
+                    AboutLinkRow(
+                        title = stringResource(R.string.about_source_research_title),
+                        subtitle = stringResource(R.string.about_source_research_desc),
+                        trailingSymbol = "↗",
+                        onClick = { runCatching { uriHandler.openUri(REPO_URL_RESEARCH) } },
+                    )
+
+                    SettingsDivider()
+
+                    // Issue Tracker & Feedback
+                    AboutLinkRow(
+                        title = stringResource(R.string.about_issue_tracker_title),
+                        subtitle = stringResource(R.string.about_issue_tracker_desc),
+                        trailingSymbol = "↗",
+                        onClick = { runCatching { uriHandler.openUri(REPO_URL_ISSUES) } },
+                    )
+
+                    SettingsDivider()
+
+                    // Open-Source Licenses & Trademark Policy Dialog
+                    AboutLinkRow(
+                        title = stringResource(R.string.about_license_title),
+                        subtitle = stringResource(R.string.about_license_desc),
+                        trailingSymbol = "›",
+                        onClick = { showLicenseDialog = true },
+                    )
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
             }
+        }
+    }
 
-            // Section 2B: Themes (7 Palettes inspired by Readest, Koodo Reader & Kindle)
-            SectionCard(title = stringResource(R.string.theme_label)) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.theme_light),
-                            isSelected = config.themeMode == MixuThemeMode.LIGHT,
-                            onClick = {
-                                onConfigChange(config.copy(themeMode = MixuThemeMode.LIGHT))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.theme_sepia),
-                            isSelected = config.themeMode == MixuThemeMode.SEPIA,
-                            onClick = {
-                                onConfigChange(config.copy(themeMode = MixuThemeMode.SEPIA))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.theme_mint),
-                            isSelected = config.themeMode == MixuThemeMode.MINT,
-                            onClick = {
-                                onConfigChange(config.copy(themeMode = MixuThemeMode.MINT))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.theme_solarized),
-                            isSelected = config.themeMode == MixuThemeMode.SOLARIZED,
-                            onClick = {
-                                onConfigChange(config.copy(themeMode = MixuThemeMode.SOLARIZED))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.theme_dark),
-                            isSelected = config.themeMode == MixuThemeMode.DARK,
-                            onClick = {
-                                onConfigChange(config.copy(themeMode = MixuThemeMode.DARK))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.theme_nord),
-                            isSelected = config.themeMode == MixuThemeMode.NORD_DARK,
-                            onClick = {
-                                onConfigChange(config.copy(themeMode = MixuThemeMode.NORD_DARK))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.theme_eink),
-                            isSelected = config.themeMode == MixuThemeMode.EINK,
-                            onClick = {
-                                onConfigChange(config.copy(themeMode = MixuThemeMode.EINK))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
-
-            // Section 3: E-Ink Display Policy
-            SectionCard(title = stringResource(R.string.eink_mode_label)) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.eink_mode_auto),
-                            isSelected = config.eInkMode == EInkMode.AUTO,
-                            onClick = { onConfigChange(config.copy(eInkMode = EInkMode.AUTO)) },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.eink_mode_off),
-                            isSelected = config.eInkMode == EInkMode.OFF,
-                            onClick = { onConfigChange(config.copy(eInkMode = EInkMode.OFF)) },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.eink_mode_force_on),
-                            isSelected = config.eInkMode == EInkMode.FORCE_ON,
-                            onClick = {
-                                onConfigChange(config.copy(eInkMode = EInkMode.FORCE_ON))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
+    if (showLicenseDialog) {
+        AlertDialog(
+            onDismissRequest = { showLicenseDialog = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    MixuBrandLogo(size = 28.dp, cornerRadius = 6.dp)
                     Text(
-                        text = stringResource(R.string.eink_animation_suppression_desc),
+                        text = stringResource(R.string.about_license_title),
+                        style = typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            },
+            text = {
+                Text(
+                    text = stringResource(R.string.about_license_dialog_body),
+                    style = typography.bodyMedium,
+                    color = colors.onSurface,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showLicenseDialog = false }) {
+                    Text(stringResource(R.string.settings_reset))
+                }
+            },
+        )
+    }
+
+    if (showSignInDialog) {
+        AlertDialog(
+            onDismissRequest = { showSignInDialog = false },
+            title = {
+                Text(
+                    text = stringResource(R.string.more_account_signin_dialog_title),
+                    style = typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = stringResource(R.string.library_collections_sync_hint),
                         style = typography.caption,
                         color = colors.onSurfaceVariant,
                     )
-
-                    HorizontalDivider(color = colors.outlineVariant)
-
-                    // Refresh interval options
-                    Text(
-                        text = stringResource(R.string.eink_refresh_interval_label),
-                        style = typography.labelLarge,
-                        color = colors.onSurface,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        listOf(5, 10, 20, 0).forEach { interval ->
-                            val text =
-                                if (interval == 0) {
-                                    stringResource(R.string.eink_refresh_manual_only)
-                                } else {
-                                    stringResource(R.string.eink_refresh_interval_pages, interval)
-                                }
-                            ThemeOptionButton(
-                                label = text,
-                                isSelected = config.eInkFullRefreshInterval == interval,
-                                onClick = {
-                                    onConfigChange(
-                                        config.copy(eInkFullRefreshInterval = interval),
-                                    )
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Section 4: Typography and Viewport
-            SectionCard(title = stringResource(R.string.typography_heading)) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // Font Family
-                    Text(
-                        text = stringResource(R.string.font_family_label),
-                        style = typography.labelLarge,
-                        color = colors.onSurface,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.font_family_serif),
-                            isSelected = config.fontFamilyChoice == FontFamilyChoice.SERIF,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(fontFamilyChoice = FontFamilyChoice.SERIF),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.font_family_sans),
-                            isSelected = config.fontFamilyChoice == FontFamilyChoice.SANS_SERIF,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(fontFamilyChoice = FontFamilyChoice.SANS_SERIF),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.font_family_mono),
-                            isSelected = config.fontFamilyChoice == FontFamilyChoice.MONOSPACE,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(fontFamilyChoice = FontFamilyChoice.MONOSPACE),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    // Margins
-                    Text(
-                        text = stringResource(R.string.margin_label),
-                        style = typography.labelLarge,
-                        color = colors.onSurface,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.margin_compact),
-                            isSelected = config.marginPreset == MarginPreset.COMPACT,
-                            onClick = {
-                                onConfigChange(config.copy(marginPreset = MarginPreset.COMPACT))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.margin_normal),
-                            isSelected = config.marginPreset == MarginPreset.NORMAL,
-                            onClick = {
-                                onConfigChange(config.copy(marginPreset = MarginPreset.NORMAL))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.margin_wide),
-                            isSelected = config.marginPreset == MarginPreset.WIDE,
-                            onClick = {
-                                onConfigChange(config.copy(marginPreset = MarginPreset.WIDE))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    // Font scale
-                    val scaleLabel = stringResource(R.string.font_scale_label)
-                    val fontSizeSummary =
-                        "$scaleLabel: ${config.fontScaleMultiplier}x " +
-                            "(${config.effectiveFontSizeSp()} sp)"
-                    Text(
-                        text = fontSizeSummary,
-                        style = typography.labelLarge,
-                        color = colors.onSurface,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        listOf(0.85f, 1.0f, 1.25f, 1.5f).forEach { scale ->
-                            ThemeOptionButton(
-                                label = "${scale}x",
-                                isSelected = config.fontScaleMultiplier == scale,
-                                onClick = {
-                                    onConfigChange(config.copy(fontScaleMultiplier = scale))
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-
-                    // Line height multiplier
-                    val lineHeightLabel = stringResource(R.string.line_height_label)
-                    val lineHeightSummary =
-                        "$lineHeightLabel: ${config.lineHeightMultiplier}x " +
-                            "(${config.effectiveLineHeightSp().toInt()} sp)"
-                    Text(
-                        text = lineHeightSummary,
-                        style = typography.labelLarge,
-                        color = colors.onSurface,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        listOf(1.2f, 1.5f, 1.8f, 2.0f).forEach { lh ->
-                            ThemeOptionButton(
-                                label = "${lh}x",
-                                isSelected = config.lineHeightMultiplier == lh,
-                                onClick = {
-                                    onConfigChange(config.copy(lineHeightMultiplier = lh))
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-
-                    // Reading Layout Mode (Paged vs Continuous Scroll)
-                    Text(
-                        text = stringResource(R.string.reader_layout_mode_label),
-                        style = typography.labelLarge,
-                        color = colors.onSurface,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.reader_layout_paged),
-                            isSelected = config.readingLayoutMode == ReadingLayoutMode.PAGED,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(readingLayoutMode = ReadingLayoutMode.PAGED),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.reader_layout_continuous),
-                            isSelected =
-                                config.readingLayoutMode == ReadingLayoutMode.CONTINUOUS,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(readingLayoutMode = ReadingLayoutMode.CONTINUOUS),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    // CJK First-Line Paragraph Indentation
-                    Text(
-                        text = stringResource(R.string.reader_indent_label),
-                        style = typography.labelLarge,
-                        color = colors.onSurface,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.reader_indent_2em),
-                            isSelected = config.paragraphIndentEm > 0f,
-                            onClick = {
-                                onConfigChange(config.copy(paragraphIndentEm = 2.0f))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.reader_indent_none),
-                            isSelected = config.paragraphIndentEm == 0f,
-                            onClick = {
-                                onConfigChange(config.copy(paragraphIndentEm = 0f))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    // Multi-Column Spread Mode (Auto / Single / Double)
-                    Text(
-                        text = stringResource(R.string.column_mode_label),
-                        style = typography.labelLarge,
-                        color = colors.onSurface,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.column_mode_auto),
-                            isSelected = config.pageColumnMode == PageColumnMode.AUTO,
-                            onClick = {
-                                onConfigChange(config.copy(pageColumnMode = PageColumnMode.AUTO))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.column_mode_single),
-                            isSelected = config.pageColumnMode == PageColumnMode.SINGLE,
-                            onClick = {
-                                onConfigChange(config.copy(pageColumnMode = PageColumnMode.SINGLE))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.column_mode_double),
-                            isSelected = config.pageColumnMode == PageColumnMode.DOUBLE,
-                            onClick = {
-                                onConfigChange(config.copy(pageColumnMode = PageColumnMode.DOUBLE))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    // Default Knowledge Graph Layout Mode
-                    Text(
-                        text = stringResource(R.string.caseboard_tab_graph),
-                        style = typography.labelLarge,
-                        color = colors.onSurface,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.caseboard_graph_mode_2d),
-                            isSelected = config.graphDimensionMode == GraphDimensionMode.FORCE_2D,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(graphDimensionMode = GraphDimensionMode.FORCE_2D),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.caseboard_graph_mode_hierarchical),
-                            isSelected =
-                                config.graphDimensionMode == GraphDimensionMode.HIERARCHICAL,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(
-                                        graphDimensionMode = GraphDimensionMode.HIERARCHICAL,
-                                    ),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    // Knowledge Graph Interactive Drag Physics Mode
-                    Text(
-                        text = stringResource(R.string.caseboard_physics_label),
-                        style = typography.labelLarge,
-                        color = colors.onSurface,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.caseboard_physics_spring),
-                            isSelected = config.graphPhysicsMode == GraphPhysicsMode.LIVE_SPRING,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(graphPhysicsMode = GraphPhysicsMode.LIVE_SPRING),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.caseboard_physics_gravity),
-                            isSelected = config.graphPhysicsMode == GraphPhysicsMode.STRONG_GRAVITY,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(graphPhysicsMode = GraphPhysicsMode.STRONG_GRAVITY),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.caseboard_physics_pin),
-                            isSelected = config.graphPhysicsMode == GraphPhysicsMode.PIN_NODE,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(graphPhysicsMode = GraphPhysicsMode.PIN_NODE),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
-
-            // Section 5: Reading Behavior & Hardware Controls (Keyboard / Bluetooth / Volume Keys)
-            SectionCard(title = stringResource(R.string.reading_defaults_heading)) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PreferenceToggleRow(
-                        title = stringResource(R.string.reader_immersive_label),
-                        description = stringResource(R.string.reader_immersive_desc),
-                        enabled = config.immersiveReaderMode,
-                        onToggle = { enabled ->
-                            onConfigChange(config.copy(immersiveReaderMode = enabled))
-                        },
-                    )
-
-                    HorizontalDivider(color = colors.outlineVariant)
-
-                    PreferenceToggleRow(
-                        title = stringResource(R.string.reading_volume_key_turn),
-                        description = stringResource(R.string.reading_volume_key_turn_desc),
-                        enabled = config.volumeKeyPageTurn,
-                        onToggle = { enabled ->
-                            onConfigChange(config.copy(volumeKeyPageTurn = enabled))
-                        },
-                    )
-
-                    HorizontalDivider(color = colors.outlineVariant)
-
-                    PreferenceToggleRow(
-                        title = stringResource(R.string.reading_keyboard_turn),
-                        description = stringResource(R.string.reading_keyboard_turn_desc),
-                        enabled = config.keyboardPageTurn,
-                        onToggle = { enabled ->
-                            onConfigChange(config.copy(keyboardPageTurn = enabled))
-                        },
-                    )
-
-                    HorizontalDivider(color = colors.outlineVariant)
-
-                    PreferenceToggleRow(
-                        title = stringResource(R.string.reading_keep_screen_on),
-                        description = stringResource(R.string.reading_keep_screen_on_desc),
-                        enabled = config.keepScreenOn,
-                        onToggle = { enabled ->
-                            onConfigChange(config.copy(keepScreenOn = enabled))
-                        },
-                    )
-
-                    HorizontalDivider(color = colors.outlineVariant)
-
-                    PreferenceToggleRow(
-                        title = stringResource(R.string.reading_auto_bookmark),
-                        description = stringResource(R.string.reading_auto_bookmark_desc),
-                        enabled = config.autoBookmark,
-                        onToggle = { enabled ->
-                            onConfigChange(config.copy(autoBookmark = enabled))
-                        },
-                    )
-                }
-            }
-
-            // Section 5B: Dictionary Lookup, Translation & Self-Hosted Stateless API
-            SectionCard(title = stringResource(R.string.self_hosted_heading)) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = stringResource(R.string.lookup_dialog_title),
-                        style = typography.labelLarge,
-                        color = colors.onSurface,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeOptionButton(
-                            label = stringResource(R.string.lookup_mode_hybrid),
-                            isSelected =
-                                config.lookupProviderMode == LookupProviderMode.HYBRID_AUTO,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(
-                                        lookupProviderMode = LookupProviderMode.HYBRID_AUTO,
-                                    ),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.lookup_mode_offline),
-                            isSelected =
-                                config.lookupProviderMode == LookupProviderMode.OFFLINE_LOCAL,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(
-                                        lookupProviderMode = LookupProviderMode.OFFLINE_LOCAL,
-                                    ),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        ThemeOptionButton(
-                            label = stringResource(R.string.lookup_mode_online),
-                            isSelected =
-                                config.lookupProviderMode == LookupProviderMode.ONLINE_API,
-                            onClick = {
-                                onConfigChange(
-                                    config.copy(lookupProviderMode = LookupProviderMode.ONLINE_API),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    HorizontalDivider(color = colors.outlineVariant)
-
-                    PreferenceToggleRow(
-                        title = stringResource(R.string.self_hosted_enable_label),
-                        description = stringResource(R.string.self_hosted_enable_desc),
-                        enabled = config.selfHostedApiEnabled,
-                        onToggle = { enabled ->
-                            val defaultEndpoint =
-                                if (enabled && config.selfHostedApiUrl.isBlank()) {
-                                    "https://mixu-gateway.example.com/v1"
-                                } else {
-                                    config.selfHostedApiUrl
-                                }
-                            onConfigChange(
-                                config.copy(
-                                    selfHostedApiEnabled = enabled,
-                                    selfHostedApiUrl = defaultEndpoint,
-                                ),
-                            )
-                        },
-                    )
-
-                    PreferenceToggleRow(
-                        title = stringResource(R.string.self_hosted_stateless_label),
-                        description = stringResource(R.string.self_hosted_stateless_desc),
-                        enabled = config.selfHostedStatelessMode,
-                        onToggle = { enabled ->
-                            onConfigChange(config.copy(selfHostedStatelessMode = enabled))
-                        },
-                    )
-
                     OutlinedTextField(
-                        value = config.selfHostedApiUrl,
-                        onValueChange = { url ->
-                            onConfigChange(config.copy(selfHostedApiUrl = url))
-                        },
+                        value = accountDraft,
+                        onValueChange = { accountDraft = it },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         label = {
                             Text(
-                                text = stringResource(R.string.self_hosted_url_label),
+                                text = stringResource(R.string.more_account_email_label),
                                 style = typography.caption,
                             )
                         },
                     )
                 }
-            }
-
-            // Section 6: Book Import Defaults
-            SectionCard(title = stringResource(R.string.import_defaults_heading)) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PreferenceToggleRow(
-                        title = stringResource(R.string.import_auto_detect_chapters),
-                        description = stringResource(R.string.import_auto_detect_chapters_desc),
-                        enabled = config.autoDetectChapters,
-                        onToggle = { enabled ->
-                            onConfigChange(config.copy(autoDetectChapters = enabled))
-                        },
-                    )
-
-                    HorizontalDivider(color = colors.outlineVariant)
-
-                    PreferenceToggleRow(
-                        title = stringResource(R.string.import_auto_extract_graph),
-                        description = stringResource(R.string.import_auto_extract_graph_desc),
-                        enabled = config.autoExtractGraphOnImport,
-                        onToggle = { enabled ->
-                            onConfigChange(config.copy(autoExtractGraphOnImport = enabled))
-                        },
-                    )
-                }
-            }
-
-            // Section 7: Epistemic Status Markers Showcase
-            SectionCard(title = stringResource(R.string.epistemic_heading)) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    EpistemicMarkerCard(
-                        status = EpistemicStatus.OBSERVED,
-                        title = stringResource(R.string.epistemic_observed),
-                        description = stringResource(R.string.epistemic_observed_desc),
-                        color = colors.observed,
-                    )
-                    EpistemicMarkerCard(
-                        status = EpistemicStatus.CORROBORATED,
-                        title = stringResource(R.string.epistemic_corroborated),
-                        description = stringResource(R.string.epistemic_corroborated_desc),
-                        color = colors.corroborated,
-                    )
-                    EpistemicMarkerCard(
-                        status = EpistemicStatus.CLAIMED,
-                        title = stringResource(R.string.epistemic_claimed),
-                        description = stringResource(R.string.epistemic_claimed_desc),
-                        color = colors.claimed,
-                    )
-                    EpistemicMarkerCard(
-                        status = EpistemicStatus.INFERRED,
-                        title = stringResource(R.string.epistemic_inferred),
-                        description = stringResource(R.string.epistemic_inferred_desc),
-                        color = colors.inferred,
-                    )
-                    EpistemicMarkerCard(
-                        status = EpistemicStatus.CONTRADICTED,
-                        title = stringResource(R.string.epistemic_contradicted),
-                        description = stringResource(R.string.epistemic_contradicted_desc),
-                        color = colors.contradicted,
-                    )
-                    EpistemicMarkerCard(
-                        status = EpistemicStatus.RETRACTED,
-                        title = stringResource(R.string.epistemic_retracted),
-                        description = stringResource(R.string.epistemic_retracted_desc),
-                        color = colors.retracted,
-                    )
-                    EpistemicMarkerCard(
-                        status = EpistemicStatus.UNRESOLVED,
-                        title = stringResource(R.string.epistemic_unresolved),
-                        description = stringResource(R.string.epistemic_unresolved_desc),
-                        color = colors.unresolved,
-                    )
-                }
-            }
-
-            // Section 8: Reading Surface Live Preview
-            SectionCard(title = stringResource(R.string.sample_preview_title)) {
-                val horizontalMargin = config.marginPreset.horizontalDp
-                val verticalMargin = config.marginPreset.verticalDp
-                val effectiveFontSize = config.effectiveFontSizeSp().sp
-                val effectiveLineHeight = config.effectiveLineHeightSp().sp
-                val fontFamily = config.fontFamilyChoice.toComposeFontFamily()
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(if (einkPolicy.isActive) 0.dp else 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = colors.surface),
-                    border =
-                        BorderStroke(
-                            width = if (einkPolicy.isActive) 2.dp else 1.dp,
-                            color = colors.outline,
-                        ),
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        signedInAccount = null
+                        showSignInDialog = false
+                    },
                 ) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    horizontal = horizontalMargin,
-                                    vertical = verticalMargin,
-                                ),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.sample_preview_body),
-                            fontSize = effectiveFontSize,
-                            lineHeight = effectiveLineHeight,
-                            fontFamily = fontFamily,
-                            color = colors.onSurface,
-                        )
-                    }
+                    Text(stringResource(R.string.more_account_switch_guest))
                 }
-            }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val trimmed = accountDraft.trim()
+                        if (trimmed.isNotEmpty()) {
+                            signedInAccount = trimmed
+                        }
+                        showSignInDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.more_account_signin_confirm))
+                }
+            },
+        )
+    }
+}
 
-            // Action: Reset
-            OutlinedButton(
-                onClick = { onConfigChange(ReaderDisplayConfig.DEFAULT) },
-                modifier = Modifier.fillMaxWidth(),
-                border =
-                    BorderStroke(
-                        width = if (einkPolicy.isActive) 2.dp else 1.dp,
-                        color = colors.outline,
-                    ),
+@Composable
+private fun SettingsGroupCard(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val colors = MixuTheme.colors
+    val typography = MixuTheme.typography
+    val einkPolicy = MixuTheme.einkPolicy
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = title,
+            style = typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = colors.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(if (einkPolicy.isActive) 0.dp else 12.dp),
+            colors = CardDefaults.cardColors(containerColor = colors.surface),
+            border =
+                BorderStroke(
+                    width = if (einkPolicy.isActive) 1.5.dp else 1.dp,
+                    color =
+                        colors.outlineVariant.copy(
+                            alpha = if (einkPolicy.isActive) 1f else 0.6f,
+                        ),
+                ),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    text = stringResource(R.string.action_reset),
-                    style = typography.labelLarge,
-                    color = colors.onSurface,
-                )
+                content()
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
-private fun PreferenceToggleRow(
+private fun SettingsDivider() {
+    val colors = MixuTheme.colors
+    HorizontalDivider(
+        thickness = 0.5.dp,
+        color = colors.outlineVariant.copy(alpha = 0.5f),
+    )
+}
+
+@Composable
+private fun SettingsInlineRow(
+    label: String,
+    modifier: Modifier = Modifier,
+    control: @Composable () -> Unit,
+) {
+    val colors = MixuTheme.colors
+    val typography = MixuTheme.typography
+
+    Row(
+        modifier = modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = colors.onSurface,
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
+        )
+        control()
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(
     title: String,
     description: String,
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
     val typography = MixuTheme.typography
 
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .clickable { onCheckedChange(!checked) }
+                .padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1110,7 +1215,7 @@ private fun PreferenceToggleRow(
             Text(
                 text = title,
                 style = typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 color = colors.onSurface,
             )
             Text(
@@ -1119,60 +1224,22 @@ private fun PreferenceToggleRow(
                 color = colors.onSurfaceVariant,
             )
         }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            ThemeOptionButton(
-                label = stringResource(R.string.setting_toggle_enabled),
-                isSelected = enabled,
-                onClick = { onToggle(true) },
-            )
-            ThemeOptionButton(
-                label = stringResource(R.string.setting_toggle_disabled),
-                isSelected = !enabled,
-                onClick = { onToggle(false) },
-            )
-        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors =
+                SwitchDefaults.colors(
+                    checkedThumbColor = colors.onPrimary,
+                    checkedTrackColor = colors.primary,
+                    uncheckedThumbColor = colors.onSurfaceVariant,
+                    uncheckedTrackColor = colors.surfaceVariant,
+                ),
+        )
     }
 }
 
 @Composable
-private fun SectionCard(
-    title: String,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    val colors = MixuTheme.colors
-    val typography = MixuTheme.typography
-    val einkPolicy = MixuTheme.einkPolicy
-
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(if (einkPolicy.isActive) 0.dp else 12.dp),
-        colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant),
-        border =
-            BorderStroke(
-                width = if (einkPolicy.isActive) 2.dp else 1.dp,
-                color = colors.outlineVariant,
-            ),
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = title,
-                style = typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = colors.onSurfaceVariant,
-            )
-            content()
-        }
-    }
-}
-
-@Composable
-private fun ThemeOptionButton(
+private fun CompactSegmentPill(
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit,
@@ -1181,144 +1248,198 @@ private fun ThemeOptionButton(
     val colors = MixuTheme.colors
     val typography = MixuTheme.typography
     val einkPolicy = MixuTheme.einkPolicy
-
-    val strokeWidth = if (einkPolicy.isActive) 2.dp else 1.dp
     val shape = RoundedCornerShape(if (einkPolicy.isActive) 0.dp else 8.dp)
 
-    if (isSelected) {
-        Button(
-            onClick = onClick,
-            modifier = modifier,
-            shape = shape,
-            colors =
-                ButtonDefaults.buttonColors(
-                    containerColor = colors.primary,
-                    contentColor = colors.onPrimary,
-                ),
-            border = BorderStroke(strokeWidth, colors.outline),
-        ) {
-            Text(
-                text = label,
-                style = typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-            )
-        }
-    } else {
-        OutlinedButton(
-            onClick = onClick,
-            modifier = modifier,
-            shape = shape,
-            border = BorderStroke(strokeWidth, colors.outlineVariant),
-            colors =
-                ButtonDefaults.outlinedButtonColors(
-                    contentColor = colors.onSurface,
-                ),
-        ) {
-            Text(
-                text = label,
-                style = typography.labelMedium,
-                maxLines = 1,
-            )
-        }
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.sizeIn(minWidth = 44.dp, minHeight = 32.dp),
+        shape = shape,
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+        border =
+            BorderStroke(
+                width = if (isSelected) 1.5.dp else 1.dp,
+                color = if (isSelected) colors.primary else colors.outlineVariant,
+            ),
+        colors =
+            ButtonDefaults.outlinedButtonColors(
+                containerColor =
+                    if (isSelected) {
+                        colors.primaryContainer
+                    } else {
+                        Color.Transparent
+                    },
+                contentColor =
+                    if (isSelected) {
+                        colors.onPrimaryContainer
+                    } else {
+                        colors.onSurface
+                    },
+            ),
+    ) {
+        Text(
+            text = label,
+            style = typography.caption,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+        )
     }
 }
 
 @Composable
-private fun EpistemicMarkerCard(
-    status: EpistemicStatus,
+private fun ThemeSwatchChip(
+    label: String,
+    bg: Color,
+    fg: Color,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = MixuTheme.colors
+    val typography = MixuTheme.typography
+    val einkPolicy = MixuTheme.einkPolicy
+    val shape = RoundedCornerShape(if (einkPolicy.isActive) 0.dp else 18.dp)
+
+    Row(
+        modifier =
+            Modifier
+                .clip(shape)
+                .background(bg, shape)
+                .border(
+                    width = if (isSelected) 2.dp else 1.dp,
+                    color = if (isSelected) colors.primary else fg.copy(alpha = 0.28f),
+                    shape = shape,
+                ).clickable(onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .size(8.dp)
+                    .background(
+                        color = if (isSelected) colors.primary else fg.copy(alpha = 0.5f),
+                        shape = CircleShape,
+                    ),
+        )
+        Text(
+            text = label,
+            style = typography.caption,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            color = fg,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun HelpGuideItem(
     title: String,
     description: String,
+) {
+    val colors = MixuTheme.colors
+    val typography = MixuTheme.typography
+
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = title,
+            style = typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = colors.onSurface,
+        )
+        Text(
+            text = description,
+            style = typography.caption,
+            color = colors.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun CompactEpistemicLegendRow(
+    status: EpistemicStatus,
+    title: String,
+    desc: String,
     color: Color,
-    modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
     val typography = MixuTheme.typography
     val einkPolicy = MixuTheme.einkPolicy
     val strokeStyle = remember(status, einkPolicy) { einkPolicy.getEpistemicStroke(status) }
 
-    val effectiveColor = if (einkPolicy.isActive) colors.onSurface else color
-    val borderModifier =
-        Modifier.drawBehind {
-            val strokePx = strokeStyle.strokeWidthDp.toPx()
-            val pathEffect =
-                when (strokeStyle.pattern) {
-                    StrokePattern.SOLID -> null
-                    StrokePattern.DASHED -> PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
-                    StrokePattern.DOTTED -> PathEffect.dashPathEffect(floatArrayOf(4f, 6f), 0f)
-                    StrokePattern.DOUBLE -> null
-                }
-
-            if (strokeStyle.pattern == StrokePattern.DOUBLE) {
-                // Outer stroke
-                drawRect(
-                    color = effectiveColor,
-                    topLeft = Offset(0f, 0f),
-                    size = size,
-                    style = Stroke(width = strokePx / 2f),
-                )
-                // Inner stroke
-                drawRect(
-                    color = effectiveColor,
-                    topLeft = Offset(strokePx, strokePx),
-                    size =
-                        size.copy(
-                            width = size.width - 2 * strokePx,
-                            height = size.height - 2 * strokePx,
-                        ),
-                    style = Stroke(width = strokePx / 2f),
-                )
-            } else {
-                drawRect(
-                    color = effectiveColor,
-                    topLeft = Offset.Zero,
-                    size = size,
-                    style =
-                        Stroke(
-                            width = strokePx,
-                            pathEffect = pathEffect,
-                        ),
-                )
-            }
-        }
-
-    Box(
+    Row(
         modifier =
-            modifier
+            Modifier
                 .fillMaxWidth()
-                .then(borderModifier)
-                .background(colors.surface)
-                .padding(10.dp),
+                .background(
+                    color = colors.surfaceVariant.copy(alpha = 0.45f),
+                    shape = RoundedCornerShape(6.dp),
+                ).padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+        Text(
+            text = strokeStyle.symbolBadge,
+            style = typography.caption,
+            fontWeight = FontWeight.Bold,
+            color = if (einkPolicy.isActive) colors.onSurface else color,
+        )
+        Text(
+            text = title,
+            style = typography.caption,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.onSurface,
+        )
+        Text(
+            text = "· $desc",
+            style = typography.caption,
+            color = colors.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun AboutLinkRow(
+    title: String,
+    subtitle: String,
+    trailingSymbol: String,
+    onClick: () -> Unit,
+) {
+    val colors = MixuTheme.colors
+    val typography = MixuTheme.typography
+
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = strokeStyle.symbolBadge,
-                        style = typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = effectiveColor,
-                    )
-                    Text(
-                        text = title,
-                        style = typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colors.onSurface,
-                    )
-                }
-                Text(
-                    text = description,
-                    style = typography.caption,
-                    color = colors.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = title,
+                style = typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = colors.onSurface,
+            )
+            Text(
+                text = subtitle,
+                style = typography.caption,
+                color = colors.onSurfaceVariant,
+            )
         }
+        Text(
+            text = trailingSymbol,
+            style = typography.titleMedium,
+            color = colors.primary,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }

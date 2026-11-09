@@ -13,8 +13,8 @@ class ThemeTokensTest {
     fun lightThemeHasSufficientContrastAndDistinctEpistemicColors() {
         val light = LightMixuColors
         assertFalse(light.isEInk)
-        assertEquals(Color(0xFFFBFBFD), light.background)
-        assertEquals(Color(0xFF1A1C1E), light.onBackground)
+        assertEquals(Color(0xFFFAF8F5), light.background)
+        assertEquals(Color(0xFF1C1B19), light.onBackground)
 
         // Epistemic statuses must have distinct color markers
         val epistemicColors =
@@ -34,8 +34,8 @@ class ThemeTokensTest {
     fun darkThemeUsesSoftDarkTonesToAvoidEyeStrain() {
         val dark = DarkMixuColors
         assertFalse(dark.isEInk)
-        assertEquals(Color(0xFF121212), dark.background)
-        assertEquals(Color(0xFFE2E2E6), dark.onBackground)
+        assertEquals(Color(0xFF141619), dark.background)
+        assertEquals(Color(0xFFE2E4E9), dark.onBackground)
 
         val epistemicColors =
             setOf(
@@ -51,12 +51,24 @@ class ThemeTokensTest {
     }
 
     @Test
-    fun sepiaThemeReflectsWarmPaperTones() {
+    fun sepiaAndExtendedThemesReflectCuratedReadingPalettes() {
         val sepia = SepiaMixuColors
         assertFalse(sepia.isEInk)
-        assertEquals(Color(0xFFF8F1E3), sepia.background)
-        assertEquals(Color(0xFF3E2723), sepia.onBackground)
-        assertEquals(Color(0xFF4E342E), sepia.primary)
+        assertEquals(Color(0xFFF5ECD7), sepia.background)
+        assertEquals(Color(0xFF38291E), sepia.onBackground)
+        assertEquals(Color(0xFF6B3E26), sepia.primary)
+
+        val mint = MintMixuColors
+        assertFalse(mint.isEInk)
+        assertEquals(Color(0xFFDCEFE2), mint.background)
+
+        val solarized = SolarizedMixuColors
+        assertFalse(solarized.isEInk)
+        assertEquals(Color(0xFFFDF6E3), solarized.background)
+
+        val nord = NordDarkMixuColors
+        assertFalse(nord.isEInk)
+        assertEquals(Color(0xFF242933), nord.background)
     }
 
     @Test

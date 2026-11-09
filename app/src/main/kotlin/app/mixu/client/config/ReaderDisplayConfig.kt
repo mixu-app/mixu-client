@@ -14,9 +14,9 @@ enum class MarginPreset(
     val horizontalDp: Dp,
     val verticalDp: Dp,
 ) {
-    COMPACT(horizontalDp = 12.dp, verticalDp = 16.dp),
-    NORMAL(horizontalDp = 20.dp, verticalDp = 24.dp),
-    WIDE(horizontalDp = 32.dp, verticalDp = 32.dp),
+    COMPACT(horizontalDp = 12.dp, verticalDp = 12.dp),
+    NORMAL(horizontalDp = 20.dp, verticalDp = 16.dp),
+    WIDE(horizontalDp = 32.dp, verticalDp = 24.dp),
 }
 
 /**
@@ -45,6 +45,20 @@ enum class ReadingLayoutMode {
 }
 
 /**
+ * Multi-column book spread policy inspired by Kindle, Readest, and Koodo Reader.
+ */
+enum class PageColumnMode {
+    /** Automatically uses 2-column open-book spread on wide viewports (>= 840dp) and 1-column on phones/E-Ink. */
+    AUTO,
+
+    /** Always renders a single full-height column. */
+    SINGLE,
+
+    /** Renders a two-column open-book spread when viewport width >= 600dp. */
+    DOUBLE,
+}
+
+/**
  * 2D knowledge graph layout mode in the Case Board.
  */
 enum class GraphDimensionMode {
@@ -53,7 +67,55 @@ enum class GraphDimensionMode {
 }
 
 /**
- * Persistent reader display, typography, and reading/import defaults.
+ * Interactive node drag & force-directed physics coupling mode in the 2D Knowledge Graph.
+ */
+enum class GraphPhysicsMode {
+    /** Dragging a node dynamically pulls connected neighbor nodes via Hooke spring attraction and Coulomb repulsion. */
+    LIVE_SPRING,
+
+    /** Stronger central gravity and tighter spring coupling when dragging hub nodes. */
+    STRONG_GRAVITY,
+
+    /** Dragging a node pins it independently at the dropped position without displacing neighbor nodes. */
+    PIN_NODE,
+}
+
+/**
+ * Dictionary lookup and paragraph translation provider mode.
+ */
+enum class LookupProviderMode {
+    /** Uses fast offline local dictionary/NMT packs first, with optional online API enrichment when configured. */
+    HYBRID_AUTO,
+
+    /** Strictly uses local downloaded dictionary and translation packs (<1ms latency, zero network). */
+    OFFLINE_LOCAL,
+
+    /** Uses the user's configured online / self-hosted API endpoint for context-aware translation and lookup. */
+    ONLINE_API,
+}
+
+/**
+ * Curated one-tap reading and typography configuration presets.
+ */
+enum class ReaderPreset {
+    /** Kindle e-reader classic: warm paper, crisp serif, compact margins, full-height single/auto column. */
+    KINDLE_CLASSIC,
+
+    /** Readest modern wide/dual-column: Solarized warm cream, 2-column spread on landscape tablet, 1.6x line spacing. */
+    READEST_MODERN,
+
+    /** Koodo Reader eye-care oasis: Mint sage green background, comfortable 1.68x line spacing, sans-serif clarity. */
+    KOODO_EYECARE,
+
+    /** Nord dark detective: low-glare slate night palette for extended nighttime mystery reading. */
+    NIGHT_DETECTIVE,
+
+    /** E-Ink crisp monochrome: pure black-on-white, zero animation, static high-repulsion 2D graph. */
+    EINK_CRISP,
+}
+
+/**
+ * Persistent reader display, typography, hardware input, lookup, and self-hosted API defaults.
  *
  * Can be maintained as a global application default or customized per individual book edition.
  */
@@ -71,13 +133,21 @@ data class ReaderDisplayConfig(
     val autoDetectChapters: Boolean = true,
     val autoExtractGraphOnImport: Boolean = false,
     val readingLayoutMode: ReadingLayoutMode = ReadingLayoutMode.PAGED,
+    val pageColumnMode: PageColumnMode = PageColumnMode.AUTO,
     val paragraphIndentEm: Float = 2.0f,
     val paragraphSpacingDp: Float = 10f,
     val letterSpacingSp: Float = 0.4f,
     val justifyText: Boolean = true,
-    val maxReadingWidthDp: Int = 780,
+    val maxReadingWidthDp: Int = 920,
     val immersiveReaderMode: Boolean = true,
     val graphDimensionMode: GraphDimensionMode = GraphDimensionMode.FORCE_2D,
+    val graphPhysicsMode: GraphPhysicsMode = GraphPhysicsMode.LIVE_SPRING,
+    val lookupProviderMode: LookupProviderMode = LookupProviderMode.HYBRID_AUTO,
+    val volumeKeyPageTurn: Boolean = true,
+    val keyboardPageTurn: Boolean = true,
+    val selfHostedApiEnabled: Boolean = false,
+    val selfHostedApiUrl: String = "https://api.mixu.local/v1",
+    val selfHostedStatelessMode: Boolean = true,
 ) {
     init {
         require(fontSizeSp in 10f..48f) { "fontSizeSp must be in 10..48 sp, got $fontSizeSp" }
@@ -115,6 +185,95 @@ data class ReaderDisplayConfig(
     fun effectiveLineHeightSp(): Float = effectiveFontSizeSp() * lineHeightMultiplier
 
     /**
+     * Returns the active [ReaderPreset] when the current typography and theme configuration
+     * matches one of the curated presets, or `null` if customized.
+     */
+    val activePreset: ReaderPreset?
+        get() = ReaderPreset.entries.firstOrNull { preset -> applyPreset(preset) == this }
+
+    /**
+     * Applies a curated [ReaderPreset] while preserving user hardware and API settings.
+     */
+    fun applyPreset(preset: ReaderPreset): ReaderDisplayConfig =
+        when (preset) {
+            ReaderPreset.KINDLE_CLASSIC ->
+                copy(
+                    themeMode = MixuThemeMode.LIGHT,
+                    eInkMode = EInkMode.AUTO,
+                    fontFamilyChoice = FontFamilyChoice.SERIF,
+                    fontSizeSp = 19f,
+                    fontScaleMultiplier = 1.0f,
+                    lineHeightMultiplier = 1.52f,
+                    marginPreset = MarginPreset.COMPACT,
+                    readingLayoutMode = ReadingLayoutMode.PAGED,
+                    pageColumnMode = PageColumnMode.SINGLE,
+                    paragraphIndentEm = 2.0f,
+                    paragraphSpacingDp = 8f,
+                    justifyText = true,
+                )
+            ReaderPreset.READEST_MODERN ->
+                copy(
+                    themeMode = MixuThemeMode.SOLARIZED,
+                    eInkMode = EInkMode.AUTO,
+                    fontFamilyChoice = FontFamilyChoice.SERIF,
+                    fontSizeSp = 18f,
+                    fontScaleMultiplier = 1.0f,
+                    lineHeightMultiplier = 1.60f,
+                    marginPreset = MarginPreset.NORMAL,
+                    readingLayoutMode = ReadingLayoutMode.PAGED,
+                    pageColumnMode = PageColumnMode.DOUBLE,
+                    paragraphIndentEm = 2.0f,
+                    paragraphSpacingDp = 10f,
+                    justifyText = true,
+                )
+            ReaderPreset.KOODO_EYECARE ->
+                copy(
+                    themeMode = MixuThemeMode.MINT,
+                    eInkMode = EInkMode.AUTO,
+                    fontFamilyChoice = FontFamilyChoice.SANS_SERIF,
+                    fontSizeSp = 19f,
+                    fontScaleMultiplier = 1.0f,
+                    lineHeightMultiplier = 1.68f,
+                    marginPreset = MarginPreset.NORMAL,
+                    readingLayoutMode = ReadingLayoutMode.PAGED,
+                    pageColumnMode = PageColumnMode.AUTO,
+                    paragraphIndentEm = 2.0f,
+                    paragraphSpacingDp = 12f,
+                    justifyText = true,
+                )
+            ReaderPreset.NIGHT_DETECTIVE ->
+                copy(
+                    themeMode = MixuThemeMode.NORD_DARK,
+                    eInkMode = EInkMode.AUTO,
+                    fontFamilyChoice = FontFamilyChoice.SERIF,
+                    fontSizeSp = 18f,
+                    fontScaleMultiplier = 1.0f,
+                    lineHeightMultiplier = 1.58f,
+                    marginPreset = MarginPreset.NORMAL,
+                    readingLayoutMode = ReadingLayoutMode.PAGED,
+                    pageColumnMode = PageColumnMode.AUTO,
+                    paragraphIndentEm = 2.0f,
+                    paragraphSpacingDp = 10f,
+                    justifyText = true,
+                )
+            ReaderPreset.EINK_CRISP ->
+                copy(
+                    themeMode = MixuThemeMode.EINK,
+                    eInkMode = EInkMode.FORCE_ON,
+                    fontFamilyChoice = FontFamilyChoice.SERIF,
+                    fontSizeSp = 20f,
+                    fontScaleMultiplier = 1.0f,
+                    lineHeightMultiplier = 1.50f,
+                    marginPreset = MarginPreset.COMPACT,
+                    readingLayoutMode = ReadingLayoutMode.PAGED,
+                    pageColumnMode = PageColumnMode.SINGLE,
+                    paragraphIndentEm = 2.0f,
+                    paragraphSpacingDp = 8f,
+                    justifyText = true,
+                )
+        }
+
+    /**
      * Serializes this configuration to key-value pairs suitable for storage in SharedPreferences
      * or local database key-value stores.
      */
@@ -133,6 +292,7 @@ data class ReaderDisplayConfig(
             KEY_AUTO_DETECT_CHAPTERS to autoDetectChapters.toString(),
             KEY_AUTO_EXTRACT_GRAPH to autoExtractGraphOnImport.toString(),
             KEY_READING_LAYOUT_MODE to readingLayoutMode.name,
+            KEY_PAGE_COLUMN_MODE to pageColumnMode.name,
             KEY_PARAGRAPH_INDENT_EM to paragraphIndentEm.toString(),
             KEY_PARAGRAPH_SPACING_DP to paragraphSpacingDp.toString(),
             KEY_LETTER_SPACING_SP to letterSpacingSp.toString(),
@@ -140,6 +300,13 @@ data class ReaderDisplayConfig(
             KEY_MAX_READING_WIDTH_DP to maxReadingWidthDp.toString(),
             KEY_IMMERSIVE_READER to immersiveReaderMode.toString(),
             KEY_GRAPH_DIMENSION_MODE to graphDimensionMode.name,
+            KEY_GRAPH_PHYSICS_MODE to graphPhysicsMode.name,
+            KEY_LOOKUP_PROVIDER_MODE to lookupProviderMode.name,
+            KEY_VOLUME_KEY_PAGE_TURN to volumeKeyPageTurn.toString(),
+            KEY_KEYBOARD_PAGE_TURN to keyboardPageTurn.toString(),
+            KEY_SELF_HOSTED_ENABLED to selfHostedApiEnabled.toString(),
+            KEY_SELF_HOSTED_URL to selfHostedApiUrl,
+            KEY_SELF_HOSTED_STATELESS to selfHostedStatelessMode.toString(),
         )
 
     companion object {
@@ -156,6 +323,7 @@ data class ReaderDisplayConfig(
         const val KEY_AUTO_DETECT_CHAPTERS = "auto_detect_chapters"
         const val KEY_AUTO_EXTRACT_GRAPH = "auto_extract_graph"
         const val KEY_READING_LAYOUT_MODE = "reading_layout_mode"
+        const val KEY_PAGE_COLUMN_MODE = "page_column_mode"
         const val KEY_PARAGRAPH_INDENT_EM = "paragraph_indent_em"
         const val KEY_PARAGRAPH_SPACING_DP = "paragraph_spacing_dp"
         const val KEY_LETTER_SPACING_SP = "letter_spacing_sp"
@@ -163,6 +331,13 @@ data class ReaderDisplayConfig(
         const val KEY_MAX_READING_WIDTH_DP = "max_reading_width_dp"
         const val KEY_IMMERSIVE_READER = "immersive_reader_mode"
         const val KEY_GRAPH_DIMENSION_MODE = "graph_dimension_mode"
+        const val KEY_GRAPH_PHYSICS_MODE = "graph_physics_mode"
+        const val KEY_LOOKUP_PROVIDER_MODE = "lookup_provider_mode"
+        const val KEY_VOLUME_KEY_PAGE_TURN = "volume_key_page_turn"
+        const val KEY_KEYBOARD_PAGE_TURN = "keyboard_page_turn"
+        const val KEY_SELF_HOSTED_ENABLED = "self_hosted_api_enabled"
+        const val KEY_SELF_HOSTED_URL = "self_hosted_api_url"
+        const val KEY_SELF_HOSTED_STATELESS = "self_hosted_stateless_mode"
 
         val DEFAULT = ReaderDisplayConfig()
 
@@ -237,6 +412,11 @@ data class ReaderDisplayConfig(
                     runCatching { ReadingLayoutMode.valueOf(name) }.getOrNull()
                 } ?: DEFAULT.readingLayoutMode
 
+            val pageColumn =
+                map[KEY_PAGE_COLUMN_MODE]?.let { name ->
+                    runCatching { PageColumnMode.valueOf(name) }.getOrNull()
+                } ?: DEFAULT.pageColumnMode
+
             val paragraphIndent =
                 map[KEY_PARAGRAPH_INDENT_EM]
                     ?.toFloatOrNull()
@@ -277,6 +457,36 @@ data class ReaderDisplayConfig(
                     runCatching { GraphDimensionMode.valueOf(name) }.getOrNull()
                 } ?: DEFAULT.graphDimensionMode
 
+            val graphPhysics =
+                map[KEY_GRAPH_PHYSICS_MODE]?.let { name ->
+                    runCatching { GraphPhysicsMode.valueOf(name) }.getOrNull()
+                } ?: DEFAULT.graphPhysicsMode
+
+            val lookupProvider =
+                map[KEY_LOOKUP_PROVIDER_MODE]?.let { name ->
+                    runCatching { LookupProviderMode.valueOf(name) }.getOrNull()
+                } ?: DEFAULT.lookupProviderMode
+
+            val volumeKeyTurn =
+                map[KEY_VOLUME_KEY_PAGE_TURN]?.toBooleanStrictOrNull()
+                    ?: DEFAULT.volumeKeyPageTurn
+
+            val keyboardTurn =
+                map[KEY_KEYBOARD_PAGE_TURN]?.toBooleanStrictOrNull()
+                    ?: DEFAULT.keyboardPageTurn
+
+            val selfHostedEnabled =
+                map[KEY_SELF_HOSTED_ENABLED]?.toBooleanStrictOrNull()
+                    ?: DEFAULT.selfHostedApiEnabled
+
+            val selfHostedUrl =
+                map[KEY_SELF_HOSTED_URL]?.takeIf { it.isNotBlank() }
+                    ?: DEFAULT.selfHostedApiUrl
+
+            val selfHostedStateless =
+                map[KEY_SELF_HOSTED_STATELESS]?.toBooleanStrictOrNull()
+                    ?: DEFAULT.selfHostedStatelessMode
+
             return ReaderDisplayConfig(
                 themeMode = theme,
                 eInkMode = eink,
@@ -291,6 +501,7 @@ data class ReaderDisplayConfig(
                 autoDetectChapters = autoDetectChapters,
                 autoExtractGraphOnImport = autoExtractGraph,
                 readingLayoutMode = readingLayout,
+                pageColumnMode = pageColumn,
                 paragraphIndentEm = paragraphIndent,
                 paragraphSpacingDp = paragraphSpacing,
                 letterSpacingSp = letterSpacing,
@@ -298,6 +509,13 @@ data class ReaderDisplayConfig(
                 maxReadingWidthDp = maxReadingWidth,
                 immersiveReaderMode = immersive,
                 graphDimensionMode = graphDimension,
+                graphPhysicsMode = graphPhysics,
+                lookupProviderMode = lookupProvider,
+                volumeKeyPageTurn = volumeKeyTurn,
+                keyboardPageTurn = keyboardTurn,
+                selfHostedApiEnabled = selfHostedEnabled,
+                selfHostedApiUrl = selfHostedUrl,
+                selfHostedStatelessMode = selfHostedStateless,
             )
         }
     }

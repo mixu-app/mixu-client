@@ -15,11 +15,15 @@ concurrency:
 
 jobs:
   markdown:
-    name: Markdown
+    name: Markdown & Submodule Pins
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Verify submodule pins
+        run: ./script/check-pins.sh
       - name: markdownlint
         uses: DavidAnson/markdownlint-cli2-action@v25
         with:
-          globs: '**/*.md'
+          globs: "**/*.md"

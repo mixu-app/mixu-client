@@ -253,6 +253,124 @@ object MixuIcons {
             }.build()
     }
 
+    val StarOutline: ImageVector by lazy {
+        ImageVector
+            .Builder(
+                name = "MixuStarOutline",
+                defaultWidth = 18.dp,
+                defaultHeight = 18.dp,
+                viewportWidth = 24f,
+                viewportHeight = 24f,
+            ).apply {
+                path(
+                    stroke = SolidColor(Color.Black),
+                    strokeLineWidth = 2f,
+                    strokeLineCap = StrokeCap.Round,
+                    strokeLineJoin = StrokeJoin.Round,
+                ) {
+                    moveTo(12f, 2.5f)
+                    lineTo(14.9f, 8.4f)
+                    lineTo(21.4f, 9.3f)
+                    lineTo(16.7f, 13.9f)
+                    lineTo(17.8f, 20.4f)
+                    lineTo(12f, 17.3f)
+                    lineTo(6.2f, 20.4f)
+                    lineTo(7.3f, 13.9f)
+                    lineTo(2.6f, 9.3f)
+                    lineTo(9.1f, 8.4f)
+                    close()
+                }
+            }.build()
+    }
+
+    val StarFilled: ImageVector by lazy {
+        ImageVector
+            .Builder(
+                name = "MixuStarFilled",
+                defaultWidth = 18.dp,
+                defaultHeight = 18.dp,
+                viewportWidth = 24f,
+                viewportHeight = 24f,
+            ).apply {
+                path(
+                    fill = SolidColor(Color.Black),
+                    stroke = SolidColor(Color.Black),
+                    strokeLineWidth = 1.5f,
+                    strokeLineCap = StrokeCap.Round,
+                    strokeLineJoin = StrokeJoin.Round,
+                ) {
+                    moveTo(12f, 2.5f)
+                    lineTo(14.9f, 8.4f)
+                    lineTo(21.4f, 9.3f)
+                    lineTo(16.7f, 13.9f)
+                    lineTo(17.8f, 20.4f)
+                    lineTo(12f, 17.3f)
+                    lineTo(6.2f, 20.4f)
+                    lineTo(7.3f, 13.9f)
+                    lineTo(2.6f, 9.3f)
+                    lineTo(9.1f, 8.4f)
+                    close()
+                }
+            }.build()
+    }
+
+    val FolderCollection: ImageVector by lazy {
+        ImageVector
+            .Builder(
+                name = "MixuFolderCollection",
+                defaultWidth = 18.dp,
+                defaultHeight = 18.dp,
+                viewportWidth = 24f,
+                viewportHeight = 24f,
+            ).apply {
+                path(
+                    stroke = SolidColor(Color.Black),
+                    strokeLineWidth = 2f,
+                    strokeLineCap = StrokeCap.Round,
+                    strokeLineJoin = StrokeJoin.Round,
+                ) {
+                    moveTo(3f, 6f)
+                    lineTo(9.5f, 6f)
+                    lineTo(11.5f, 8.5f)
+                    lineTo(21f, 8.5f)
+                    lineTo(21f, 19f)
+                    lineTo(3f, 19f)
+                    close()
+                }
+            }.build()
+    }
+
+    val TranslateLookup: ImageVector by lazy {
+        ImageVector
+            .Builder(
+                name = "MixuTranslateLookup",
+                defaultWidth = 18.dp,
+                defaultHeight = 18.dp,
+                viewportWidth = 24f,
+                viewportHeight = 24f,
+            ).apply {
+                path(
+                    stroke = SolidColor(Color.Black),
+                    strokeLineWidth = 2f,
+                    strokeLineCap = StrokeCap.Round,
+                    strokeLineJoin = StrokeJoin.Round,
+                ) {
+                    // Magnifying glass / dictionary lens
+                    moveTo(15f, 10.5f)
+                    arcTo(5.5f, 5.5f, 0f, true, true, 4f, 10.5f)
+                    arcTo(5.5f, 5.5f, 0f, true, true, 15f, 10.5f)
+                    moveTo(13.8f, 14.5f)
+                    lineTo(20f, 20.5f)
+                    // "A" glyph inside lens
+                    moveTo(7.5f, 13f)
+                    lineTo(9.5f, 7.5f)
+                    lineTo(11.5f, 13f)
+                    moveTo(8.1f, 11.5f)
+                    lineTo(10.9f, 11.5f)
+                }
+            }.build()
+    }
+
     /**
      * Draws a crisp SVG-style vector glyph for [entityType] centered at [center] with half-size [iconRadiusPx].
      */

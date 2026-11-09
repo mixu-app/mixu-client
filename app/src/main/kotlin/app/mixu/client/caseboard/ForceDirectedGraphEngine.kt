@@ -2,6 +2,7 @@
 package app.mixu.client.caseboard
 
 import app.mixu.client.config.GraphDimensionMode
+import app.mixu.client.config.GraphPhysicsMode
 import app.mixu.graph.ObjectRef
 import app.mixu.graph.RevealedAssertion
 import app.mixu.graph.RevealedEntity
@@ -531,6 +532,165 @@ object ForceDirectedGraphEngine {
 
         // Draw lower-degree nodes first and high-degree hubs on top
         return projected.sortedBy { it.layout.degree }
+    }
+
+    /**
+     * Applies an interactive drag delta ([screenDx], [screenDy]) to [draggedEntityId] and runs
+     * coupled 2D Hooke-spring attraction, Coulomb repulsion, and central gravity relaxation across
+     * the graph according to [physicsMode].
+     *
+     * Time complexity: O(S * (V^2 + E)) where S <= 6 is the relaxation sub-step count.
+     * Space complexity: O(V).
+     */
+    fun applyNodeDragStep(
+        layoutResult: ForceGraphLayoutResult,
+        currentOffsets: Map<String, Pair<Float, Float>>,
+        draggedEntityId: String,
+        screenDx: Float,
+        screenDy: Float,
+        viewportWidthPx: Float,
+        viewportHeightPx: Float,
+        zoom: Float,
+        physicsMode: GraphPhysicsMode = GraphPhysicsMode.LIVE_SPRING,
+        pinnedEntityIds: Set<String> = emptySet(),
+        isEInk: Boolean = false,
+    ): Map<String, Pair<Float, Float>> {
+        val nodes = layoutResult.nodes
+        if (nodes.isEmpty() || !nodes.containsKey(draggedEntityId)) {
+            return currentOffsets
+        }
+
+        val safeZoom = zoom.coerceAtLeast(0.4f)
+        val updated = currentOffsets.toMutableMap()
+        val (prevDx, prevDy) = updated[draggedEntityId] ?: (0f to 0f)
+        val rawDraggedDx = (prevDx + screenDx / safeZoom).coerceIn(-720f, 720f)
+        val rawDraggedDy = (prevDy + screenDy / safeZoom).coerceIn(-720f, 720f)
+        updated[draggedEntityId] =
+            if (isEInk) {
+                ((rawDraggedDx / 4f).roundToInt() * 4f) to ((rawDraggedDy / 4f).roundToInt() * 4f)
+            } else {
+                rawDraggedDx to rawDraggedDy
+            }
+
+        if (physicsMode == GraphPhysicsMode.PIN_NODE || nodes.size <= 1) {
+            return updated
+        }
+
+        val layouts = nodes.values.toList()
+        val maxAbsX = layouts.maxOf { kotlin.math.abs(it.x) }.coerceAtLeast(90f)
+        val maxAbsY = layouts.maxOf { kotlin.math.abs(it.y) }.coerceAtLeast(90f)
+        val targetHalfWidth = (viewportWidthPx * 0.36f).coerceAtLeast(130f)
+        val targetHalfHeight = (viewportHeightPx * 0.35f).coerceAtLeast(120f)
+        val fitScaleX = (targetHalfWidth / maxAbsX).coerceIn(0.75f, 3.0f)
+        val fitScaleY = (targetHalfHeight / maxAbsY).coerceIn(0.75f, 2.5f)
+        val baseFitScale = min(fitScaleX, fitScaleY)
+        val scaleX = (baseFitScale * 0.35f + fitScaleX * 0.65f).coerceAtLeast(0.5f)
+        val scaleY = (baseFitScale * 0.55f + fitScaleY * 0.45f).coerceAtLeast(0.5f)
+
+        val orderedIds = layouts.map { it.entityId }
+        val idToIndex = orderedIds.withIndex().associate { (i, id) -> id to i }
+        val n = orderedIds.size
+
+        val posX = DoubleArray(n)
+        val posY = DoubleArray(n)
+        for (i in 0 until n) {
+            val id = orderedIds[i]
+            val baseNode = nodes.getValue(id)
+            val (offX, offY) = updated[id] ?: (0f to 0f)
+            posX[i] = (baseNode.x + offX / scaleX).toDouble()
+            posY[i] = (baseNode.y + offY / scaleY).toDouble()
+        }
+
+        val springStrength =
+            when (physicsMode) {
+                GraphPhysicsMode.STRONG_GRAVITY -> 0.165
+                GraphPhysicsMode.LIVE_SPRING -> 0.115
+                GraphPhysicsMode.PIN_NODE -> 0.0
+            }
+        val gravityStrength =
+            when (physicsMode) {
+                GraphPhysicsMode.STRONG_GRAVITY -> 0.052
+                GraphPhysicsMode.LIVE_SPRING -> 0.022
+                GraphPhysicsMode.PIN_NODE -> 0.0
+            }
+        val idealDist = if (isEInk) 185.0 else 148.0
+        val repulsion = if (isEInk) 28000.0 else 19000.0
+        val minCollision = if (isEInk) 92.0 else 70.0
+        val subSteps = if (isEInk) 3 else 5
+
+        repeat(subSteps) {
+            val forceX = DoubleArray(n)
+            val forceY = DoubleArray(n)
+
+            for (i in 0 until n) {
+                for (j in i + 1 until n) {
+                    val dx = posX[i] - posX[j]
+                    val dy = posY[i] - posY[j]
+                    val distSq = dx * dx + dy * dy + 25.0
+                    val dist = sqrt(distSq)
+                    var repMag = repulsion / distSq
+                    if (dist < minCollision) {
+                        repMag += (minCollision - dist) * 3.8
+                    }
+                    val ux = dx / dist
+                    val uy = dy / dist
+                    forceX[i] += ux * repMag
+                    forceY[i] += uy * repMag
+                    forceX[j] -= ux * repMag
+                    forceY[j] -= uy * repMag
+                }
+            }
+
+            for (edge in layoutResult.edges) {
+                val u = idToIndex[edge.sourceId] ?: continue
+                val v = idToIndex[edge.targetId] ?: continue
+                if (u == v) continue
+                val dx = posX[v] - posX[u]
+                val dy = posY[v] - posY[u]
+                val dist = hypot(dx, dy).coerceAtLeast(1.0)
+                val displacement = dist - idealDist
+                val boost =
+                    if (edge.sourceId == draggedEntityId || edge.targetId == draggedEntityId) {
+                        1.45
+                    } else {
+                        1.0
+                    }
+                val springMag = springStrength * boost * displacement
+                val ux = dx / dist
+                val uy = dy / dist
+                forceX[u] += ux * springMag
+                forceY[u] += uy * springMag
+                forceX[v] -= ux * springMag
+                forceY[v] -= uy * springMag
+            }
+
+            for (i in 0 until n) {
+                val id = orderedIds[i]
+                if (id == draggedEntityId || pinnedEntityIds.contains(id)) continue
+                forceX[i] -= posX[i] * gravityStrength
+                forceY[i] -= posY[i] * gravityStrength
+                val stepX = (forceX[i] * 0.28).coerceIn(-18.0, 18.0)
+                val stepY = (forceY[i] * 0.28).coerceIn(-18.0, 18.0)
+                posX[i] = (posX[i] + stepX).coerceIn(-MAX_COORD_BOUND * 1.3, MAX_COORD_BOUND * 1.3)
+                posY[i] = (posY[i] + stepY).coerceIn(-MAX_COORD_BOUND * 1.3, MAX_COORD_BOUND * 1.3)
+            }
+        }
+
+        for (i in 0 until n) {
+            val id = orderedIds[i]
+            if (id == draggedEntityId) continue
+            val baseNode = nodes.getValue(id)
+            val newOffX = ((posX[i] - baseNode.x) * scaleX).toFloat().coerceIn(-720f, 720f)
+            val newOffY = ((posY[i] - baseNode.y) * scaleY).toFloat().coerceIn(-720f, 720f)
+            updated[id] =
+                if (isEInk) {
+                    ((newOffX / 4f).roundToInt() * 4f) to ((newOffY / 4f).roundToInt() * 4f)
+                } else {
+                    newOffX to newOffY
+                }
+        }
+
+        return updated
     }
 
     private fun fnv1a64(input: String): Long {

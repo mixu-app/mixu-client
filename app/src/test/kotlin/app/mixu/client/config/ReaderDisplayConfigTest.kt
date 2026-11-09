@@ -28,13 +28,20 @@ class ReaderDisplayConfigTest {
         assertTrue(default.autoDetectChapters)
         assertFalse(default.autoExtractGraphOnImport)
         assertEquals(ReadingLayoutMode.PAGED, default.readingLayoutMode)
+        assertEquals(PageColumnMode.AUTO, default.pageColumnMode)
         assertEquals(2.0f, default.paragraphIndentEm)
         assertEquals(10f, default.paragraphSpacingDp)
         assertEquals(0.4f, default.letterSpacingSp)
         assertTrue(default.justifyText)
-        assertEquals(780, default.maxReadingWidthDp)
+        assertEquals(920, default.maxReadingWidthDp)
         assertTrue(default.immersiveReaderMode)
         assertEquals(GraphDimensionMode.FORCE_2D, default.graphDimensionMode)
+        assertEquals(GraphPhysicsMode.LIVE_SPRING, default.graphPhysicsMode)
+        assertEquals(LookupProviderMode.HYBRID_AUTO, default.lookupProviderMode)
+        assertTrue(default.volumeKeyPageTurn)
+        assertTrue(default.keyboardPageTurn)
+        assertFalse(default.selfHostedApiEnabled)
+        assertTrue(default.selfHostedStatelessMode)
     }
 
     @Test

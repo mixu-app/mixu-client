@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -26,8 +27,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -35,6 +38,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -66,9 +70,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import app.mixu.client.R
+import app.mixu.client.config.LookupProviderMode
 import app.mixu.client.config.MarginPreset
+import app.mixu.client.config.PageColumnMode
 import app.mixu.client.config.ReaderDisplayConfig
+import app.mixu.client.config.ReaderPreset
 import app.mixu.client.config.ReadingLayoutMode
+import app.mixu.client.lookup.LookupAndTranslationEngine
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.theme.MixuThemeMode
 import kotlin.math.roundToInt
@@ -227,6 +235,10 @@ fun ReaderScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
     onUpdateConfig: ((ReaderDisplayConfig) -> Unit)? = null,
+    isBookFavorite: Boolean = false,
+    onToggleBookFavorite: (() -> Unit)? = null,
+    hardwareKeyTurnSignal: Int = 0,
+    hardwareKeyTurnDirection: Int = 0,
 ) {
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
@@ -242,6 +254,7 @@ fun ReaderScreen(
             .coerceIn(0, 100)
 
     var showTocSheet by remember { mutableStateOf(false) }
+    var showLookupSheet by remember { mutableStateOf(false) }
     var showMenuOverlay by remember(config.immersiveReaderMode) {
         mutableStateOf(!config.immersiveReaderMode)
     }
@@ -249,20 +262,36 @@ fun ReaderScreen(
     var subPageCount by remember { mutableIntStateOf(1) }
     var turnToLastSubPageOnLoad by remember { mutableStateOf(false) }
 
-    // Reset subPageIndex when navigator page changes
-    LaunchedEffect(page.globalPageIndex, page.spineIndex, config) {
-        subPageIndex =
-            if (turnToLastSubPageOnLoad) {
-                (subPageCount - 1).coerceAtLeast(0)
-            } else {
-                0
-            }
-        turnToLastSubPageOnLoad = false
+    val fullChapterParagraphs =
+        remember(viewportState.currentChapterParagraphs, page.paragraphs) {
+            viewportState.currentChapterParagraphs.ifEmpty { page.paragraphs }
+        }
+    val usesFullChapterStream = viewportState.currentChapterParagraphs.isNotEmpty()
+
+    // Synchronize subPageIndex when chapter or external locator changes
+    LaunchedEffect(page.spineIndex, page.globalPageIndex, config) {
+        if (turnToLastSubPageOnLoad) {
+            subPageIndex = (subPageCount - 1).coerceAtLeast(0)
+            turnToLastSubPageOnLoad = false
+        } else if (!usesFullChapterStream || page.pageIndexInChapter == 0) {
+            subPageIndex = 0
+        } else {
+            val ratio =
+                page.pageIndexInChapter.toFloat() /
+                    (page.totalPagesInChapter - 1).coerceAtLeast(1).toFloat()
+            subPageIndex =
+                (ratio * (subPageCount - 1).coerceAtLeast(0))
+                    .roundToInt()
+                    .coerceIn(0, (subPageCount - 1).coerceAtLeast(0))
+        }
     }
 
     val handlePrevious = {
         if (config.readingLayoutMode == ReadingLayoutMode.PAGED && subPageIndex > 0) {
             subPageIndex--
+        } else if (usesFullChapterStream && page.spineIndex > 0) {
+            turnToLastSubPageOnLoad = true
+            onSelectChapter(page.spineIndex - 1)
         } else if (viewportState.hasPreviousPage) {
             turnToLastSubPageOnLoad = true
             onPreviousPage()
@@ -274,17 +303,33 @@ fun ReaderScreen(
             subPageIndex < subPageCount - 1
         ) {
             subPageIndex++
+        } else if (usesFullChapterStream && page.spineIndex < viewportState.chapters.lastIndex) {
+            turnToLastSubPageOnLoad = false
+            onSelectChapter(page.spineIndex + 1)
         } else if (viewportState.hasNextPage) {
             turnToLastSubPageOnLoad = false
             onNextPage()
         }
     }
 
+    // Respond to hardware Volume / Keyboard / Bluetooth page-turn events
+    LaunchedEffect(hardwareKeyTurnSignal) {
+        if (hardwareKeyTurnSignal > 0) {
+            if (hardwareKeyTurnDirection > 0) {
+                handleNext()
+            } else if (hardwareKeyTurnDirection < 0) {
+                handlePrevious()
+            }
+        }
+    }
+
     val canGoPrev =
         viewportState.hasPreviousPage ||
+            page.spineIndex > 0 ||
             (config.readingLayoutMode == ReadingLayoutMode.PAGED && subPageIndex > 0)
     val canGoNext =
         viewportState.hasNextPage ||
+            page.spineIndex < viewportState.chapters.lastIndex ||
             (config.readingLayoutMode == ReadingLayoutMode.PAGED && subPageIndex < subPageCount - 1)
 
     val applyConfigChange: (ReaderDisplayConfig) -> Unit = { updated ->
@@ -327,6 +372,10 @@ fun ReaderScreen(
             }
         }
 
+    var currentVisibleSampleText by remember(fullChapterParagraphs) {
+        mutableStateOf(fullChapterParagraphs.firstOrNull().orEmpty())
+    }
+
     Box(
         modifier =
             modifier
@@ -338,15 +387,14 @@ fun ReaderScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // 1. Subtle Running Header
+            // 1. Subtle Running Header (Kindle / Readest book header style)
             Row(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .widthIn(max = (config.maxReadingWidthDp + 64).dp)
                         .padding(
                             horizontal = config.marginPreset.horizontalDp,
-                            vertical = 8.dp,
+                            vertical = 6.dp,
                         ),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -373,7 +421,7 @@ fun ReaderScreen(
                 )
             }
 
-            // 2. Central Reading Viewport
+            // 2. Central Reading Viewport (Full-Chapter Reflow + 1-Column / 2-Column Spread)
             BoxWithConstraints(
                 modifier =
                     Modifier
@@ -410,24 +458,44 @@ fun ReaderScreen(
             ) {
                 val density = LocalDensity.current
                 val horizontalMarginDp = config.marginPreset.horizontalDp
-                val verticalMarginDp = (config.marginPreset.verticalDp * 0.5f).coerceAtLeast(8.dp)
-                val maxColumnWidthDp =
-                    minOf(
-                        maxWidth - horizontalMarginDp * 2,
-                        config.maxReadingWidthDp.dp,
-                    ).coerceAtLeast(200.dp)
+                val verticalMarginDp = 6.dp
+                val isTwoColumn =
+                    config.readingLayoutMode == ReadingLayoutMode.PAGED &&
+                        when (config.pageColumnMode) {
+                            PageColumnMode.DOUBLE -> maxWidth >= 600.dp
+                            PageColumnMode.SINGLE -> false
+                            PageColumnMode.AUTO -> maxWidth >= 840.dp
+                        }
+                val columnGapDp = 36.dp
+                val totalContainerWidthDp =
+                    if (isTwoColumn) {
+                        (maxWidth - horizontalMarginDp * 2)
+                            .coerceAtMost(1220.dp)
+                            .coerceAtLeast(480.dp)
+                    } else {
+                        minOf(
+                            maxWidth - horizontalMarginDp * 2,
+                            config.maxReadingWidthDp.coerceAtLeast(760).dp,
+                        ).coerceAtLeast(220.dp)
+                    }
+                val singleColumnWidthDp =
+                    if (isTwoColumn) {
+                        ((totalContainerWidthDp - columnGapDp) / 2f).coerceAtLeast(200.dp)
+                    } else {
+                        totalContainerWidthDp
+                    }
                 val availableHeightDp = (maxHeight - verticalMarginDp * 2).coerceAtLeast(120.dp)
 
-                val availableWidthPx = with(density) { maxColumnWidthDp.roundToPx() }
+                val availableWidthPx = with(density) { singleColumnWidthDp.roundToPx() }
                 val availableHeightPx = with(density) { availableHeightDp.roundToPx() }
                 val paragraphSpacingPx = with(density) { config.paragraphSpacingDp.dp.roundToPx() }
 
                 val textMeasurer = rememberTextMeasurer()
 
                 if (config.readingLayoutMode == ReadingLayoutMode.PAGED) {
-                    val measuredSubPages =
+                    val measuredColumns =
                         remember(
-                            page.paragraphs,
+                            fullChapterParagraphs,
                             indentedTextStyle,
                             baseTextStyle,
                             availableWidthPx,
@@ -435,7 +503,7 @@ fun ReaderScreen(
                             paragraphSpacingPx,
                         ) {
                             paginateParagraphsByExactLineBounds(
-                                paragraphs = page.paragraphs,
+                                paragraphs = fullChapterParagraphs,
                                 textMeasurer = textMeasurer,
                                 indentedStyle = indentedTextStyle,
                                 continuationStyle = baseTextStyle,
@@ -445,52 +513,151 @@ fun ReaderScreen(
                             )
                         }
 
-                    LaunchedEffect(measuredSubPages.size, turnToLastSubPageOnLoad) {
-                        subPageCount = measuredSubPages.size
-                        if (subPageIndex >= measuredSubPages.size) {
-                            subPageIndex = (measuredSubPages.size - 1).coerceAtLeast(0)
+                    val columnsPerSpread = if (isTwoColumn) 2 else 1
+                    val computedSpreadCount =
+                        ((measuredColumns.size + columnsPerSpread - 1) / columnsPerSpread)
+                            .coerceAtLeast(1)
+
+                    LaunchedEffect(computedSpreadCount, turnToLastSubPageOnLoad) {
+                        subPageCount = computedSpreadCount
+                        if (turnToLastSubPageOnLoad) {
+                            subPageIndex = (computedSpreadCount - 1).coerceAtLeast(0)
+                            turnToLastSubPageOnLoad = false
+                        } else if (subPageIndex >= computedSpreadCount) {
+                            subPageIndex = (computedSpreadCount - 1).coerceAtLeast(0)
                         }
                     }
 
-                    val activeSlices =
-                        measuredSubPages.getOrElse(
-                            subPageIndex.coerceIn(0, measuredSubPages.lastIndex),
-                        ) { emptyList() }
+                    val clampedSpreadIdx = subPageIndex.coerceIn(0, computedSpreadCount - 1)
+                    val leftColumnSlices =
+                        measuredColumns.getOrElse(clampedSpreadIdx * columnsPerSpread) {
+                            emptyList()
+                        }
+                    val rightColumnSlices =
+                        if (isTwoColumn) {
+                            measuredColumns.getOrElse(clampedSpreadIdx * columnsPerSpread + 1) {
+                                emptyList()
+                            }
+                        } else {
+                            emptyList()
+                        }
 
-                    Column(
-                        modifier =
-                            Modifier
-                                .width(maxColumnWidthDp)
-                                .fillMaxHeight()
-                                .padding(vertical = verticalMarginDp)
-                                .clipToBounds(),
-                        verticalArrangement =
-                            Arrangement.spacedBy(config.paragraphSpacingDp.dp),
-                    ) {
-                        for (slice in activeSlices) {
-                            Text(
-                                text = slice.text,
-                                style =
-                                    if (slice.isContinuation) {
-                                        baseTextStyle
-                                    } else {
-                                        indentedTextStyle
-                                    },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                    LaunchedEffect(leftColumnSlices) {
+                        val firstSlice = leftColumnSlices.firstOrNull()?.text
+                        if (!firstSlice.isNullOrBlank()) {
+                            currentVisibleSampleText = firstSlice
+                        }
+                    }
+
+                    if (isTwoColumn) {
+                        Row(
+                            modifier =
+                                Modifier
+                                    .width(totalContainerWidthDp)
+                                    .fillMaxHeight()
+                                    .padding(vertical = verticalMarginDp)
+                                    .clipToBounds(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(
+                                modifier =
+                                    Modifier
+                                        .width(singleColumnWidthDp)
+                                        .fillMaxHeight()
+                                        .clipToBounds(),
+                                verticalArrangement =
+                                    Arrangement.spacedBy(config.paragraphSpacingDp.dp),
+                            ) {
+                                for (slice in leftColumnSlices) {
+                                    Text(
+                                        text = slice.text,
+                                        style =
+                                            if (slice.isContinuation) {
+                                                baseTextStyle
+                                            } else {
+                                                indentedTextStyle
+                                            },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+
+                            // Subtle Book-Spine Center Divider (Readest / Kindle Two-Column Spread)
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .width(columnGapDp)
+                                        .fillMaxHeight(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .width(1.dp)
+                                            .fillMaxHeight(0.92f)
+                                            .background(colors.outlineVariant.copy(alpha = 0.45f)),
+                                )
+                            }
+
+                            Column(
+                                modifier =
+                                    Modifier
+                                        .width(singleColumnWidthDp)
+                                        .fillMaxHeight()
+                                        .clipToBounds(),
+                                verticalArrangement =
+                                    Arrangement.spacedBy(config.paragraphSpacingDp.dp),
+                            ) {
+                                for (slice in rightColumnSlices) {
+                                    Text(
+                                        text = slice.text,
+                                        style =
+                                            if (slice.isContinuation) {
+                                                baseTextStyle
+                                            } else {
+                                                indentedTextStyle
+                                            },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Column(
+                            modifier =
+                                Modifier
+                                    .width(singleColumnWidthDp)
+                                    .fillMaxHeight()
+                                    .padding(vertical = verticalMarginDp)
+                                    .clipToBounds(),
+                            verticalArrangement =
+                                Arrangement.spacedBy(config.paragraphSpacingDp.dp),
+                        ) {
+                            for (slice in leftColumnSlices) {
+                                Text(
+                                    text = slice.text,
+                                    style =
+                                        if (slice.isContinuation) {
+                                            baseTextStyle
+                                        } else {
+                                            indentedTextStyle
+                                        },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
                         }
                     }
                 } else {
                     // Smooth Continuous Scroll Mode
                     val chapterParagraphs =
-                        viewportState.currentChapterParagraphs
+                        fullChapterParagraphs
                             .map { it.trimStart('\u3000', ' ', '\t').trimEnd() }
                             .filter { it.isNotEmpty() }
 
                     LazyColumn(
                         modifier =
                             Modifier
-                                .width(maxColumnWidthDp)
+                                .width(singleColumnWidthDp)
                                 .fillMaxHeight(),
                         contentPadding = PaddingValues(vertical = verticalMarginDp),
                         verticalArrangement =
@@ -550,12 +717,11 @@ fun ReaderScreen(
                 }
             }
 
-            // 3. Minimal Running Footer (always visible so reader has page progress + quick turn)
+            // 3. Minimal Running Footer (Page progress + Lookup + Case Board + Quick turn)
             Row(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .widthIn(max = (config.maxReadingWidthDp + 64).dp)
                         .padding(
                             horizontal = config.marginPreset.horizontalDp,
                             vertical = 6.dp,
@@ -590,11 +756,26 @@ fun ReaderScreen(
                                 .clickable { showTocSheet = !showTocSheet }
                                 .padding(horizontal = 4.dp, vertical = 4.dp),
                     )
+                    Text(
+                        text = stringResource(R.string.reader_lookup_button),
+                        style = MixuTheme.typography.caption.copy(fontWeight = FontWeight.Medium),
+                        color = colors.primary,
+                        modifier =
+                            Modifier
+                                .clickable { showLookupSheet = true }
+                                .padding(horizontal = 4.dp, vertical = 4.dp),
+                    )
                 }
 
+                val chapterPercent =
+                    if (subPageCount > 1) {
+                        ((subPageIndex + 1) * 100 / subPageCount).coerceIn(1, 100)
+                    } else {
+                        totalPercent
+                    }
                 val subPageSuffix =
                     if (subPageCount > 1) {
-                        " (${subPageIndex + 1}/$subPageCount)"
+                        " · 本章 ${subPageIndex + 1}/$subPageCount"
                     } else {
                         ""
                     }
@@ -604,7 +785,7 @@ fun ReaderScreen(
                             R.string.reader_page_indicator,
                             page.globalPageIndex + 1,
                             page.totalGlobalPages,
-                            totalPercent,
+                            chapterPercent,
                         ) + subPageSuffix,
                     style =
                         MixuTheme.typography.caption.copy(
@@ -711,6 +892,41 @@ fun ReaderScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        if (onToggleBookFavorite != null) {
+                            OutlinedButton(
+                                onClick = onToggleBookFavorite,
+                                modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 40.dp),
+                                shape = RoundedCornerShape(buttonRadius),
+                                border = BorderStroke(strokeWidth, colors.outlineVariant),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            ) {
+                                Text(
+                                    text = if (isBookFavorite) "★" else "☆",
+                                    style = MixuTheme.typography.bodyMedium,
+                                    color =
+                                        if (isBookFavorite) {
+                                            colors.primary
+                                        } else {
+                                            colors.onSurface
+                                        },
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = { showLookupSheet = true },
+                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 40.dp),
+                            shape = RoundedCornerShape(buttonRadius),
+                            border = BorderStroke(strokeWidth, colors.outlineVariant),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.reader_lookup_button),
+                                style = MixuTheme.typography.caption,
+                                color = colors.primary,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                         OutlinedButton(
                             onClick = { showTocSheet = !showTocSheet },
                             modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 40.dp),
@@ -764,7 +980,7 @@ fun ReaderScreen(
                     Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .widthIn(max = 820.dp)
+                        .widthIn(max = 860.dp)
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 shape = RoundedCornerShape(cornerRadius),
                 color = colors.surface.copy(alpha = if (eInkPolicy.isActive) 1f else 0.97f),
@@ -772,8 +988,8 @@ fun ReaderScreen(
                 shadowElevation = if (eInkPolicy.isActive) 0.dp else 8.dp,
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     // Row 1: Page turn & Font size steppers
                     Row(
@@ -784,7 +1000,7 @@ fun ReaderScreen(
                         OutlinedButton(
                             onClick = { handlePrevious() },
                             enabled = canGoPrev,
-                            modifier = Modifier.sizeIn(minWidth = 84.dp, minHeight = 42.dp),
+                            modifier = Modifier.sizeIn(minWidth = 84.dp, minHeight = 40.dp),
                             shape = RoundedCornerShape(buttonRadius),
                             border = BorderStroke(strokeWidth, colors.outlineVariant),
                         ) {
@@ -800,7 +1016,7 @@ fun ReaderScreen(
                                     val nextSize = (config.fontSizeSp - 2f).coerceAtLeast(12f)
                                     onAdjustFontSize(nextSize)
                                 },
-                                modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 40.dp),
+                                modifier = Modifier.sizeIn(minWidth = 42.dp, minHeight = 38.dp),
                                 shape = RoundedCornerShape(buttonRadius),
                                 border = BorderStroke(strokeWidth, colors.outlineVariant),
                                 contentPadding = PaddingValues(0.dp),
@@ -826,7 +1042,7 @@ fun ReaderScreen(
                                     val nextSize = (config.fontSizeSp + 2f).coerceAtMost(42f)
                                     onAdjustFontSize(nextSize)
                                 },
-                                modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 40.dp),
+                                modifier = Modifier.sizeIn(minWidth = 42.dp, minHeight = 38.dp),
                                 shape = RoundedCornerShape(buttonRadius),
                                 border = BorderStroke(strokeWidth, colors.outlineVariant),
                                 contentPadding = PaddingValues(0.dp),
@@ -841,7 +1057,7 @@ fun ReaderScreen(
                         OutlinedButton(
                             onClick = { handleNext() },
                             enabled = canGoNext,
-                            modifier = Modifier.sizeIn(minWidth = 84.dp, minHeight = 42.dp),
+                            modifier = Modifier.sizeIn(minWidth = 84.dp, minHeight = 40.dp),
                             shape = RoundedCornerShape(buttonRadius),
                             border = BorderStroke(strokeWidth, colors.outlineVariant),
                         ) {
@@ -849,7 +1065,55 @@ fun ReaderScreen(
                         }
                     }
 
-                    // Row 2: Quick Theme Presets & Layout Mode Pills (Configuration-Driven)
+                    // Row 2: One-Tap Configuration Presets (Kindle / Readest / Koodo / Night / E-Ink)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        QuickConfigPill(
+                            label = stringResource(R.string.preset_kindle),
+                            selected = config.activePreset == ReaderPreset.KINDLE_CLASSIC,
+                            onClick = {
+                                applyConfigChange(config.applyPreset(ReaderPreset.KINDLE_CLASSIC))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        QuickConfigPill(
+                            label = stringResource(R.string.preset_readest),
+                            selected = config.activePreset == ReaderPreset.READEST_MODERN,
+                            onClick = {
+                                applyConfigChange(config.applyPreset(ReaderPreset.READEST_MODERN))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        QuickConfigPill(
+                            label = stringResource(R.string.preset_koodo),
+                            selected = config.activePreset == ReaderPreset.KOODO_EYECARE,
+                            onClick = {
+                                applyConfigChange(config.applyPreset(ReaderPreset.KOODO_EYECARE))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        QuickConfigPill(
+                            label = stringResource(R.string.preset_night),
+                            selected = config.activePreset == ReaderPreset.NIGHT_DETECTIVE,
+                            onClick = {
+                                applyConfigChange(config.applyPreset(ReaderPreset.NIGHT_DETECTIVE))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        QuickConfigPill(
+                            label = stringResource(R.string.preset_eink),
+                            selected = config.activePreset == ReaderPreset.EINK_CRISP,
+                            onClick = {
+                                applyConfigChange(config.applyPreset(ReaderPreset.EINK_CRISP))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    // Row 3: Quick Theme Palettes (6 Palettes)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -872,10 +1136,26 @@ fun ReaderScreen(
                             modifier = Modifier.weight(1f),
                         )
                         QuickConfigPill(
+                            label = stringResource(R.string.theme_mint),
+                            selected = config.themeMode == MixuThemeMode.MINT,
+                            onClick = {
+                                applyConfigChange(config.copy(themeMode = MixuThemeMode.MINT))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        QuickConfigPill(
                             label = stringResource(R.string.theme_dark),
                             selected = config.themeMode == MixuThemeMode.DARK,
                             onClick = {
                                 applyConfigChange(config.copy(themeMode = MixuThemeMode.DARK))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        QuickConfigPill(
+                            label = stringResource(R.string.theme_nord),
+                            selected = config.themeMode == MixuThemeMode.NORD_DARK,
+                            onClick = {
+                                applyConfigChange(config.copy(themeMode = MixuThemeMode.NORD_DARK))
                             },
                             modifier = Modifier.weight(1f),
                         )
@@ -889,12 +1169,37 @@ fun ReaderScreen(
                         )
                     }
 
-                    // Row 3: Reading Mode (Paged/Scroll), First-Line Indent, and Margins
+                    // Row 4: Column Spread (Auto / 1-Col / 2-Col), Layout Mode, Indent & Margins
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        QuickConfigPill(
+                            label =
+                                when (config.pageColumnMode) {
+                                    PageColumnMode.AUTO -> stringResource(R.string.column_mode_auto)
+                                    PageColumnMode.SINGLE ->
+                                        stringResource(
+                                            R.string.column_mode_single,
+                                        )
+                                    PageColumnMode.DOUBLE ->
+                                        stringResource(
+                                            R.string.column_mode_double,
+                                        )
+                                },
+                            selected = config.pageColumnMode == PageColumnMode.DOUBLE,
+                            onClick = {
+                                val nextCol =
+                                    when (config.pageColumnMode) {
+                                        PageColumnMode.AUTO -> PageColumnMode.DOUBLE
+                                        PageColumnMode.DOUBLE -> PageColumnMode.SINGLE
+                                        PageColumnMode.SINGLE -> PageColumnMode.AUTO
+                                    }
+                                applyConfigChange(config.copy(pageColumnMode = nextCol))
+                            },
+                            modifier = Modifier.weight(1.1f),
+                        )
                         QuickConfigPill(
                             label = stringResource(R.string.reader_layout_paged),
                             selected = config.readingLayoutMode == ReadingLayoutMode.PAGED,
@@ -932,7 +1237,7 @@ fun ReaderScreen(
                                     config.copy(paragraphIndentEm = nextIndent),
                                 )
                             },
-                            modifier = Modifier.weight(1.2f),
+                            modifier = Modifier.weight(1f),
                         )
                         QuickConfigPill(
                             label =
@@ -951,7 +1256,7 @@ fun ReaderScreen(
                                     }
                                 applyConfigChange(config.copy(marginPreset = nextMargin))
                             },
-                            modifier = Modifier.weight(1.1f),
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
@@ -1049,7 +1354,269 @@ fun ReaderScreen(
                 }
             }
         }
+
+        // 6. Offline + Online Dictionary Lookup & Passage Translation Sheet
+        if (showLookupSheet) {
+            LookupAndTranslationDialog(
+                sampleParagraph = currentVisibleSampleText,
+                config = config,
+                onUpdateProviderMode = { mode ->
+                    applyConfigChange(config.copy(lookupProviderMode = mode))
+                },
+                onDismiss = { showLookupSheet = false },
+            )
+        }
     }
+}
+
+@Composable
+private fun LookupAndTranslationDialog(
+    sampleParagraph: String,
+    config: ReaderDisplayConfig,
+    onUpdateProviderMode: (LookupProviderMode) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = MixuTheme.colors
+    var wordQuery by remember { mutableStateOf("alibi") }
+    var downloadedPackIds by remember {
+        mutableStateOf(
+            LookupAndTranslationEngine
+                .defaultResourcePacks()
+                .filter { it.isDownloaded }
+                .map { it.packId }
+                .toSet(),
+        )
+    }
+
+    val lookupResult =
+        remember(
+            wordQuery,
+            config.lookupProviderMode,
+            config.selfHostedApiEnabled,
+            config.selfHostedApiUrl,
+        ) {
+            LookupAndTranslationEngine.lookupWord(
+                query = wordQuery,
+                providerMode = config.lookupProviderMode,
+                selfHostedEnabled = config.selfHostedApiEnabled,
+                selfHostedUrl = config.selfHostedApiUrl,
+            )
+        }
+
+    val translationResult =
+        remember(
+            sampleParagraph,
+            config.lookupProviderMode,
+            config.selfHostedApiEnabled,
+            config.selfHostedApiUrl,
+        ) {
+            LookupAndTranslationEngine.translatePassage(
+                passage = sampleParagraph,
+                providerMode = config.lookupProviderMode,
+                selfHostedEnabled = config.selfHostedApiEnabled,
+                selfHostedUrl = config.selfHostedApiUrl,
+            )
+        }
+
+    val quickWords =
+        listOf("alibi", "mustache", "inquest", "veronal", "coroner", "密室", "アリバイ")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = stringResource(R.string.lookup_dialog_title),
+                style = MixuTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // Provider Mode Selector (Hybrid / Offline Local / Online API)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    QuickConfigPill(
+                        label = stringResource(R.string.lookup_mode_hybrid),
+                        selected = config.lookupProviderMode == LookupProviderMode.HYBRID_AUTO,
+                        onClick = { onUpdateProviderMode(LookupProviderMode.HYBRID_AUTO) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    QuickConfigPill(
+                        label = stringResource(R.string.lookup_mode_offline),
+                        selected = config.lookupProviderMode == LookupProviderMode.OFFLINE_LOCAL,
+                        onClick = { onUpdateProviderMode(LookupProviderMode.OFFLINE_LOCAL) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    QuickConfigPill(
+                        label = stringResource(R.string.lookup_mode_online),
+                        selected = config.lookupProviderMode == LookupProviderMode.ONLINE_API,
+                        onClick = { onUpdateProviderMode(LookupProviderMode.ONLINE_API) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                // Quick Vocabulary Chips
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    for (token in quickWords) {
+                        QuickConfigPill(
+                            label = token,
+                            selected = wordQuery.equals(token, ignoreCase = true),
+                            onClick = { wordQuery = token },
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = wordQuery,
+                    onValueChange = { wordQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = {
+                        Text(
+                            text = stringResource(R.string.lookup_input_label),
+                            style = MixuTheme.typography.caption,
+                        )
+                    },
+                )
+
+                // Dictionary Result Card
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colors.surfaceVariant.copy(alpha = 0.55f),
+                    border = BorderStroke(1.dp, colors.outlineVariant),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text =
+                                    "${lookupResult.headword}  ${lookupResult.phonetic}  " +
+                                        lookupResult.partOfSpeech,
+                                style = MixuTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.primary,
+                            )
+                            Text(
+                                text = "${lookupResult.latencyMs} ms",
+                                style =
+                                    MixuTheme.typography.caption.copy(
+                                        fontFamily = FontFamily.Monospace,
+                                    ),
+                                color = colors.onSurfaceVariant,
+                            )
+                        }
+                        Text(
+                            text = lookupResult.primaryDefinition,
+                            style = MixuTheme.typography.caption,
+                            color = colors.onSurface,
+                        )
+                        if (lookupResult.mysteryContextNote != null) {
+                            Text(
+                                text = "🔍 " + lookupResult.mysteryContextNote,
+                                style = MixuTheme.typography.caption,
+                                color = colors.onSurfaceVariant,
+                            )
+                        }
+                        Text(
+                            text = lookupResult.providerLabel,
+                            style = MixuTheme.typography.caption,
+                            color = colors.primary,
+                        )
+                    }
+                }
+
+                // Current Paragraph Translation Comparison Card
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colors.surfaceVariant.copy(alpha = 0.4f),
+                    border = BorderStroke(1.dp, colors.outlineVariant),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = translationResult.endpointSummary,
+                            style = MixuTheme.typography.caption,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.primary,
+                        )
+                        Text(
+                            text = translationResult.offlineTranslation,
+                            style = MixuTheme.typography.caption,
+                            color = colors.onSurface,
+                        )
+                        if (translationResult.onlineTranslation != null) {
+                            Text(
+                                text = translationResult.onlineTranslation,
+                                style = MixuTheme.typography.caption,
+                                color = colors.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+
+                // Offline Resource Packs Manager
+                Text(
+                    text = stringResource(R.string.lookup_packs_header),
+                    style = MixuTheme.typography.caption,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onSurface,
+                )
+                for (pack in LookupAndTranslationEngine.defaultResourcePacks()) {
+                    val isInstalled = downloadedPackIds.contains(pack.packId)
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    downloadedPackIds =
+                                        if (isInstalled) {
+                                            downloadedPackIds - pack.packId
+                                        } else {
+                                            downloadedPackIds + pack.packId
+                                        }
+                                }.padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "${pack.title} (${pack.sizeMb}MB)",
+                            style = MixuTheme.typography.caption,
+                            color = colors.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = if (isInstalled) "✓ 已离线就绪" else "↓ 下载资源",
+                            style = MixuTheme.typography.caption,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isInstalled) colors.primary else colors.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.settings_reset))
+            }
+        },
+    )
 }
 
 @Composable
@@ -1067,7 +1634,7 @@ private fun QuickConfigPill(
     Surface(
         modifier =
             modifier
-                .height(36.dp)
+                .height(34.dp)
                 .clickable(onClick = onClick),
         shape = shape,
         color = if (selected) colors.primaryContainer else colors.surfaceVariant.copy(alpha = 0.6f),

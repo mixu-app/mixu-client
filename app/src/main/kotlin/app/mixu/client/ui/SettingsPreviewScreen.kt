@@ -28,6 +28,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -49,8 +50,12 @@ import app.mixu.client.R
 import app.mixu.client.auth.UserSession
 import app.mixu.client.config.FontFamilyChoice
 import app.mixu.client.config.GraphDimensionMode
+import app.mixu.client.config.GraphPhysicsMode
+import app.mixu.client.config.LookupProviderMode
 import app.mixu.client.config.MarginPreset
+import app.mixu.client.config.PageColumnMode
 import app.mixu.client.config.ReaderDisplayConfig
+import app.mixu.client.config.ReaderPreset
 import app.mixu.client.config.ReadingLayoutMode
 import app.mixu.client.eink.EInkMode
 import app.mixu.client.eink.StrokePattern
@@ -284,36 +289,131 @@ fun SettingsPreviewScreen(
                 }
             }
 
-            // Section 2: Themes
+            // Section 2: One-Tap Configuration Presets & Themes
+            SectionCard(title = stringResource(R.string.preset_heading)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemeOptionButton(
+                            label = stringResource(R.string.preset_kindle),
+                            isSelected = config.activePreset == ReaderPreset.KINDLE_CLASSIC,
+                            onClick = {
+                                onConfigChange(config.applyPreset(ReaderPreset.KINDLE_CLASSIC))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.preset_readest),
+                            isSelected = config.activePreset == ReaderPreset.READEST_MODERN,
+                            onClick = {
+                                onConfigChange(config.applyPreset(ReaderPreset.READEST_MODERN))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.preset_koodo),
+                            isSelected = config.activePreset == ReaderPreset.KOODO_EYECARE,
+                            onClick = {
+                                onConfigChange(config.applyPreset(ReaderPreset.KOODO_EYECARE))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemeOptionButton(
+                            label = stringResource(R.string.preset_night),
+                            isSelected = config.activePreset == ReaderPreset.NIGHT_DETECTIVE,
+                            onClick = {
+                                onConfigChange(config.applyPreset(ReaderPreset.NIGHT_DETECTIVE))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.preset_eink),
+                            isSelected = config.activePreset == ReaderPreset.EINK_CRISP,
+                            onClick = {
+                                onConfigChange(config.applyPreset(ReaderPreset.EINK_CRISP))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+
+            // Section 2B: Themes (7 Palettes inspired by Readest, Koodo Reader & Kindle)
             SectionCard(title = stringResource(R.string.theme_label)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ThemeOptionButton(
-                        label = stringResource(R.string.theme_light),
-                        isSelected = config.themeMode == MixuThemeMode.LIGHT,
-                        onClick = { onConfigChange(config.copy(themeMode = MixuThemeMode.LIGHT)) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    ThemeOptionButton(
-                        label = stringResource(R.string.theme_dark),
-                        isSelected = config.themeMode == MixuThemeMode.DARK,
-                        onClick = { onConfigChange(config.copy(themeMode = MixuThemeMode.DARK)) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    ThemeOptionButton(
-                        label = stringResource(R.string.theme_sepia),
-                        isSelected = config.themeMode == MixuThemeMode.SEPIA,
-                        onClick = { onConfigChange(config.copy(themeMode = MixuThemeMode.SEPIA)) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    ThemeOptionButton(
-                        label = stringResource(R.string.theme_eink),
-                        isSelected = config.themeMode == MixuThemeMode.EINK,
-                        onClick = { onConfigChange(config.copy(themeMode = MixuThemeMode.EINK)) },
-                        modifier = Modifier.weight(1f),
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemeOptionButton(
+                            label = stringResource(R.string.theme_light),
+                            isSelected = config.themeMode == MixuThemeMode.LIGHT,
+                            onClick = {
+                                onConfigChange(config.copy(themeMode = MixuThemeMode.LIGHT))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.theme_sepia),
+                            isSelected = config.themeMode == MixuThemeMode.SEPIA,
+                            onClick = {
+                                onConfigChange(config.copy(themeMode = MixuThemeMode.SEPIA))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.theme_mint),
+                            isSelected = config.themeMode == MixuThemeMode.MINT,
+                            onClick = {
+                                onConfigChange(config.copy(themeMode = MixuThemeMode.MINT))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.theme_solarized),
+                            isSelected = config.themeMode == MixuThemeMode.SOLARIZED,
+                            onClick = {
+                                onConfigChange(config.copy(themeMode = MixuThemeMode.SOLARIZED))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemeOptionButton(
+                            label = stringResource(R.string.theme_dark),
+                            isSelected = config.themeMode == MixuThemeMode.DARK,
+                            onClick = {
+                                onConfigChange(config.copy(themeMode = MixuThemeMode.DARK))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.theme_nord),
+                            isSelected = config.themeMode == MixuThemeMode.NORD_DARK,
+                            onClick = {
+                                onConfigChange(config.copy(themeMode = MixuThemeMode.NORD_DARK))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.theme_eink),
+                            isSelected = config.themeMode == MixuThemeMode.EINK,
+                            onClick = {
+                                onConfigChange(config.copy(themeMode = MixuThemeMode.EINK))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
 
@@ -580,6 +680,42 @@ fun SettingsPreviewScreen(
                         )
                     }
 
+                    // Multi-Column Spread Mode (Auto / Single / Double)
+                    Text(
+                        text = stringResource(R.string.column_mode_label),
+                        style = typography.labelLarge,
+                        color = colors.onSurface,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemeOptionButton(
+                            label = stringResource(R.string.column_mode_auto),
+                            isSelected = config.pageColumnMode == PageColumnMode.AUTO,
+                            onClick = {
+                                onConfigChange(config.copy(pageColumnMode = PageColumnMode.AUTO))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.column_mode_single),
+                            isSelected = config.pageColumnMode == PageColumnMode.SINGLE,
+                            onClick = {
+                                onConfigChange(config.copy(pageColumnMode = PageColumnMode.SINGLE))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.column_mode_double),
+                            isSelected = config.pageColumnMode == PageColumnMode.DOUBLE,
+                            onClick = {
+                                onConfigChange(config.copy(pageColumnMode = PageColumnMode.DOUBLE))
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
                     // Default Knowledge Graph Layout Mode
                     Text(
                         text = stringResource(R.string.caseboard_tab_graph),
@@ -614,10 +750,52 @@ fun SettingsPreviewScreen(
                             modifier = Modifier.weight(1f),
                         )
                     }
+
+                    // Knowledge Graph Interactive Drag Physics Mode
+                    Text(
+                        text = stringResource(R.string.caseboard_physics_label),
+                        style = typography.labelLarge,
+                        color = colors.onSurface,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemeOptionButton(
+                            label = stringResource(R.string.caseboard_physics_spring),
+                            isSelected = config.graphPhysicsMode == GraphPhysicsMode.LIVE_SPRING,
+                            onClick = {
+                                onConfigChange(
+                                    config.copy(graphPhysicsMode = GraphPhysicsMode.LIVE_SPRING),
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.caseboard_physics_gravity),
+                            isSelected = config.graphPhysicsMode == GraphPhysicsMode.STRONG_GRAVITY,
+                            onClick = {
+                                onConfigChange(
+                                    config.copy(graphPhysicsMode = GraphPhysicsMode.STRONG_GRAVITY),
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.caseboard_physics_pin),
+                            isSelected = config.graphPhysicsMode == GraphPhysicsMode.PIN_NODE,
+                            onClick = {
+                                onConfigChange(
+                                    config.copy(graphPhysicsMode = GraphPhysicsMode.PIN_NODE),
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
 
-            // Section 5: Reading Behavior Defaults
+            // Section 5: Reading Behavior & Hardware Controls (Keyboard / Bluetooth / Volume Keys)
             SectionCard(title = stringResource(R.string.reading_defaults_heading)) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     PreferenceToggleRow(
@@ -626,6 +804,28 @@ fun SettingsPreviewScreen(
                         enabled = config.immersiveReaderMode,
                         onToggle = { enabled ->
                             onConfigChange(config.copy(immersiveReaderMode = enabled))
+                        },
+                    )
+
+                    HorizontalDivider(color = colors.outlineVariant)
+
+                    PreferenceToggleRow(
+                        title = stringResource(R.string.reading_volume_key_turn),
+                        description = stringResource(R.string.reading_volume_key_turn_desc),
+                        enabled = config.volumeKeyPageTurn,
+                        onToggle = { enabled ->
+                            onConfigChange(config.copy(volumeKeyPageTurn = enabled))
+                        },
+                    )
+
+                    HorizontalDivider(color = colors.outlineVariant)
+
+                    PreferenceToggleRow(
+                        title = stringResource(R.string.reading_keyboard_turn),
+                        description = stringResource(R.string.reading_keyboard_turn_desc),
+                        enabled = config.keyboardPageTurn,
+                        onToggle = { enabled ->
+                            onConfigChange(config.copy(keyboardPageTurn = enabled))
                         },
                     )
 
@@ -648,6 +848,105 @@ fun SettingsPreviewScreen(
                         enabled = config.autoBookmark,
                         onToggle = { enabled ->
                             onConfigChange(config.copy(autoBookmark = enabled))
+                        },
+                    )
+                }
+            }
+
+            // Section 5B: Dictionary Lookup, Translation & Self-Hosted Stateless API
+            SectionCard(title = stringResource(R.string.self_hosted_heading)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = stringResource(R.string.lookup_dialog_title),
+                        style = typography.labelLarge,
+                        color = colors.onSurface,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemeOptionButton(
+                            label = stringResource(R.string.lookup_mode_hybrid),
+                            isSelected =
+                                config.lookupProviderMode == LookupProviderMode.HYBRID_AUTO,
+                            onClick = {
+                                onConfigChange(
+                                    config.copy(
+                                        lookupProviderMode = LookupProviderMode.HYBRID_AUTO,
+                                    ),
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.lookup_mode_offline),
+                            isSelected =
+                                config.lookupProviderMode == LookupProviderMode.OFFLINE_LOCAL,
+                            onClick = {
+                                onConfigChange(
+                                    config.copy(
+                                        lookupProviderMode = LookupProviderMode.OFFLINE_LOCAL,
+                                    ),
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        ThemeOptionButton(
+                            label = stringResource(R.string.lookup_mode_online),
+                            isSelected =
+                                config.lookupProviderMode == LookupProviderMode.ONLINE_API,
+                            onClick = {
+                                onConfigChange(
+                                    config.copy(lookupProviderMode = LookupProviderMode.ONLINE_API),
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    HorizontalDivider(color = colors.outlineVariant)
+
+                    PreferenceToggleRow(
+                        title = stringResource(R.string.self_hosted_enable_label),
+                        description = stringResource(R.string.self_hosted_enable_desc),
+                        enabled = config.selfHostedApiEnabled,
+                        onToggle = { enabled ->
+                            val defaultEndpoint =
+                                if (enabled && config.selfHostedApiUrl.isBlank()) {
+                                    "https://mixu-gateway.example.com/v1"
+                                } else {
+                                    config.selfHostedApiUrl
+                                }
+                            onConfigChange(
+                                config.copy(
+                                    selfHostedApiEnabled = enabled,
+                                    selfHostedApiUrl = defaultEndpoint,
+                                ),
+                            )
+                        },
+                    )
+
+                    PreferenceToggleRow(
+                        title = stringResource(R.string.self_hosted_stateless_label),
+                        description = stringResource(R.string.self_hosted_stateless_desc),
+                        enabled = config.selfHostedStatelessMode,
+                        onToggle = { enabled ->
+                            onConfigChange(config.copy(selfHostedStatelessMode = enabled))
+                        },
+                    )
+
+                    OutlinedTextField(
+                        value = config.selfHostedApiUrl,
+                        onValueChange = { url ->
+                            onConfigChange(config.copy(selfHostedApiUrl = url))
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = {
+                            Text(
+                                text = stringResource(R.string.self_hosted_url_label),
+                                style = typography.caption,
+                            )
                         },
                     )
                 }

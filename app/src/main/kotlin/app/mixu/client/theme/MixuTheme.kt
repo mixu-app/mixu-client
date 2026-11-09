@@ -52,12 +52,19 @@ fun MixuTheme(
                 MixuThemeMode.LIGHT -> LightMixuColors
                 MixuThemeMode.DARK -> DarkMixuColors
                 MixuThemeMode.SEPIA -> SepiaMixuColors
+                MixuThemeMode.MINT -> MintMixuColors
+                MixuThemeMode.SOLARIZED -> SolarizedMixuColors
+                MixuThemeMode.NORD_DARK -> NordDarkMixuColors
                 MixuThemeMode.EINK -> EInkMixuColors
             }
         }
 
+    val isDarkPalette =
+        (themeMode == MixuThemeMode.DARK || themeMode == MixuThemeMode.NORD_DARK) &&
+            !resolvedColors.isEInk
+
     val materialColorScheme: ColorScheme =
-        if (themeMode == MixuThemeMode.DARK && !resolvedColors.isEInk) {
+        if (isDarkPalette) {
             darkColorScheme(
                 primary = resolvedColors.primary,
                 onPrimary = resolvedColors.onPrimary,

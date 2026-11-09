@@ -4,6 +4,7 @@ package app.mixu.client
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -84,6 +85,14 @@ class MainActivity :
     private lateinit var readerSession: ReaderSessionController
 
     private var onExternalBookImported: ((String?) -> Unit)? = null
+    private var onHardwareKeyEvent: ((KeyEvent) -> Boolean)? = null
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (onHardwareKeyEvent?.invoke(event) == true) {
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         savedStateRegistryController.performAttach()
@@ -142,6 +151,47 @@ class MainActivity :
                     var libraryBooks by remember { mutableStateOf(loadLibraryBooks()) }
                     var activeBookId by remember { mutableStateOf(initialBookId) }
                     var readerTick by remember { mutableIntStateOf(0) }
+                    var hardwareKeyTurnSignal by remember { mutableIntStateOf(0) }
+                    var hardwareKeyTurnDirection by remember { mutableIntStateOf(0) }
+
+                    onHardwareKeyEvent = { event ->
+                        if (currentDestination != MainScreenDestination.READER) {
+                            false
+                        } else {
+                            val keyCode = event.keyCode
+                            val isVolKey =
+                                keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+                                    keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+                            val isPrevNavKey =
+                                keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+                                    keyCode == KeyEvent.KEYCODE_DPAD_UP ||
+                                    keyCode == KeyEvent.KEYCODE_PAGE_UP
+                            val isNextNavKey =
+                                keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ||
+                                    keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                                    keyCode == KeyEvent.KEYCODE_PAGE_DOWN ||
+                                    keyCode == KeyEvent.KEYCODE_SPACE
+
+                            when {
+                                isVolKey && config.volumeKeyPageTurn -> {
+                                    if (event.action == KeyEvent.ACTION_DOWN) {
+                                        hardwareKeyTurnDirection =
+                                            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) -1 else 1
+                                        hardwareKeyTurnSignal++
+                                    }
+                                    true
+                                }
+                                (isPrevNavKey || isNextNavKey) && config.keyboardPageTurn -> {
+                                    if (event.action == KeyEvent.ACTION_DOWN) {
+                                        hardwareKeyTurnDirection = if (isPrevNavKey) -1 else 1
+                                        hardwareKeyTurnSignal++
+                                    }
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
+                    }
 
                     onExternalBookImported = { importedBookId ->
                         libraryBooks = loadLibraryBooks()
@@ -362,6 +412,14 @@ class MainActivity :
                                                         MainScreenDestination.CASE_BOARD
                                                 }
                                             },
+                                            onToggleFavorite = { book ->
+                                                database.setBookFavorite(book.id, !book.isFavorite)
+                                                libraryBooks = loadLibraryBooks()
+                                            },
+                                            onUpdateCollections = { book, nextCols ->
+                                                database.setBookCollections(book.id, nextCols)
+                                                libraryBooks = loadLibraryBooks()
+                                            },
                                         )
                                     }
                                     MainScreenDestination.READER -> {
@@ -373,6 +431,12 @@ class MainActivity :
                                         val viewportState =
                                             remember(activeNav, readerTick, config) {
                                                 activeNav.viewportState
+                                            }
+                                        val currentBookFav =
+                                            remember(libraryBooks, activeBookId) {
+                                                libraryBooks
+                                                    .firstOrNull { it.id == activeBookId }
+                                                    ?.isFavorite ?: false
                                             }
 
                                         ReaderScreen(
@@ -438,6 +502,19 @@ class MainActivity :
                                                 }
                                                 readerTick++
                                             },
+                                            isBookFavorite = currentBookFav,
+                                            onToggleBookFavorite = {
+                                                val targetId = activeBookId
+                                                if (targetId != null) {
+                                                    database.setBookFavorite(
+                                                        targetId,
+                                                        !currentBookFav,
+                                                    )
+                                                    libraryBooks = loadLibraryBooks()
+                                                }
+                                            },
+                                            hardwareKeyTurnSignal = hardwareKeyTurnSignal,
+                                            hardwareKeyTurnDirection = hardwareKeyTurnDirection,
                                         )
                                     }
                                     MainScreenDestination.CASE_BOARD -> {

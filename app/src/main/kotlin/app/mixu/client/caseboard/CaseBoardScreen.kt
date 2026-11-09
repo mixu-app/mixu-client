@@ -8,8 +8,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -86,6 +86,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.mixu.client.R
 import app.mixu.client.config.GraphDimensionMode
+import app.mixu.client.config.GraphPhysicsMode
 import app.mixu.client.eink.StrokePattern
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.ui.MixuIcons
@@ -586,10 +587,20 @@ private fun GraphCanvasSurface(
     var graphMode by remember(initialGraphMode) {
         mutableStateOf(initialGraphMode)
     }
+    var physicsMode by remember {
+        mutableStateOf(GraphPhysicsMode.LIVE_SPRING)
+    }
     var showEdgeLabels by remember { mutableStateOf(true) }
     var interactivePanX by remember { mutableFloatStateOf(0f) }
     var interactivePanY by remember { mutableFloatStateOf(0f) }
     var interactiveZoom by remember { mutableFloatStateOf(1.0f) }
+    var nodeOffsets by remember(uiState.editionId, graphMode, uiState.graphViewPosition) {
+        mutableStateOf<Map<String, Pair<Float, Float>>>(emptyMap())
+    }
+    var pinnedNodeIds by remember(uiState.editionId, graphMode, uiState.graphViewPosition) {
+        mutableStateOf<Set<String>>(emptySet())
+    }
+    var activeDraggedEntityId by remember { mutableStateOf<String?>(null) }
 
     val effectiveZoom = (uiState.zoomLevel * interactiveZoom).coerceIn(0.5f, 2.6f)
     val effectivePanX = uiState.panOffsetX + interactivePanX
@@ -645,6 +656,7 @@ private fun GraphCanvasSurface(
                     effectiveZoom,
                     effectivePanX,
                     effectivePanY,
+                    nodeOffsets,
                 ) {
                     ForceDirectedGraphEngine.projectNodes(
                         entities = entities,
@@ -654,6 +666,7 @@ private fun GraphCanvasSurface(
                         zoom = effectiveZoom,
                         panX = effectivePanX,
                         panY = effectivePanY,
+                        nodeOffsets = nodeOffsets,
                     )
                 }
 
@@ -718,19 +731,69 @@ private fun GraphCanvasSurface(
                                     onSelectEntity(null)
                                 }
                             }
-                        }.pointerInput(eInkPolicy.isActive) {
-                            detectTransformGestures { _, pan, zoomChange, _ ->
-                                if (zoomChange != 1f) {
-                                    interactiveZoom =
-                                        (interactiveZoom * zoomChange).coerceIn(0.55f, 2.4f)
-                                }
-                                interactivePanX =
-                                    (interactivePanX + pan.x / effectiveZoom)
-                                        .coerceIn(-650f, 650f)
-                                interactivePanY =
-                                    (interactivePanY + pan.y / effectiveZoom)
-                                        .coerceIn(-650f, 650f)
-                            }
+                        }.pointerInput(
+                            projectedNodes,
+                            layoutResult,
+                            physicsMode,
+                            eInkPolicy.isActive,
+                            viewportWidthPx,
+                            viewportHeightPx,
+                            effectiveZoom,
+                        ) {
+                            detectDragGestures(
+                                onDragStart = { startOffset ->
+                                    val hitRadiusPx = 44.dp.toPx()
+                                    val hitNode =
+                                        projectedNodes.asReversed().firstOrNull { node ->
+                                            hypot(
+                                                startOffset.x - node.screenX,
+                                                startOffset.y - node.screenY,
+                                            ) <= hitRadiusPx
+                                        }
+                                    if (hitNode != null) {
+                                        val draggedId = hitNode.entity.entity.entityId.value
+                                        activeDraggedEntityId = draggedId
+                                        onSelectEntity(hitNode.entity)
+                                    } else {
+                                        activeDraggedEntityId = null
+                                    }
+                                },
+                                onDragEnd = {
+                                    activeDraggedEntityId = null
+                                },
+                                onDragCancel = {
+                                    activeDraggedEntityId = null
+                                },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    val draggedId = activeDraggedEntityId
+                                    if (draggedId != null) {
+                                        val nextPinned = pinnedNodeIds + draggedId
+                                        pinnedNodeIds = nextPinned
+                                        nodeOffsets =
+                                            ForceDirectedGraphEngine.applyNodeDragStep(
+                                                layoutResult = layoutResult,
+                                                currentOffsets = nodeOffsets,
+                                                draggedEntityId = draggedId,
+                                                screenDx = dragAmount.x,
+                                                screenDy = dragAmount.y,
+                                                viewportWidthPx = viewportWidthPx,
+                                                viewportHeightPx = viewportHeightPx,
+                                                zoom = effectiveZoom,
+                                                physicsMode = physicsMode,
+                                                pinnedEntityIds = nextPinned,
+                                                isEInk = eInkPolicy.isActive,
+                                            )
+                                    } else {
+                                        interactivePanX =
+                                            (interactivePanX + dragAmount.x / effectiveZoom)
+                                                .coerceIn(-650f, 650f)
+                                        interactivePanY =
+                                            (interactivePanY + dragAmount.y / effectiveZoom)
+                                                .coerceIn(-650f, 650f)
+                                    }
+                                },
+                            )
                         },
             ) {
                 // 1. Subtle 2D Coordinate Grid Backdrop (non-E-Ink)
@@ -1116,15 +1179,26 @@ private fun GraphCanvasSurface(
         // Top-Left Mode Switcher & Graph Stats Bar
         GraphModeToolbar(
             graphMode = graphMode,
+            physicsMode = physicsMode,
             showEdgeLabels = showEdgeLabels,
             entityCount = entities.size,
             edgeCount = layoutResult.edges.size,
             onModeChange = { newMode -> graphMode = newMode },
+            onCyclePhysicsMode = {
+                physicsMode =
+                    when (physicsMode) {
+                        GraphPhysicsMode.LIVE_SPRING -> GraphPhysicsMode.STRONG_GRAVITY
+                        GraphPhysicsMode.STRONG_GRAVITY -> GraphPhysicsMode.PIN_NODE
+                        GraphPhysicsMode.PIN_NODE -> GraphPhysicsMode.LIVE_SPRING
+                    }
+            },
             onToggleLabels = { showEdgeLabels = !showEdgeLabels },
             onResetView = {
                 interactivePanX = 0f
                 interactivePanY = 0f
                 interactiveZoom = 1.0f
+                nodeOffsets = emptyMap()
+                pinnedNodeIds = emptySet()
                 onResetViewport()
             },
             modifier =
@@ -1142,6 +1216,8 @@ private fun GraphCanvasSurface(
                 interactivePanX = 0f
                 interactivePanY = 0f
                 interactiveZoom = 1.0f
+                nodeOffsets = emptyMap()
+                pinnedNodeIds = emptySet()
                 onResetViewport()
             },
             modifier =
@@ -1254,10 +1330,12 @@ private fun DrawScope.drawEInkGeometricNode(
 @Composable
 private fun GraphModeToolbar(
     graphMode: GraphDimensionMode,
+    physicsMode: GraphPhysicsMode,
     showEdgeLabels: Boolean,
     entityCount: Int,
     edgeCount: Int,
     onModeChange: (GraphDimensionMode) -> Unit,
+    onCyclePhysicsMode: () -> Unit,
     onToggleLabels: () -> Unit,
     onResetView: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1266,6 +1344,13 @@ private fun GraphModeToolbar(
     val eInkPolicy = MixuTheme.einkPolicy
     val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
     val cornerRadius = if (eInkPolicy.isActive) 2.dp else 10.dp
+
+    val physicsLabel =
+        when (physicsMode) {
+            GraphPhysicsMode.LIVE_SPRING -> stringResource(R.string.caseboard_physics_spring)
+            GraphPhysicsMode.STRONG_GRAVITY -> stringResource(R.string.caseboard_physics_gravity)
+            GraphPhysicsMode.PIN_NODE -> stringResource(R.string.caseboard_physics_pin)
+        }
 
     Surface(
         modifier = modifier,
@@ -1293,6 +1378,11 @@ private fun GraphModeToolbar(
                     selected = graphMode == GraphDimensionMode.HIERARCHICAL,
                     onClick = { onModeChange(GraphDimensionMode.HIERARCHICAL) },
                     icon = MixuIcons.HierarchicalGraph,
+                )
+                GraphPillButton(
+                    label = physicsLabel,
+                    selected = physicsMode != GraphPhysicsMode.PIN_NODE,
+                    onClick = onCyclePhysicsMode,
                 )
             }
 

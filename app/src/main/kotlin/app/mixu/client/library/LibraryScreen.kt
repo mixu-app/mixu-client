@@ -4,6 +4,7 @@
 package app.mixu.client.library
 
 import android.graphics.BitmapFactory
+import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -59,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.dimensionResource
@@ -69,8 +71,39 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.mixu.client.R
 import app.mixu.client.theme.MixuTheme
-import app.mixu.client.ui.MixuBrandLogo
 import java.io.File
+
+private object CoverBitmapCache {
+    private val cache = LruCache<String, ImageBitmap>(64)
+
+    fun load(
+        path: String?,
+        reqWidth: Int = 280,
+        reqHeight: Int = 400,
+    ): ImageBitmap? {
+        if (path.isNullOrBlank()) return null
+        val key = "$path:${reqWidth}x$reqHeight"
+        cache.get(key)?.let { return it }
+        val file = File(path)
+        if (!file.exists() || !file.isFile) return null
+        return runCatching {
+            val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(path, boundsOpts)
+            var sampleSize = 1
+            if (boundsOpts.outHeight > reqHeight || boundsOpts.outWidth > reqWidth) {
+                val halfH = boundsOpts.outHeight / 2
+                val halfW = boundsOpts.outWidth / 2
+                while ((halfH / sampleSize) >= reqHeight && (halfW / sampleSize) >= reqWidth) {
+                    sampleSize *= 2
+                }
+            }
+            val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            BitmapFactory.decodeFile(path, decodeOpts)?.asImageBitmap()?.also { bmp ->
+                cache.put(key, bmp)
+            }
+        }.getOrNull()
+    }
+}
 
 /**
  * Kindle-style Home Screen (`主页`) displaying the "Continue Reading" hero card,
@@ -133,23 +166,15 @@ fun KindleHomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        MixuBrandLogo(size = 30.dp, cornerRadius = 7.dp)
-                        Column {
-                            Text(
-                                text =
-                                    stringResource(R.string.app_name) +
-                                        " · " +
-                                        stringResource(R.string.nav_home),
-                                style = typography.titleLarge,
-                                color = colors.onSurface,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
+                    Text(
+                        text =
+                            stringResource(R.string.app_name) +
+                                " · " +
+                                stringResource(R.string.nav_home),
+                        style = typography.titleLarge,
+                        color = colors.onSurface,
+                        fontWeight = FontWeight.Bold,
+                    )
                 },
                 actions = {
                     OutlinedButton(
@@ -345,14 +370,15 @@ fun KindleHomeScreen(
                             Card(
                                 modifier =
                                     Modifier
-                                        .width(126.dp)
+                                        .width(128.dp)
+                                        .height(216.dp)
                                         .clickable { onContinueReading(book) },
                                 shape = RoundedCornerShape(cardRadius),
                                 colors = CardDefaults.cardColors(containerColor = colors.surface),
                                 border = BorderStroke(borderWidth, colors.outlineVariant),
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(8.dp),
+                                    modifier = Modifier.fillMaxSize().padding(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
                                     BookCoverThumbnail(
@@ -366,6 +392,7 @@ fun KindleHomeScreen(
                                         style = typography.caption,
                                         fontWeight = FontWeight.Bold,
                                         color = colors.onSurface,
+                                        minLines = 1,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
@@ -373,6 +400,7 @@ fun KindleHomeScreen(
                                         text = book.author,
                                         style = typography.caption,
                                         color = colors.onSurfaceVariant,
+                                        minLines = 1,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
@@ -596,18 +624,12 @@ fun LibraryScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        MixuBrandLogo(size = 30.dp, cornerRadius = 7.dp)
-                        Text(
-                            text = stringResource(R.string.library_title),
-                            style = typography.titleLarge,
-                            color = colors.onSurface,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
+                    Text(
+                        text = stringResource(R.string.library_title),
+                        style = typography.titleLarge,
+                        color = colors.onSurface,
+                        fontWeight = FontWeight.Bold,
+                    )
                 },
                 actions = {
                     val borderStroke =
@@ -1436,6 +1458,7 @@ fun LibraryBookGridCard(
         modifier =
             modifier
                 .fillMaxWidth()
+                .height(352.dp)
                 .clickable(onClick = onClick),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = colors.surface),
@@ -1448,10 +1471,10 @@ fun LibraryBookGridCard(
         Column(
             modifier =
                 Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .padding(dimensionResource(R.dimen.library_card_padding)),
         ) {
-            // Cover image or placeholder box
+            // Cover image or placeholder box (uniform height: 148.dp)
             BookCoverThumbnail(
                 book = book,
                 isGrid = true,
@@ -1461,11 +1484,11 @@ fun LibraryBookGridCard(
                         .height(dimensionResource(R.dimen.library_cover_height_grid)),
             )
 
-            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.library_control_spacing)))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Title & Favorite Star Row
+            // Title & Favorite Star Row (fixed 2-line slot so 1-line and 2-line titles have identical height)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(42.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top,
             ) {
@@ -1474,6 +1497,7 @@ fun LibraryBookGridCard(
                     style = typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = colors.onSurface,
+                    minLines = 2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -1495,37 +1519,36 @@ fun LibraryBookGridCard(
                 )
             }
 
+            // Author row (fixed single-line height)
             Text(
                 text = book.author,
                 style = typography.bodyMedium,
                 color = colors.onSurfaceVariant,
+                minLines = 1,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
 
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        dimensionResource(R.dimen.library_badge_padding_vertical),
-                    ),
-            )
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // Mystery Tags Array Row (`#Tag1 #Tag2`) + Edit Button
-            if (book.tags.isNotEmpty()) {
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+            // Mystery Tags Array Row (fixed 22.dp height slot whether tags exist or not)
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(22.dp)
+                        .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (book.tags.isNotEmpty()) {
                     for (tag in book.tags.take(3)) {
                         Text(
                             text = "#$tag",
                             style = typography.caption,
                             color = colors.primary,
                             fontWeight = FontWeight.Medium,
+                            maxLines = 1,
                             modifier =
                                 Modifier
                                     .border(
@@ -1538,13 +1561,28 @@ fun LibraryBookGridCard(
                                     .padding(horizontal = 5.dp, vertical = 1.dp),
                         )
                     }
+                } else {
+                    Text(
+                        text = "#+" + stringResource(R.string.library_tags_manage_short),
+                        style = typography.caption,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier =
+                            Modifier
+                                .border(
+                                    BorderStroke(0.8.dp, colors.outlineVariant),
+                                    RoundedCornerShape(4.dp),
+                                ).clickable { onEditCollections() }
+                                .padding(horizontal = 5.dp, vertical = 1.dp),
+                    )
                 }
-                Spacer(modifier = Modifier.height(4.dp))
             }
 
-            // Collection Tag Pill + Edit Button
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Collection Tag Pill + Edit Button (fixed single-line row)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(18.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1567,13 +1605,14 @@ fun LibraryBookGridCard(
                     style = typography.caption,
                     color = colors.primary,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
                     modifier = Modifier.clickable { onEditCollections() },
                 )
             }
 
-            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.library_control_spacing)))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // Last Read info
+            // Last Read info (fixed single-line row)
             val lastReadText =
                 if (book.lastReadChapterTitle != null) {
                     stringResource(R.string.library_last_read_format, book.lastReadChapterTitle)
@@ -1585,18 +1624,14 @@ fun LibraryBookGridCard(
                 text = lastReadText,
                 style = typography.caption,
                 color = colors.onSurfaceVariant,
+                minLines = 1,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
 
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        dimensionResource(R.dimen.library_badge_padding_vertical),
-                    ),
-            )
+            Spacer(modifier = Modifier.weight(1f))
 
-            // Discrete Progress Bar & Percentage
+            // Discrete Progress Bar & Percentage pinned at the bottom of every card
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1867,13 +1902,12 @@ fun BookCoverThumbnail(
 
     val outlineColor = if (isEInk) colors.outline else colors.outlineVariant
     val coverBitmap =
-        remember(book.coverPath) {
-            val path = book.coverPath
-            if (!path.isNullOrBlank() && File(path).exists()) {
-                runCatching { BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull()
-            } else {
-                null
-            }
+        remember(book.coverPath, isGrid) {
+            CoverBitmapCache.load(
+                path = book.coverPath,
+                reqWidth = if (isGrid) 320 else 160,
+                reqHeight = if (isGrid) 460 else 220,
+            )
         }
 
     Box(
@@ -2116,17 +2150,6 @@ fun LibraryEmptyState(
                     .widthIn(max = dimensionResource(R.dimen.library_empty_max_width))
                     .padding(dimensionResource(R.dimen.library_screen_padding)),
         ) {
-            // Official Mixu Brand Logo mark
-            MixuBrandLogo(
-                size = dimensionResource(R.dimen.library_empty_icon_size),
-                cornerRadius =
-                    if (isEInk) {
-                        dimensionResource(R.dimen.library_card_corner_radius_eink)
-                    } else {
-                        dimensionResource(R.dimen.library_card_corner_radius)
-                    },
-            )
-
             Text(
                 text = stringResource(R.string.library_empty_title),
                 style = typography.titleLarge,

@@ -308,4 +308,16 @@
     <string name="more_account_email_label">メールアドレスまたは自前サーバーID</string>
     <string name="more_account_signin_confirm">同期を有効化</string>
     <string name="more_account_switch_guest">オフラインゲストに戻す</string>
+
+    <!-- EPUB Image & AI Diagram Inspector + Case Board Canonical Filters (CTX-0030) -->
+    <string name="reader_image_zoom_btn">🔍 拡大表示</string>
+    <string name="reader_image_ai_inspect_btn">✦ AI 図解・見取り図解析</string>
+    <string name="reader_image_dialog_title">挿絵・現場見取り図インスペクタ (AI Copilot)</string>
+    <string name="reader_image_ai_badge">AI-008 · ネタバレ防止視覚解析 (境界：第 %1$d 章)</string>
+    <string name="reader_image_ai_summary">書籍内の挿絵・館の見取り図・現場図解を検出しました。現在の知識境界（第 %1$d 章）の範囲内で空間配置と動線の手がかりを解析します。</string>
+    <string name="caseboard_filter_all">すべて</string>
+    <string name="caseboard_filter_person">👤 人物</string>
+    <string name="caseboard_filter_location">📍 場所</string>
+    <string name="caseboard_filter_object">🔑 証拠品</string>
+    <string name="caseboard_current_chapter_badge">現在の読書位置：第 %1$d 章 (ネタバレ防止有効)</string>
 </resources>

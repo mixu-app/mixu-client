@@ -6,14 +6,12 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -23,6 +21,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -33,8 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -298,175 +295,147 @@ class MainActivity :
                                     currentDestination != MainScreenDestination.READER ||
                                         !config.immersiveReaderMode
                                 if (showBottomNav) {
-                                    NavigationBar(
-                                        containerColor = colors.surface,
-                                        contentColor = colors.primary,
+                                    Box(
                                         modifier =
-                                            Modifier.border(
-                                                BorderStroke(strokeWidth, colors.outlineVariant),
-                                            ),
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .height(86.dp),
                                     ) {
-                                        // Bottom-Left Corner: Last-Read Book Cover Quick Resume (Kindle-style)
+                                        val navItemColors =
+                                            NavigationBarItemDefaults.colors(
+                                                selectedIconColor = colors.primary,
+                                                selectedTextColor = colors.primary,
+                                                indicatorColor = colors.primaryContainer,
+                                                unselectedIconColor = colors.onSurfaceVariant,
+                                                unselectedTextColor = colors.onSurfaceVariant,
+                                            )
+                                        NavigationBar(
+                                            containerColor = colors.surface,
+                                            contentColor = colors.primary,
+                                            modifier =
+                                                Modifier
+                                                    .align(Alignment.BottomCenter)
+                                                    .fillMaxWidth()
+                                                    .height(64.dp)
+                                                    .border(
+                                                        BorderStroke(
+                                                            strokeWidth,
+                                                            colors.outlineVariant,
+                                                        ),
+                                                    ),
+                                        ) {
+                                            if (lastReadBook != null) {
+                                                // Reserve slot for protruding Kindle cover
+                                                Spacer(modifier = Modifier.width(82.dp))
+                                            }
+
+                                            // Tab 1: Home (`主页` — Default)
+                                            NavigationBarItem(
+                                                selected =
+                                                    currentDestination ==
+                                                        MainScreenDestination.HOME,
+                                                onClick = {
+                                                    libraryBooks = loadLibraryBooks()
+                                                    currentDestination =
+                                                        MainScreenDestination.HOME
+                                                },
+                                                icon = {
+                                                    Icon(
+                                                        imageVector = MixuIcons.Reader,
+                                                        contentDescription = null,
+                                                    )
+                                                },
+                                                label = {
+                                                    Text(stringResource(R.string.nav_home))
+                                                },
+                                                colors = navItemColors,
+                                            )
+
+                                            // Tab 2: Library (`图书馆`)
+                                            NavigationBarItem(
+                                                selected =
+                                                    currentDestination ==
+                                                        MainScreenDestination.LIBRARY,
+                                                onClick = {
+                                                    libraryBooks = loadLibraryBooks()
+                                                    currentDestination =
+                                                        MainScreenDestination.LIBRARY
+                                                },
+                                                icon = {
+                                                    Icon(
+                                                        imageVector = MixuIcons.Library,
+                                                        contentDescription = null,
+                                                    )
+                                                },
+                                                label = {
+                                                    Text(
+                                                        stringResource(R.string.nav_library),
+                                                    )
+                                                },
+                                                colors = navItemColors,
+                                            )
+
+                                            // Tab 3: More (`更多`)
+                                            NavigationBarItem(
+                                                selected =
+                                                    currentDestination ==
+                                                        MainScreenDestination.SETTINGS_PREVIEW,
+                                                onClick = {
+                                                    currentDestination =
+                                                        MainScreenDestination.SETTINGS_PREVIEW
+                                                },
+                                                icon = {
+                                                    Icon(
+                                                        imageVector = MixuIcons.Settings,
+                                                        contentDescription = null,
+                                                    )
+                                                },
+                                                label = {
+                                                    Text(stringResource(R.string.nav_more))
+                                                },
+                                                colors = navItemColors,
+                                            )
+                                        }
+
+                                        // Bottom-Left Protruding Book Cover Only (Kindle App Style)
                                         if (lastReadBook != null) {
                                             val isReaderActive =
                                                 currentDestination == MainScreenDestination.READER
-                                            Box(
+                                            Surface(
                                                 modifier =
                                                     Modifier
-                                                        .padding(
-                                                            start = 12.dp,
-                                                            end = 6.dp,
-                                                            top = 6.dp,
-                                                            bottom = 6.dp,
-                                                        ).border(
-                                                            BorderStroke(
-                                                                if (isReaderActive) 2.dp else 1.dp,
-                                                                if (isReaderActive) {
-                                                                    colors.primary
-                                                                } else {
-                                                                    colors.outlineVariant
-                                                                },
-                                                            ),
-                                                            RoundedCornerShape(8.dp),
-                                                        ).background(
-                                                            if (isReaderActive) {
-                                                                colors.primaryContainer.copy(
-                                                                    alpha = 0.35f,
-                                                                )
-                                                            } else {
-                                                                colors.surfaceVariant.copy(
-                                                                    alpha = 0.35f,
-                                                                )
-                                                            },
-                                                            RoundedCornerShape(8.dp),
-                                                        ).clickable {
+                                                        .align(Alignment.BottomStart)
+                                                        .padding(start = 18.dp, bottom = 6.dp)
+                                                        .width(54.dp)
+                                                        .height(76.dp)
+                                                        .clickable {
                                                             openBookInReader(lastReadBook)
-                                                        }.padding(
-                                                            horizontal = 8.dp,
-                                                            vertical = 4.dp,
-                                                        ),
-                                                contentAlignment = Alignment.Center,
+                                                        },
+                                                shape = RoundedCornerShape(6.dp),
+                                                shadowElevation =
+                                                    if (einkPolicy.isActive) {
+                                                        0.dp
+                                                    } else {
+                                                        6.dp
+                                                    },
+                                                border =
+                                                    BorderStroke(
+                                                        if (isReaderActive) 2.dp else 1.dp,
+                                                        if (isReaderActive) {
+                                                            colors.primary
+                                                        } else {
+                                                            colors.outlineVariant
+                                                        },
+                                                    ),
                                             ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement =
-                                                        Arrangement.spacedBy(6.dp),
-                                                ) {
-                                                    BookCoverThumbnail(
-                                                        book = lastReadBook,
-                                                        isGrid = false,
-                                                        showBadge = false,
-                                                        modifier =
-                                                            Modifier
-                                                                .width(30.dp)
-                                                                .height(42.dp),
-                                                    )
-                                                    Column(
-                                                        modifier = Modifier.width(56.dp),
-                                                        verticalArrangement =
-                                                            Arrangement.spacedBy(1.dp),
-                                                    ) {
-                                                        val resumeLabel =
-                                                            stringResource(
-                                                                R.string.nav_continue_reading_short,
-                                                            )
-                                                        Text(
-                                                            text = resumeLabel,
-                                                            style = typography.caption,
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = colors.primary,
-                                                            maxLines = 1,
-                                                        )
-                                                        Text(
-                                                            text = lastReadBook.title,
-                                                            style = typography.caption,
-                                                            color = colors.onSurface,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis,
-                                                        )
-                                                    }
-                                                }
+                                                BookCoverThumbnail(
+                                                    book = lastReadBook,
+                                                    isGrid = false,
+                                                    showBadge = false,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                )
                                             }
                                         }
-
-                                        // Tab 1: Home (`主页` — Default)
-                                        NavigationBarItem(
-                                            selected =
-                                                currentDestination == MainScreenDestination.HOME,
-                                            onClick = {
-                                                libraryBooks = loadLibraryBooks()
-                                                currentDestination = MainScreenDestination.HOME
-                                            },
-                                            icon = {
-                                                Icon(
-                                                    imageVector = MixuIcons.Reader,
-                                                    contentDescription = null,
-                                                )
-                                            },
-                                            label = { Text(stringResource(R.string.nav_home)) },
-                                            colors =
-                                                NavigationBarItemDefaults.colors(
-                                                    selectedIconColor = colors.primary,
-                                                    selectedTextColor = colors.primary,
-                                                    indicatorColor = colors.primaryContainer,
-                                                    unselectedIconColor = colors.onSurfaceVariant,
-                                                    unselectedTextColor = colors.onSurfaceVariant,
-                                                ),
-                                        )
-
-                                        // Tab 2: Library (`图书馆`)
-                                        NavigationBarItem(
-                                            selected =
-                                                currentDestination ==
-                                                    MainScreenDestination.LIBRARY,
-                                            onClick = {
-                                                libraryBooks = loadLibraryBooks()
-                                                currentDestination = MainScreenDestination.LIBRARY
-                                            },
-                                            icon = {
-                                                Icon(
-                                                    imageVector = MixuIcons.Library,
-                                                    contentDescription = null,
-                                                )
-                                            },
-                                            label = { Text(stringResource(R.string.nav_library)) },
-                                            colors =
-                                                NavigationBarItemDefaults.colors(
-                                                    selectedIconColor = colors.primary,
-                                                    selectedTextColor = colors.primary,
-                                                    indicatorColor = colors.primaryContainer,
-                                                    unselectedIconColor = colors.onSurfaceVariant,
-                                                    unselectedTextColor = colors.onSurfaceVariant,
-                                                ),
-                                        )
-
-                                        // Tab 3: More (`更多` — Login, Settings, Help, About)
-                                        NavigationBarItem(
-                                            selected =
-                                                currentDestination ==
-                                                    MainScreenDestination.SETTINGS_PREVIEW,
-                                            onClick = {
-                                                currentDestination =
-                                                    MainScreenDestination.SETTINGS_PREVIEW
-                                            },
-                                            icon = {
-                                                Icon(
-                                                    imageVector = MixuIcons.Settings,
-                                                    contentDescription = null,
-                                                )
-                                            },
-                                            label = {
-                                                Text(stringResource(R.string.nav_more))
-                                            },
-                                            colors =
-                                                NavigationBarItemDefaults.colors(
-                                                    selectedIconColor = colors.primary,
-                                                    selectedTextColor = colors.primary,
-                                                    indicatorColor = colors.primaryContainer,
-                                                    unselectedIconColor = colors.onSurfaceVariant,
-                                                    unselectedTextColor = colors.onSurfaceVariant,
-                                                ),
-                                        )
                                     }
                                 }
                             },
@@ -628,8 +597,18 @@ class MainActivity :
                                         )
                                     }
                                     MainScreenDestination.CASE_BOARD -> {
+                                        val currentSpineKey =
+                                            readerSession.activeNavigator
+                                                ?.currentPage
+                                                ?.spineIndex ?: 0
+                                        val currentHorizonKey =
+                                            readerSession.navigationStateMachine.knowledgeHorizon
                                         val activeController =
-                                            remember(activeBookId, readerTick) {
+                                            remember(
+                                                activeBookId,
+                                                currentSpineKey,
+                                                currentHorizonKey,
+                                            ) {
                                                 buildCaseBoardController(activeBookId)
                                             }
                                         CaseBoardScreen(
@@ -813,19 +792,24 @@ class MainActivity :
                     }.getOrNull()
             val pack = packLoader.loadForBook(asset = asset, publication = publication)
             val maxAnchorOrdinal = (pack.anchors.maxOfOrNull { it.ordinal } ?: 0).coerceAtLeast(0)
-            val navState = readerSession.navigationStateMachine
-            val totalProg = (nav?.currentLocator?.totalProgression ?: 1.0).coerceIn(0.0, 1.0)
-            val progOrdinal =
-                (totalProg * maxAnchorOrdinal)
-                    .toInt()
-                    .coerceIn(0, maxAnchorOrdinal)
-            val readingPos =
-                maxOf(navState.readingPosition, progOrdinal, maxAnchorOrdinal)
-                    .coerceIn(0, maxAnchorOrdinal)
-            val horizon =
-                maxOf(navState.knowledgeHorizon, readingPos, maxAnchorOrdinal)
-                    .coerceIn(readingPos, maxAnchorOrdinal)
-            val viewPos = horizon
+            val savedProg = database.getReadingProgress(bookId)
+            val currentSpine =
+                nav?.currentPage?.spineIndex
+                    ?: savedProg
+                        ?.readingLocator
+                        ?.let { loc ->
+                            publication
+                                ?.metadata
+                                ?.spineItems
+                                ?.indexOfFirst { it.href == loc.href }
+                                ?.takeIf { it >= 0 }
+                        }
+                    ?: 0
+            // Lock initial Case Board reading position & horizon to the reader's current chapter
+            // so opening the graph never leaks future-chapter spoilers.
+            val readingPos = currentSpine.coerceIn(0, maxAnchorOrdinal)
+            val horizon = readingPos
+            val viewPos = readingPos
             val title =
                 database.getLibraryItem(bookId)?.displayTitle
                     ?: publication?.metadata?.title

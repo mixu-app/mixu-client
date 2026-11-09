@@ -17,6 +17,9 @@ import app.mixu.client.navigation.NavigationSurface
 import app.mixu.client.navigation.ReaderNavigationStateMachine
 import app.mixu.graph.Locator
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipFile
 import kotlin.math.abs
 import kotlin.math.pow
@@ -79,10 +82,26 @@ class EpubBookPublication private constructor(
     val chapters: List<EpubChapterContent>,
 ) {
     companion object {
+        const val IMAGE_TOKEN_PREFIX = "[[MIXU_IMAGE:"
+        const val IMAGE_TOKEN_SUFFIX = "]]"
+        private val publicationCache = ConcurrentHashMap<String, EpubBookPublication>()
+
         /**
-         * Opens and extracts all spine chapters from [epubFile].
+         * Opens and extracts all spine chapters (including embedded cover and mystery diagram
+         * images) from [epubFile], caching the parsed publication in memory by file path and
+         * modification timestamp.
          */
         fun open(epubFile: File): EpubBookPublication {
+            val cacheKey =
+                if (epubFile.exists()) {
+                    "${epubFile.absolutePath}:${epubFile.lastModified()}:${epubFile.length()}"
+                } else {
+                    ""
+                }
+            if (cacheKey.isNotEmpty()) {
+                publicationCache[cacheKey]?.let { return it }
+            }
+
             val parseOutcome = EpubMetadataParser.parse(epubFile)
             val metadata =
                 when (parseOutcome) {
@@ -93,10 +112,27 @@ class EpubBookPublication private constructor(
                         )
                 }
 
+            val baseDir =
+                epubFile.absoluteFile.parentFile
+                    ?: File(".")
+            val stem = epubFile.nameWithoutExtension.take(28)
+            val imageCacheDir = File(baseDir, "epub_img_$stem").apply { mkdirs() }
+            val companionCoverFile = File(baseDir, "${epubFile.nameWithoutExtension}.cover.img")
+
             val chapterContents = mutableListOf<EpubChapterContent>()
             ZipFile(epubFile).use { zip ->
+                val allEntries =
+                    zip
+                        .entries()
+                        .asSequence()
+                        .filter { !it.isDirectory }
+                        .toList()
                 for (spineItem in metadata.spineItems) {
-                    val entry = zip.getEntry(spineItem.resolvedZipPath)
+                    val entry =
+                        zip.getEntry(spineItem.resolvedZipPath)
+                            ?: allEntries.firstOrNull {
+                                it.name.equals(spineItem.resolvedZipPath, ignoreCase = true)
+                            }
                     val rawHtml =
                         if (entry != null) {
                             zip
@@ -106,7 +142,17 @@ class EpubBookPublication private constructor(
                         } else {
                             ""
                         }
-                    val paragraphs = extractParagraphsFromXhtml(rawHtml, spineItem.title)
+                    val paragraphs =
+                        extractParagraphsAndImagesFromXhtml(
+                            xhtml = rawHtml,
+                            fallbackTitle = spineItem.title,
+                            spineZipPath = spineItem.resolvedZipPath,
+                            spineIndex = spineItem.spineIndex,
+                            zip = zip,
+                            allZipEntries = allEntries,
+                            imageCacheDir = imageCacheDir,
+                            companionCoverFile = companionCoverFile,
+                        )
                     val fullText = paragraphs.joinToString("\n\n")
                     chapterContents.add(
                         EpubChapterContent(
@@ -118,11 +164,16 @@ class EpubBookPublication private constructor(
                 }
             }
 
-            return EpubBookPublication(
-                epubFile = epubFile,
-                metadata = metadata,
-                chapters = chapterContents,
-            )
+            val pub =
+                EpubBookPublication(
+                    epubFile = epubFile,
+                    metadata = metadata,
+                    chapters = chapterContents,
+                )
+            if (cacheKey.isNotEmpty() && publicationCache.size < 24) {
+                publicationCache[cacheKey] = pub
+            }
+            return pub
         }
 
         /**
@@ -199,6 +250,27 @@ class EpubBookPublication private constructor(
         internal fun extractParagraphsFromXhtml(
             xhtml: String,
             fallbackTitle: String,
+        ): List<String> =
+            extractParagraphsAndImagesFromXhtml(
+                xhtml = xhtml,
+                fallbackTitle = fallbackTitle,
+                spineZipPath = "",
+                spineIndex = 0,
+                zip = null,
+                allZipEntries = emptyList(),
+                imageCacheDir = null,
+                companionCoverFile = null,
+            )
+
+        private fun extractParagraphsAndImagesFromXhtml(
+            xhtml: String,
+            fallbackTitle: String,
+            spineZipPath: String,
+            spineIndex: Int,
+            zip: ZipFile?,
+            allZipEntries: List<java.util.zip.ZipEntry>,
+            imageCacheDir: File?,
+            companionCoverFile: File?,
         ): List<String> {
             if (xhtml.isBlank()) {
                 return listOf(fallbackTitle)
@@ -219,17 +291,132 @@ class EpubBookPublication private constructor(
                         " ",
                     )
 
+            // Replace standalone <img ...> and <image ...> tags with inline markers before stripping HTML
+            val imgTagRegex =
+                Regex(
+                    "<(?:img|image)\\b([^>]*)/?>",
+                    setOf(RegexOption.IGNORE_CASE),
+                )
+            val srcAttrRegex =
+                Regex(
+                    "(?:src|xlink:href|href)\\s*=\\s*[\"']([^\"']+)[\"']",
+                    setOf(RegexOption.IGNORE_CASE),
+                )
+            val altAttrRegex =
+                Regex(
+                    "(?:alt|title)\\s*=\\s*[\"']([^\"']*)[\"']",
+                    setOf(RegexOption.IGNORE_CASE),
+                )
+
+            val isCoverPage =
+                spineIndex == 0 ||
+                    fallbackTitle.equals("Cover", ignoreCase = true) ||
+                    fallbackTitle.contains("封面") ||
+                    spineZipPath.contains("cover", ignoreCase = true) ||
+                    spineZipPath.contains("titlepage", ignoreCase = true)
+
+            var extractedImageCount = 0
+            val htmlWithImageTokens =
+                imgTagRegex.replace(withoutHead) { match ->
+                    val attrs = match.groupValues[1]
+                    val rawSrc =
+                        srcAttrRegex
+                            .find(attrs)
+                            ?.groupValues
+                            ?.get(1)
+                            ?.trim()
+                            .orEmpty()
+                    val rawAlt =
+                        altAttrRegex
+                            .find(attrs)
+                            ?.groupValues
+                            ?.get(1)
+                            ?.trim()
+                            .orEmpty()
+                    val isFootnoteIcon =
+                        attrs.contains("footnote", ignoreCase = true) ||
+                            rawSrc.endsWith("note.png", ignoreCase = true) ||
+                            rawSrc.contains("footnote", ignoreCase = true)
+                    if (rawSrc.isEmpty() || isFootnoteIcon) {
+                        " "
+                    } else if (zip != null && imageCacheDir != null) {
+                        val extractedFile =
+                            extractZipImageToCache(
+                                zip = zip,
+                                allZipEntries = allZipEntries,
+                                spineZipPath = spineZipPath,
+                                rawRelativeRef = rawSrc,
+                                spineIndex = spineIndex,
+                                imageIndex = extractedImageCount,
+                                imageCacheDir = imageCacheDir,
+                                isCoverPage = isCoverPage,
+                            )
+                        if (extractedFile != null) {
+                            extractedImageCount++
+                            val caption =
+                                when {
+                                    isCoverPage -> fallbackTitle.ifBlank { "Cover" }
+                                    rawAlt.isNotBlank() && !rawAlt.all { it.isDigit() } -> rawAlt
+                                    else -> "书中插图 / 现场平面图 #$extractedImageCount"
+                                }
+                            "<p>$IMAGE_TOKEN_PREFIX${extractedFile.absolutePath}|$caption$IMAGE_TOKEN_SUFFIX</p>"
+                        } else {
+                            " "
+                        }
+                    } else {
+                        " "
+                    }
+                }
+
             val blockRegex =
                 Regex(
-                    "<(?:p|div|li|blockquote)[^>]*>(.*?)</(?:p|div|li|blockquote)>",
+                    "<(?:p|div|li|blockquote|h1|h2|h3)[^>]*>(.*?)</(?:p|div|li|blockquote|h1|h2|h3)>",
                     setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
                 )
             val paragraphs = mutableListOf<String>()
-            for (match in blockRegex.findAll(withoutHead)) {
-                val cleaned = decodeHtmlEntities(stripTags(match.groupValues[1]))
-                if (cleaned.isNotEmpty()) {
+            for (match in blockRegex.findAll(htmlWithImageTokens)) {
+                val inner = match.groupValues[1]
+                // Preserve any [[MIXU_IMAGE:...]] tokens inside the block
+                val tokenRegex = Regex("\\[\\[MIXU_IMAGE:[^\\]]+\\]\\]")
+                val tokensInBlock = tokenRegex.findAll(inner).map { it.value }.toList()
+                for (tk in tokensInBlock) {
+                    if (paragraphs.lastOrNull() != tk) {
+                        paragraphs.add(tk)
+                    }
+                }
+                val textWithoutTokens = inner.replace(tokenRegex, " ")
+                val cleaned = decodeHtmlEntities(stripTags(textWithoutTokens))
+                if (cleaned.isNotEmpty() &&
+                    !(
+                        isCoverPage &&
+                            cleaned.equals("Cover", ignoreCase = true) &&
+                            tokensInBlock.isNotEmpty()
+                    )
+                ) {
                     paragraphs.add(cleaned)
                 }
+            }
+
+            // Also check if any image tokens were outside <p>/<div> blocks (e.g. directly inside <body>/<svg>)
+            if (paragraphs.none { it.startsWith(IMAGE_TOKEN_PREFIX) }) {
+                val tokenRegex = Regex("\\[\\[MIXU_IMAGE:[^\\]]+\\]\\]")
+                for (tkMatch in tokenRegex.findAll(htmlWithImageTokens)) {
+                    paragraphs.add(0, tkMatch.value)
+                }
+            }
+
+            // Fallback for Cover page if companion cover file exists and no image was found in HTML
+            if (isCoverPage &&
+                paragraphs.none { it.startsWith(IMAGE_TOKEN_PREFIX) } &&
+                companionCoverFile != null &&
+                companionCoverFile.isFile &&
+                companionCoverFile.length() > 0L
+            ) {
+                paragraphs.add(
+                    0,
+                    "$IMAGE_TOKEN_PREFIX${companionCoverFile.absolutePath}|$fallbackTitle$IMAGE_TOKEN_SUFFIX",
+                )
+                paragraphs.removeAll { it.equals("Cover", ignoreCase = true) }
             }
 
             if (paragraphs.isNotEmpty()) {
@@ -242,6 +429,85 @@ class EpubBookPublication private constructor(
             } else {
                 listOf(fallbackTitle)
             }
+        }
+
+        private fun extractZipImageToCache(
+            zip: ZipFile,
+            allZipEntries: List<java.util.zip.ZipEntry>,
+            spineZipPath: String,
+            rawRelativeRef: String,
+            spineIndex: Int,
+            imageIndex: Int,
+            imageCacheDir: File,
+            isCoverPage: Boolean,
+        ): File? {
+            return runCatching {
+                val cleanRef =
+                    java.net.URLDecoder
+                        .decode(rawRelativeRef.substringBefore('#').substringBefore('?'), "UTF-8")
+                        .replace('\\', '/')
+                        .trim()
+                val baseFolder =
+                    spineZipPath
+                        .replace('\\', '/')
+                        .substringBeforeLast('/', missingDelimiterValue = "")
+                val combined =
+                    if (cleanRef.startsWith("/")) {
+                        cleanRef.trimStart('/')
+                    } else if (baseFolder.isEmpty()) {
+                        cleanRef
+                    } else {
+                        "$baseFolder/$cleanRef"
+                    }
+                val parts = mutableListOf<String>()
+                for (seg in combined.split('/')) {
+                    when (seg) {
+                        "", "." -> Unit
+                        ".." -> if (parts.isNotEmpty()) parts.removeAt(parts.lastIndex)
+                        else -> parts.add(seg)
+                    }
+                }
+                val normalizedZipPath = parts.joinToString("/")
+                val fileNameOnly = cleanRef.substringAfterLast('/')
+                val zipEntry =
+                    zip.getEntry(normalizedZipPath)
+                        ?: allZipEntries.firstOrNull {
+                            it.name.equals(normalizedZipPath, ignoreCase = true)
+                        }
+                        ?: allZipEntries.firstOrNull {
+                            fileNameOnly.isNotEmpty() &&
+                                (
+                                    it.name.equals(fileNameOnly, ignoreCase = true) ||
+                                        it.name.endsWith("/$fileNameOnly", ignoreCase = true)
+                                )
+                        }
+                        ?: return null
+
+                // Skip tiny decorative icons (< 2KB) unless on a cover page
+                if (!isCoverPage && zipEntry.size in 1..2048) {
+                    return null
+                }
+
+                val safeExt =
+                    fileNameOnly
+                        .substringAfterLast('.', "jpg")
+                        .lowercase()
+                        .take(5)
+                val safeStem =
+                    fileNameOnly
+                        .substringBeforeLast('.')
+                        .replace(Regex("[^a-zA-Z0-9_\\-]"), "_")
+                        .take(24)
+                        .ifEmpty { "img" }
+                val outFile =
+                    File(imageCacheDir, "sp${spineIndex}_${imageIndex}_$safeStem.$safeExt")
+                if (!outFile.exists() || outFile.length() == 0L) {
+                    zip.getInputStream(zipEntry).use { input ->
+                        Files.copy(input, outFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                    }
+                }
+                if (outFile.exists() && outFile.length() > 0L) outFile else null
+            }.getOrNull()
         }
 
         private fun stripTags(html: String): String =

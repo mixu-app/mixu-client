@@ -54,6 +54,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,7 +90,6 @@ import app.mixu.client.config.GraphDimensionMode
 import app.mixu.client.config.GraphPhysicsMode
 import app.mixu.client.eink.StrokePattern
 import app.mixu.client.theme.MixuTheme
-import app.mixu.client.ui.MixuBrandLogo
 import app.mixu.client.ui.MixuIcons
 import app.mixu.graph.EntityType
 import app.mixu.graph.EpistemicStatus
@@ -231,31 +231,22 @@ fun CaseBoardScreen(
             Column(modifier = Modifier.fillMaxWidth().background(colors.surface)) {
                 TopAppBar(
                     title = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            MixuBrandLogo(
-                                size = 26.dp,
-                                cornerRadius = 6.dp,
+                        Column {
+                            Text(
+                                text = stringResource(R.string.caseboard_title),
+                                style =
+                                    MixuTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                    ),
+                                color = colors.onSurface,
                             )
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.caseboard_title),
-                                    style =
-                                        MixuTheme.typography.titleMedium.copy(
-                                            fontWeight = FontWeight.Bold,
-                                        ),
-                                    color = colors.onSurface,
-                                )
-                                Text(
-                                    text = uiState.bookTitle,
-                                    style = MixuTheme.typography.caption,
-                                    color = colors.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
+                            Text(
+                                text = uiState.bookTitle,
+                                style = MixuTheme.typography.caption,
+                                color = colors.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                     },
                     navigationIcon = {
@@ -513,7 +504,7 @@ private fun HistoricalRevealScrubber(
                                 R.string.caseboard_scrubber_label,
                                 graphViewPosition,
                                 knowledgeHorizon,
-                            ),
+                            ) + " · 当前第 ${readingPosition + 1} 节",
                         style =
                             MixuTheme.typography.caption.copy(
                                 fontFamily = FontFamily.Monospace,
@@ -600,17 +591,44 @@ private fun GraphCanvasSurface(
     var physicsMode by remember {
         mutableStateOf(GraphPhysicsMode.LIVE_SPRING)
     }
+    var entityTypeFilter by remember {
+        mutableStateOf<EntityType?>(null)
+    }
     var showEdgeLabels by remember { mutableStateOf(true) }
     var interactivePanX by remember { mutableFloatStateOf(0f) }
     var interactivePanY by remember { mutableFloatStateOf(0f) }
     var interactiveZoom by remember { mutableFloatStateOf(1.0f) }
-    var nodeOffsets by remember(uiState.editionId, graphMode, uiState.graphViewPosition) {
+    var nodeOffsets by remember(
+        uiState.editionId,
+        graphMode,
+        uiState.graphViewPosition,
+        entityTypeFilter,
+    ) {
         mutableStateOf<Map<String, Pair<Float, Float>>>(emptyMap())
     }
-    var pinnedNodeIds by remember(uiState.editionId, graphMode, uiState.graphViewPosition) {
+    var pinnedNodeIds by remember(
+        uiState.editionId,
+        graphMode,
+        uiState.graphViewPosition,
+        entityTypeFilter,
+    ) {
         mutableStateOf<Set<String>>(emptySet())
     }
     var activeDraggedEntityId by remember { mutableStateOf<String?>(null) }
+
+    val filteredEntities =
+        remember(entities, entityTypeFilter) {
+            when (entityTypeFilter) {
+                null -> entities
+                EntityType.PERSON ->
+                    entities.filter {
+                        it.entity.entityType == EntityType.PERSON ||
+                            it.entity.entityType == EntityType.PERSONA ||
+                            it.entity.entityType == EntityType.ORGANIZATION
+                    }
+                else -> entities.filter { it.entity.entityType == entityTypeFilter }
+            }.ifEmpty { entities }
+        }
 
     val effectiveZoom = (uiState.zoomLevel * interactiveZoom).coerceIn(0.5f, 2.6f)
     val effectivePanX = uiState.panOffsetX + interactivePanX
@@ -619,14 +637,14 @@ private fun GraphCanvasSurface(
     val layoutResult =
         remember(
             uiState.editionId,
-            entities,
+            filteredEntities,
             assertions,
             graphMode,
             eInkPolicy.isActive,
         ) {
             ForceDirectedGraphEngine.computeLayout(
                 editionId = uiState.editionId,
-                entities = entities,
+                entities = filteredEntities,
                 assertions = assertions,
                 isEInk = eInkPolicy.isActive,
                 mode = graphMode,
@@ -659,7 +677,7 @@ private fun GraphCanvasSurface(
 
             val projectedNodes =
                 remember(
-                    entities,
+                    filteredEntities,
                     layoutResult,
                     viewportWidthPx,
                     viewportHeightPx,
@@ -669,7 +687,7 @@ private fun GraphCanvasSurface(
                     nodeOffsets,
                 ) {
                     ForceDirectedGraphEngine.projectNodes(
-                        entities = entities,
+                        entities = filteredEntities,
                         layoutResult = layoutResult,
                         viewportWidthPx = viewportWidthPx,
                         viewportHeightPx = viewportHeightPx,
@@ -699,6 +717,13 @@ private fun GraphCanvasSurface(
                     }
                 }
 
+            val latestProjectedNodes by rememberUpdatedState(projectedNodes)
+            val latestSelectedEntityId by rememberUpdatedState(selectedEntityId)
+            val latestNodeOffsets by rememberUpdatedState(nodeOffsets)
+            val latestPinnedNodeIds by rememberUpdatedState(pinnedNodeIds)
+            val latestPhysicsMode by rememberUpdatedState(physicsMode)
+            val latestEffectiveZoom by rememberUpdatedState(effectiveZoom)
+
             val nodeLabelStyle =
                 remember(colors.onSurface) {
                     TextStyle(
@@ -720,11 +745,11 @@ private fun GraphCanvasSurface(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .pointerInput(projectedNodes, selectedEntityId) {
+                        .pointerInput(layoutResult) {
                             detectTapGestures { tapOffset ->
-                                val hitRadiusPx = 42.dp.toPx()
+                                val hitRadiusPx = 46.dp.toPx()
                                 val hitNode =
-                                    projectedNodes.asReversed().firstOrNull { node ->
+                                    latestProjectedNodes.asReversed().firstOrNull { node ->
                                         hypot(
                                             tapOffset.x - node.screenX,
                                             tapOffset.y - node.screenY,
@@ -732,7 +757,7 @@ private fun GraphCanvasSurface(
                                     }
                                 if (hitNode != null) {
                                     val clickedId = hitNode.entity.entity.entityId.value
-                                    if (clickedId == selectedEntityId) {
+                                    if (clickedId == latestSelectedEntityId) {
                                         onSelectEntity(null)
                                     } else {
                                         onSelectEntity(hitNode.entity)
@@ -742,19 +767,16 @@ private fun GraphCanvasSurface(
                                 }
                             }
                         }.pointerInput(
-                            projectedNodes,
                             layoutResult,
-                            physicsMode,
                             eInkPolicy.isActive,
                             viewportWidthPx,
                             viewportHeightPx,
-                            effectiveZoom,
                         ) {
                             detectDragGestures(
                                 onDragStart = { startOffset ->
-                                    val hitRadiusPx = 44.dp.toPx()
+                                    val hitRadiusPx = 48.dp.toPx()
                                     val hitNode =
-                                        projectedNodes.asReversed().firstOrNull { node ->
+                                        latestProjectedNodes.asReversed().firstOrNull { node ->
                                             hypot(
                                                 startOffset.x - node.screenX,
                                                 startOffset.y - node.screenY,
@@ -777,29 +799,30 @@ private fun GraphCanvasSurface(
                                 onDrag = { change, dragAmount ->
                                     change.consume()
                                     val draggedId = activeDraggedEntityId
+                                    val curZoom = latestEffectiveZoom
                                     if (draggedId != null) {
-                                        val nextPinned = pinnedNodeIds + draggedId
+                                        val nextPinned = latestPinnedNodeIds + draggedId
                                         pinnedNodeIds = nextPinned
                                         nodeOffsets =
                                             ForceDirectedGraphEngine.applyNodeDragStep(
                                                 layoutResult = layoutResult,
-                                                currentOffsets = nodeOffsets,
+                                                currentOffsets = latestNodeOffsets,
                                                 draggedEntityId = draggedId,
                                                 screenDx = dragAmount.x,
                                                 screenDy = dragAmount.y,
                                                 viewportWidthPx = viewportWidthPx,
                                                 viewportHeightPx = viewportHeightPx,
-                                                zoom = effectiveZoom,
-                                                physicsMode = physicsMode,
+                                                zoom = curZoom,
+                                                physicsMode = latestPhysicsMode,
                                                 pinnedEntityIds = nextPinned,
                                                 isEInk = eInkPolicy.isActive,
                                             )
                                     } else {
                                         interactivePanX =
-                                            (interactivePanX + dragAmount.x / effectiveZoom)
+                                            (interactivePanX + dragAmount.x / curZoom)
                                                 .coerceIn(-650f, 650f)
                                         interactivePanY =
-                                            (interactivePanY + dragAmount.y / effectiveZoom)
+                                            (interactivePanY + dragAmount.y / curZoom)
                                                 .coerceIn(-650f, 650f)
                                     }
                                 },
@@ -880,26 +903,38 @@ private fun GraphCanvasSurface(
                     val dist = hypot(dx, dy).coerceAtLeast(1f)
                     val nx = -dy / dist
                     val ny = dx / dist
-                    val curveOffset = dist * edge.curvature
+                    val isStraightEdge = kotlin.math.abs(edge.curvature) < 0.005f
+                    val curveOffset = if (isStraightEdge) 0f else dist * edge.curvature
                     val ctrlX = (src.screenX + dst.screenX) * 0.5f + nx * curveOffset
                     val ctrlY = (src.screenY + dst.screenY) * 0.5f + ny * curveOffset
 
-                    val path =
-                        Path().apply {
-                            moveTo(src.screenX, src.screenY)
-                            quadraticTo(ctrlX, ctrlY, dst.screenX, dst.screenY)
-                        }
+                    if (isStraightEdge) {
+                        drawLine(
+                            color = edgeColor,
+                            start = Offset(src.screenX, src.screenY),
+                            end = Offset(dst.screenX, dst.screenY),
+                            strokeWidth = strokePx,
+                            cap = StrokeCap.Round,
+                            pathEffect = pathEffect,
+                        )
+                    } else {
+                        val path =
+                            Path().apply {
+                                moveTo(src.screenX, src.screenY)
+                                quadraticTo(ctrlX, ctrlY, dst.screenX, dst.screenY)
+                            }
 
-                    drawPath(
-                        path = path,
-                        color = edgeColor,
-                        style =
-                            Stroke(
-                                width = strokePx,
-                                cap = StrokeCap.Round,
-                                pathEffect = pathEffect,
-                            ),
-                    )
+                        drawPath(
+                            path = path,
+                            color = edgeColor,
+                            style =
+                                Stroke(
+                                    width = strokePx,
+                                    cap = StrokeCap.Round,
+                                    pathEffect = pathEffect,
+                                ),
+                        )
+                    }
 
                     // Draw directional arrowhead near the target node boundary
                     val targetRadiusPx =
@@ -1190,8 +1225,9 @@ private fun GraphCanvasSurface(
         GraphModeToolbar(
             graphMode = graphMode,
             physicsMode = physicsMode,
+            entityTypeFilter = entityTypeFilter,
             showEdgeLabels = showEdgeLabels,
-            entityCount = entities.size,
+            entityCount = filteredEntities.size,
             edgeCount = layoutResult.edges.size,
             onModeChange = { newMode -> graphMode = newMode },
             onCyclePhysicsMode = {
@@ -1202,6 +1238,7 @@ private fun GraphCanvasSurface(
                         GraphPhysicsMode.PIN_NODE -> GraphPhysicsMode.LIVE_SPRING
                     }
             },
+            onEntityTypeFilterChange = { filter -> entityTypeFilter = filter },
             onToggleLabels = { showEdgeLabels = !showEdgeLabels },
             onResetView = {
                 interactivePanX = 0f
@@ -1209,6 +1246,7 @@ private fun GraphCanvasSurface(
                 interactiveZoom = 1.0f
                 nodeOffsets = emptyMap()
                 pinnedNodeIds = emptySet()
+                entityTypeFilter = null
                 onResetViewport()
             },
             modifier =
@@ -1341,11 +1379,13 @@ private fun DrawScope.drawEInkGeometricNode(
 private fun GraphModeToolbar(
     graphMode: GraphDimensionMode,
     physicsMode: GraphPhysicsMode,
+    entityTypeFilter: EntityType?,
     showEdgeLabels: Boolean,
     entityCount: Int,
     edgeCount: Int,
     onModeChange: (GraphDimensionMode) -> Unit,
     onCyclePhysicsMode: () -> Unit,
+    onEntityTypeFilterChange: (EntityType?) -> Unit,
     onToggleLabels: () -> Unit,
     onResetView: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1393,6 +1433,51 @@ private fun GraphModeToolbar(
                     label = physicsLabel,
                     selected = physicsMode != GraphPhysicsMode.PIN_NODE,
                     onClick = onCyclePhysicsMode,
+                )
+            }
+
+            // Canonical Mixu Narrative Dimensions: Characters / Locations / Clues & Objects
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                GraphPillButton(
+                    label = "全部",
+                    selected = entityTypeFilter == null,
+                    onClick = { onEntityTypeFilterChange(null) },
+                )
+                GraphPillButton(
+                    label = "👤 人物",
+                    selected = entityTypeFilter == EntityType.PERSON,
+                    onClick = {
+                        onEntityTypeFilterChange(
+                            if (entityTypeFilter == EntityType.PERSON) null else EntityType.PERSON,
+                        )
+                    },
+                )
+                GraphPillButton(
+                    label = "📍 地点",
+                    selected = entityTypeFilter == EntityType.LOCATION,
+                    onClick = {
+                        onEntityTypeFilterChange(
+                            if (entityTypeFilter ==
+                                EntityType.LOCATION
+                            ) {
+                                null
+                            } else {
+                                EntityType.LOCATION
+                            },
+                        )
+                    },
+                )
+                GraphPillButton(
+                    label = "🔑 证物",
+                    selected = entityTypeFilter == EntityType.OBJECT,
+                    onClick = {
+                        onEntityTypeFilterChange(
+                            if (entityTypeFilter == EntityType.OBJECT) null else EntityType.OBJECT,
+                        )
+                    },
                 )
             }
 

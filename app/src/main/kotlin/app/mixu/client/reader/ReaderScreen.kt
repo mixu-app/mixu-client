@@ -5,7 +5,10 @@ package app.mixu.client.reader
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.graphics.BitmapFactory
+import android.util.LruCache
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -58,7 +61,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
@@ -92,8 +98,74 @@ import app.mixu.client.config.ReadingLayoutMode
 import app.mixu.client.lookup.LookupAndTranslationEngine
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.theme.MixuThemeMode
-import app.mixu.client.ui.MixuBrandLogo
+import java.io.File
 import kotlin.math.roundToInt
+
+private object ReaderImageBitmapCache {
+    private val cache = LruCache<String, ImageBitmap>(32)
+
+    fun load(
+        path: String,
+        reqWidth: Int = 1080,
+        reqHeight: Int = 1440,
+    ): ImageBitmap? {
+        if (path.isBlank()) return null
+        val key = "$path:${reqWidth}x$reqHeight"
+        cache.get(key)?.let { return it }
+        val file = File(path)
+        if (!file.exists() || !file.isFile) return null
+        return runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(path, bounds)
+            var sampleSize = 1
+            if (bounds.outHeight > reqHeight || bounds.outWidth > reqWidth) {
+                val halfH = bounds.outHeight / 2
+                val halfW = bounds.outWidth / 2
+                while ((halfH / sampleSize) >= reqHeight && (halfW / sampleSize) >= reqWidth) {
+                    sampleSize *= 2
+                }
+            }
+            val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            BitmapFactory.decodeFile(path, opts)?.asImageBitmap()?.also { bmp ->
+                cache.put(key, bmp)
+            }
+        }.getOrNull()
+    }
+}
+
+private object PaginationMeasurementCache {
+    private val cache = LruCache<String, List<List<MeasuredParagraphSlice>>>(24)
+
+    fun getOrPut(
+        key: String,
+        compute: () -> List<List<MeasuredParagraphSlice>>,
+    ): List<List<MeasuredParagraphSlice>> {
+        cache.get(key)?.let { return it }
+        return compute().also { cache.put(key, it) }
+    }
+}
+
+internal data class ParsedReaderImageToken(
+    val filePath: String,
+    val caption: String,
+)
+
+internal fun parseReaderImageTokenOrNull(text: String): ParsedReaderImageToken? {
+    val trimmed = text.trim()
+    if (!trimmed.startsWith(EpubBookPublication.IMAGE_TOKEN_PREFIX) ||
+        !trimmed.endsWith(EpubBookPublication.IMAGE_TOKEN_SUFFIX)
+    ) {
+        return null
+    }
+    val payload =
+        trimmed.substring(
+            EpubBookPublication.IMAGE_TOKEN_PREFIX.length,
+            trimmed.length - EpubBookPublication.IMAGE_TOKEN_SUFFIX.length,
+        )
+    val filePath = payload.substringBefore('|').trim()
+    val caption = payload.substringAfter('|', "Cover").trim().ifEmpty { "Cover" }
+    return if (filePath.isNotEmpty()) ParsedReaderImageToken(filePath, caption) else null
+}
 
 /**
  * Single measured paragraph slice guaranteed to fit within the reading viewport without
@@ -136,6 +208,26 @@ internal fun paginateParagraphsByExactLineBounds(
     }
 
     for (para in normalizedParagraphs) {
+        if (parseReaderImageTokenOrNull(para) != null) {
+            val imageHeightPx = (safeHeightPx * 0.72f).toInt().coerceAtLeast(160)
+            val spacingBefore = if (currentSlices.isEmpty()) 0 else paragraphSpacingPx
+            if (currentSlices.isNotEmpty() &&
+                usedHeightPx + spacingBefore + imageHeightPx > safeHeightPx
+            ) {
+                subPages.add(currentSlices.toList())
+                currentSlices = mutableListOf()
+                usedHeightPx = 0
+            }
+            currentSlices.add(
+                MeasuredParagraphSlice(
+                    text = para,
+                    isContinuation = false,
+                ),
+            )
+            usedHeightPx += imageHeightPx
+            continue
+        }
+
         var remainingText = para
         var isContinuation = false
 
@@ -390,11 +482,13 @@ fun ReaderScreen(
         mutableStateOf(fullChapterParagraphs.firstOrNull().orEmpty())
     }
 
-    // Long-press text selection, highlights, and reading notes state
+    // Long-press text selection, highlights, reading notes, and embedded image inspector state
     var selectedPassage by remember { mutableStateOf<String?>(null) }
     var selectedWord by remember { mutableStateOf("alibi") }
     var passageHighlights by remember { mutableStateOf<Map<String, Color>>(emptyMap()) }
     var passageNotes by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var inspectedImageToken by remember { mutableStateOf<ParsedReaderImageToken?>(null) }
+    var showAiImageAnalysis by remember { mutableStateOf(false) }
     var viewportWidthPx by remember { mutableIntStateOf(1) }
 
     val handleViewportTapAtRootX: (Float) -> Unit = { rootX ->
@@ -538,24 +632,46 @@ fun ReaderScreen(
                 val textMeasurer = rememberTextMeasurer()
 
                 if (config.readingLayoutMode == ReadingLayoutMode.PAGED) {
-                    val measuredColumns =
+                    val cacheKey =
                         remember(
-                            fullChapterParagraphs,
-                            indentedTextStyle,
-                            baseTextStyle,
+                            viewportState.bookId,
+                            page.spineIndex,
+                            fullChapterParagraphs.size,
+                            fullChapterParagraphs.firstOrNull(),
+                            config.effectiveFontSizeSp(),
+                            config.lineHeightMultiplier,
+                            config.paragraphIndentEm,
                             availableWidthPx,
                             availableHeightPx,
                             paragraphSpacingPx,
                         ) {
-                            paginateParagraphsByExactLineBounds(
-                                paragraphs = fullChapterParagraphs,
-                                textMeasurer = textMeasurer,
-                                indentedStyle = indentedTextStyle,
-                                continuationStyle = baseTextStyle,
-                                availableWidthPx = availableWidthPx,
-                                availableHeightPx = availableHeightPx,
-                                paragraphSpacingPx = paragraphSpacingPx,
-                            )
+                            buildString {
+                                append(viewportState.bookId).append(':')
+                                append(page.spineIndex).append(':')
+                                append(fullChapterParagraphs.size).append(':')
+                                append(
+                                    fullChapterParagraphs.firstOrNull()?.hashCode() ?: 0,
+                                ).append(':')
+                                append(config.effectiveFontSizeSp()).append(':')
+                                append(config.lineHeightMultiplier).append(':')
+                                append(config.paragraphIndentEm).append(':')
+                                append(availableWidthPx).append('x').append(availableHeightPx)
+                                append(':').append(paragraphSpacingPx)
+                            }
+                        }
+                    val measuredColumns =
+                        remember(cacheKey) {
+                            PaginationMeasurementCache.getOrPut(cacheKey) {
+                                paginateParagraphsByExactLineBounds(
+                                    paragraphs = fullChapterParagraphs,
+                                    textMeasurer = textMeasurer,
+                                    indentedStyle = indentedTextStyle,
+                                    continuationStyle = baseTextStyle,
+                                    availableWidthPx = availableWidthPx,
+                                    availableHeightPx = availableHeightPx,
+                                    paragraphSpacingPx = paragraphSpacingPx,
+                                )
+                            }
                         }
 
                     val columnsPerSpread = if (isTwoColumn) 2 else 1
@@ -635,6 +751,10 @@ fun ReaderScreen(
                                         onLongPressAtChar = { charIdx ->
                                             handleLongPressOnParagraph(slice.text, charIdx)
                                         },
+                                        onInspectImage = { token, aiAnalyze ->
+                                            inspectedImageToken = token
+                                            showAiImageAnalysis = aiAnalyze
+                                        },
                                     )
                                 }
                             }
@@ -687,6 +807,10 @@ fun ReaderScreen(
                                         onLongPressAtChar = { charIdx ->
                                             handleLongPressOnParagraph(slice.text, charIdx)
                                         },
+                                        onInspectImage = { token, aiAnalyze ->
+                                            inspectedImageToken = token
+                                            showAiImageAnalysis = aiAnalyze
+                                        },
                                     )
                                 }
                             }
@@ -723,6 +847,10 @@ fun ReaderScreen(
                                     onTapRootX = handleViewportTapAtRootX,
                                     onLongPressAtChar = { charIdx ->
                                         handleLongPressOnParagraph(slice.text, charIdx)
+                                    },
+                                    onInspectImage = { token, aiAnalyze ->
+                                        inspectedImageToken = token
+                                        showAiImageAnalysis = aiAnalyze
                                     },
                                 )
                             }
@@ -772,6 +900,10 @@ fun ReaderScreen(
                                 onLongPressAtChar = { charIdx ->
                                     handleLongPressOnParagraph(paragraph, charIdx)
                                 },
+                                onInspectImage = { token, aiAnalyze ->
+                                    inspectedImageToken = token
+                                    showAiImageAnalysis = aiAnalyze
+                                },
                             )
                         }
                         item {
@@ -810,116 +942,101 @@ fun ReaderScreen(
                 }
             }
 
-            // 3. Minimal Running Footer (Page progress + Lookup + Case Board + Quick turn)
-            Row(
+            // 3. Clean Kindle / Readest / KOReader Style Bottom Running Progress Bar
+            val totalChaptersCount = viewportState.chapters.size.coerceAtLeast(1)
+            val currentChapterNum = (page.spineIndex + 1).coerceIn(1, totalChaptersCount)
+            val clampedSubPage = subPageIndex.coerceIn(0, (subPageCount - 1).coerceAtLeast(0))
+            val chapterRemainingPages = (subPageCount - 1 - clampedSubPage).coerceAtLeast(0)
+            val effectiveTotalPages = maxOf(page.totalGlobalPages, subPageCount).coerceAtLeast(1)
+            val effectiveGlobalPage =
+                (page.globalPageIndex + 1 + clampedSubPage)
+                    .coerceIn(1, effectiveTotalPages)
+            val effectiveProgressFraction =
+                remember(effectiveGlobalPage, effectiveTotalPages, totalPercent) {
+                    if (effectiveTotalPages <= 1) {
+                        (totalPercent / 100f).coerceIn(0f, 1f)
+                    } else {
+                        ((effectiveGlobalPage - 1).toFloat() / (effectiveTotalPages - 1).toFloat())
+                            .coerceIn(0.0f, 1.0f)
+                    }
+                }
+            val effectivePercent =
+                (effectiveProgressFraction * 100f).roundToInt().coerceIn(0, 100)
+
+            Column(
                 modifier =
                     Modifier
                         .fillMaxWidth()
+                        .clickable { showMenuOverlay = !showMenuOverlay }
                         .padding(
                             horizontal = config.marginPreset.horizontalDp,
-                            vertical = 6.dp,
+                            vertical = 4.dp,
                         ),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    // Left: Chapter ordinal & remaining pages in current chapter (Kindle / KOReader style)
                     Text(
-                        text = "◀ " + stringResource(R.string.reader_prev_page),
-                        style = MixuTheme.typography.caption.copy(fontWeight = FontWeight.Medium),
-                        color =
-                            if (canGoPrev) {
-                                colors.onSurfaceVariant
+                        text =
+                            if (chapterRemainingPages > 0) {
+                                "第 $currentChapterNum/$totalChaptersCount 节 · 本章第 ${clampedSubPage + 1}/$subPageCount 页 (余 $chapterRemainingPages 页)"
                             } else {
-                                colors.onSurfaceVariant.copy(alpha = 0.35f)
+                                "第 $currentChapterNum/$totalChaptersCount 节 · 本章第 ${clampedSubPage + 1}/$subPageCount 页"
                             },
-                        modifier =
-                            Modifier
-                                .clickable(enabled = canGoPrev) { handlePrevious() }
-                                .padding(horizontal = 4.dp, vertical = 4.dp),
+                        style =
+                            MixuTheme.typography.caption.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                            ),
+                        color = colors.onSurfaceVariant.copy(alpha = 0.78f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+
+                    // Right: Book-wide page & percentage progress (Readest / Apple Books style)
                     Text(
-                        text = stringResource(R.string.reader_toc_button),
-                        style = MixuTheme.typography.caption,
-                        color = colors.onSurfaceVariant,
-                        modifier =
-                            Modifier
-                                .clickable { showTocSheet = !showTocSheet }
-                                .padding(horizontal = 4.dp, vertical = 4.dp),
-                    )
-                    Text(
-                        text = stringResource(R.string.reader_lookup_button),
-                        style = MixuTheme.typography.caption.copy(fontWeight = FontWeight.Medium),
-                        color = colors.primary,
-                        modifier =
-                            Modifier
-                                .clickable { showLookupSheet = true }
-                                .padding(horizontal = 4.dp, vertical = 4.dp),
+                        text =
+                            stringResource(
+                                R.string.reader_page_indicator,
+                                effectiveGlobalPage,
+                                effectiveTotalPages,
+                                effectivePercent,
+                            ),
+                        style =
+                            MixuTheme.typography.caption.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                            ),
+                        color = colors.onSurfaceVariant.copy(alpha = 0.85f),
+                        maxLines = 1,
                     )
                 }
 
-                val chapterPercent =
-                    if (subPageCount > 1) {
-                        ((subPageIndex + 1) * 100 / subPageCount).coerceIn(1, 100)
-                    } else {
-                        totalPercent
-                    }
-                val subPageSuffix =
-                    if (subPageCount > 1) {
-                        " · 本章 ${subPageIndex + 1}/$subPageCount"
-                    } else {
-                        ""
-                    }
-                Text(
-                    text =
-                        stringResource(
-                            R.string.reader_page_indicator,
-                            page.globalPageIndex + 1,
-                            page.totalGlobalPages,
-                            chapterPercent,
-                        ) + subPageSuffix,
-                    style =
-                        MixuTheme.typography.caption.copy(
-                            fontFamily = FontFamily.Monospace,
-                        ),
-                    color = colors.onSurfaceVariant,
+                // Ultra-thin 1.5dp ambient progress hairline along the bottom edge
+                Box(
                     modifier =
                         Modifier
-                            .clickable { showMenuOverlay = !showMenuOverlay }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            .fillMaxWidth()
+                            .height(if (eInkPolicy.isActive) 2.dp else 1.5.dp)
+                            .background(colors.outlineVariant.copy(alpha = 0.28f)),
                 ) {
-                    Text(
-                        text = stringResource(R.string.reader_open_case_board),
-                        style = MixuTheme.typography.caption.copy(fontWeight = FontWeight.Bold),
-                        color = colors.primary,
+                    Box(
                         modifier =
                             Modifier
-                                .border(
-                                    BorderStroke(1.dp, colors.primary.copy(alpha = 0.5f)),
-                                    RoundedCornerShape(buttonRadius),
-                                ).clickable { onOpenCaseBoard() }
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
-                    Text(
-                        text = stringResource(R.string.reader_next_page) + " ▶",
-                        style = MixuTheme.typography.caption.copy(fontWeight = FontWeight.Medium),
-                        color =
-                            if (canGoNext) {
-                                colors.onSurfaceVariant
-                            } else {
-                                colors.onSurfaceVariant.copy(alpha = 0.35f)
-                            },
-                        modifier =
-                            Modifier
-                                .clickable(enabled = canGoNext) { handleNext() }
-                                .padding(horizontal = 4.dp, vertical = 4.dp),
+                                .fillMaxWidth(effectiveProgressFraction.coerceIn(0.01f, 1.0f))
+                                .fillMaxHeight()
+                                .background(
+                                    if (eInkPolicy.isActive) {
+                                        colors.onSurface
+                                    } else {
+                                        colors.primary.copy(alpha = 0.55f)
+                                    },
+                                ),
                     )
                 }
             }
@@ -958,36 +1075,27 @@ fun ReaderScreen(
                         )
                     }
 
-                    Row(
+                    Column(
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.Start,
                     ) {
-                        MixuBrandLogo(
-                            size = 26.dp,
-                            cornerRadius = 6.dp,
+                        Text(
+                            text = page.chapterTitle,
+                            style =
+                                MixuTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                            color = colors.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                        Column(
-                            horizontalAlignment = Alignment.Start,
-                        ) {
-                            Text(
-                                text = page.chapterTitle,
-                                style =
-                                    MixuTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                    ),
-                                color = colors.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = viewportState.bookTitle,
-                                style = MixuTheme.typography.caption,
-                                color = colors.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        Text(
+                            text = viewportState.bookTitle,
+                            style = MixuTheme.typography.caption,
+                            color = colors.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
 
                     Row(
@@ -1507,6 +1615,20 @@ fun ReaderScreen(
                 onDismiss = { showLookupSheet = false },
             )
         }
+
+        // 7. Embedded EPUB Image Viewer & AI Diagram Clue Inspector (AI-008)
+        val activeInspectedImage = inspectedImageToken
+        if (activeInspectedImage != null) {
+            ReaderImageInspectionDialog(
+                token = activeInspectedImage,
+                currentChapterIndex = page.spineIndex,
+                initialShowAiAnalysis = showAiImageAnalysis,
+                onDismiss = {
+                    inspectedImageToken = null
+                    showAiImageAnalysis = false
+                },
+            )
+        }
     }
 }
 
@@ -1632,8 +1754,20 @@ private fun SelectableReaderParagraph(
     noteText: String?,
     onTapRootX: (Float) -> Unit,
     onLongPressAtChar: (Int) -> Unit,
+    onInspectImage: (ParsedReaderImageToken, Boolean) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
+    val imageToken = remember(text) { parseReaderImageTokenOrNull(text) }
+    if (imageToken != null) {
+        ReaderEmbeddedImageCard(
+            token = imageToken,
+            onTapRootX = onTapRootX,
+            onInspect = { aiAnalyze -> onInspectImage(imageToken, aiAnalyze) },
+            modifier = modifier,
+        )
+        return
+    }
+
     val colors = MixuTheme.colors
     val einkPolicy = MixuTheme.einkPolicy
     var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -2393,4 +2527,257 @@ private fun QuickConfigPill(
             )
         }
     }
+}
+
+@Composable
+private fun ReaderEmbeddedImageCard(
+    token: ParsedReaderImageToken,
+    onTapRootX: (Float) -> Unit,
+    onInspect: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MixuTheme.colors
+    val eInkPolicy = MixuTheme.einkPolicy
+    var rootXOffset by remember { mutableStateOf(0f) }
+    val bitmap =
+        remember(token.filePath) {
+            ReaderImageBitmapCache.load(
+                path = token.filePath,
+                reqWidth = 1080,
+                reqHeight = 1440,
+            )
+        }
+
+    Column(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .onGloballyPositioned { coords ->
+                    rootXOffset = coords.positionInRoot().x
+                }.pointerInput(token.filePath) {
+                    detectTapGestures(
+                        onTap = { localOffset ->
+                            onTapRootX(rootXOffset + localOffset.x)
+                        },
+                        onLongPress = {
+                            onInspect(true)
+                        },
+                    )
+                },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Surface(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(340.dp),
+            shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 10.dp),
+            color = colors.surfaceVariant.copy(alpha = 0.35f),
+            border =
+                BorderStroke(
+                    if (eInkPolicy.isActive) 1.5.dp else 1.dp,
+                    colors.outlineVariant,
+                ),
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = token.caption,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Text(
+                        text = token.caption,
+                        style = MixuTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        // Caption + Quick Action Row (Zoom + AI Visual Clue Analysis)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = token.caption,
+                style = MixuTheme.typography.caption,
+                color = colors.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    modifier = Modifier.clickable { onInspect(false) },
+                    shape = RoundedCornerShape(6.dp),
+                    color = colors.surfaceVariant,
+                    border = BorderStroke(0.8.dp, colors.outlineVariant),
+                ) {
+                    Text(
+                        text = stringResource(R.string.reader_image_zoom_btn),
+                        style = MixuTheme.typography.caption,
+                        color = colors.onSurface,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+                Surface(
+                    modifier = Modifier.clickable { onInspect(true) },
+                    shape = RoundedCornerShape(6.dp),
+                    color = colors.primaryContainer,
+                    border = BorderStroke(0.8.dp, colors.primary),
+                ) {
+                    Text(
+                        text = stringResource(R.string.reader_image_ai_inspect_btn),
+                        style = MixuTheme.typography.caption,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReaderImageInspectionDialog(
+    token: ParsedReaderImageToken,
+    currentChapterIndex: Int,
+    initialShowAiAnalysis: Boolean,
+    onDismiss: () -> Unit,
+) {
+    val colors = MixuTheme.colors
+    val eInkPolicy = MixuTheme.einkPolicy
+    var showAiPanel by remember(token.filePath, initialShowAiAnalysis) {
+        mutableStateOf(initialShowAiAnalysis)
+    }
+    val bitmap =
+        remember(token.filePath) {
+            ReaderImageBitmapCache.load(
+                path = token.filePath,
+                reqWidth = 1440,
+                reqHeight = 1800,
+            )
+        }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.surface,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = token.caption,
+                    style = MixuTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Surface(
+                    modifier = Modifier.clickable { showAiPanel = !showAiPanel },
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (showAiPanel) colors.primaryContainer else colors.surfaceVariant,
+                    border =
+                        BorderStroke(
+                            1.dp,
+                            if (showAiPanel) colors.primary else colors.outlineVariant,
+                        ),
+                ) {
+                    Text(
+                        text = stringResource(R.string.reader_image_ai_inspect_btn),
+                        style = MixuTheme.typography.caption,
+                        fontWeight = FontWeight.Bold,
+                        color = if (showAiPanel) colors.onPrimaryContainer else colors.onSurface,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Surface(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(300.dp),
+                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
+                    color = colors.background,
+                    border = BorderStroke(1.dp, colors.outlineVariant),
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().padding(8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = token.caption,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
+                }
+
+                if (showAiPanel) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = colors.primaryContainer.copy(alpha = 0.45f),
+                        border = BorderStroke(1.dp, colors.primary),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text =
+                                    stringResource(
+                                        R.string.reader_image_ai_badge,
+                                        currentChapterIndex + 1,
+                                    ),
+                                style = MixuTheme.typography.caption,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.primary,
+                            )
+                            Text(
+                                text =
+                                    stringResource(
+                                        R.string.reader_image_ai_summary,
+                                        currentChapterIndex + 1,
+                                    ),
+                                style = MixuTheme.typography.bodyMedium,
+                                color = colors.onSurface,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.settings_reset))
+            }
+        },
+    )
 }

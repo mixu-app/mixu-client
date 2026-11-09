@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: MPL-2.0
+
+package app.mixu.client.billing
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class ClientCreditWalletTest {
+    @Test
+    fun `deductCredits strictly follows promo then sub then paid bucket order`() {
+        val initial =
+            ClientCreditWallet(
+                promoCredits = 10,
+                subCredits = 20,
+                paidCredits = 30,
+            )
+        assertEquals(60, initial.totalCredits)
+        assertTrue(initial.canAfford(60))
+        assertFalse(initial.canAfford(61))
+
+        // Deduct 6 credits -> only promoCredits reduced
+        val step1 = initial.deductCredits(6)
+        assertEquals(4, step1.promoCredits)
+        assertEquals(20, step1.subCredits)
+        assertEquals(30, step1.paidCredits)
+
+        // Deduct 14 credits -> 4 from promo, 10 from sub
+        val step2 = step1.deductCredits(14)
+        assertEquals(0, step2.promoCredits)
+        assertEquals(10, step2.subCredits)
+        assertEquals(30, step2.paidCredits)
+
+        // Deduct 25 credits -> 10 from sub, 15 from paid
+        val step3 = step2.deductCredits(25)
+        assertEquals(0, step3.promoCredits)
+        assertEquals(0, step3.subCredits)
+        assertEquals(15, step3.paidCredits)
+        assertEquals(15, step3.totalCredits)
+    }
+
+    @Test
+    fun `deductCredits throws when cost exceeds totalCredits`() {
+        val wallet = ClientCreditWallet(promoCredits = 5, subCredits = 0, paidCredits = 0)
+        assertFailsWith<IllegalArgumentException> {
+            wallet.deductCredits(6)
+        }
+    }
+
+    @Test
+    fun `claimRewardedAd grants 3 promo credits and enforces 30 credits daily cap`() {
+        var wallet = ClientCreditWallet(promoCredits = 60, dailyAdCreditsClaimed = 0)
+
+        repeat(10) {
+            wallet = wallet.claimRewardedAd(rewardCredits = 3, dailyCapCredits = 30)
+        }
+        assertEquals(90, wallet.promoCredits)
+        assertEquals(30, wallet.dailyAdCreditsClaimed)
+
+        // 11th claim on the same day must be capped at 0 additional credits
+        val capped = wallet.claimRewardedAd(rewardCredits = 3, dailyCapCredits = 30)
+        assertEquals(90, capped.promoCredits)
+        assertEquals(30, capped.dailyAdCreditsClaimed)
+    }
+
+    @Test
+    fun `recordCreatorRoyalty accumulates 1 promo credit and caps at 200 percent`() {
+        var wallet = ClientCreditWallet(promoCredits = 0, creatorRoyaltyEarned = 119)
+
+        // 120th credit (200% of 60 build cost) succeeds
+        wallet = wallet.recordCreatorRoyalty(royaltyCredits = 1, buildCostCredits = 60)
+        assertEquals(1, wallet.promoCredits)
+        assertEquals(120, wallet.creatorRoyaltyEarned)
+
+        // 121st credit is capped
+        val afterCap = wallet.recordCreatorRoyalty(royaltyCredits = 1, buildCostCredits = 60)
+        assertEquals(1, afterCap.promoCredits)
+        assertEquals(120, afterCap.creatorRoyaltyEarned)
+    }
+
+    @Test
+    fun `StorageQuotaState enforces ACTIVE vs GRACE_PERIOD upload and download permissions`() {
+        val activeState =
+            StorageQuotaState(
+                usedMb = 18,
+                quotaMb = 100,
+                status = ClientStorageStatus.ACTIVE,
+            )
+        assertTrue(activeState.canUploadNewEpub())
+        assertTrue(activeState.canDownloadExistingAssets())
+
+        val graceState =
+            activeState.copy(
+                status = ClientStorageStatus.GRACE_PERIOD,
+                gracePeriodDaysRemaining = 7,
+            )
+        assertFalse(graceState.canUploadNewEpub())
+        assertTrue(graceState.canDownloadExistingAssets())
+    }
+
+    @Test
+    fun `generateEInkQrChallengePayload and generateQrMatrix are deterministic`() {
+        val wallet = ClientCreditWallet()
+        val payload1 = wallet.generateEInkQrChallengePayload("anon-1234", "eink-qr-v1")
+        val payload2 = wallet.generateEInkQrChallengePayload("anon-1234", "eink-qr-v1")
+        assertEquals("mixu://ad-reward/qr?uid=anon-1234&nonce=eink-qr-v1&reward=3", payload1)
+        assertEquals(payload1, payload2)
+
+        val matrix1 = wallet.generateQrMatrix(payload1)
+        val matrix2 = wallet.generateQrMatrix(payload2)
+        assertEquals(21, matrix1.size)
+        assertEquals(21, matrix1.first().size)
+        assertEquals(matrix1, matrix2)
+        // Top-left finder corner (0,0) and center (3,3) must be true
+        assertTrue(matrix1[0][0])
+        assertTrue(matrix1[3][3])
+    }
+}

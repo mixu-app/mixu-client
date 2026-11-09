@@ -89,6 +89,7 @@ import app.mixu.client.config.GraphDimensionMode
 import app.mixu.client.config.GraphPhysicsMode
 import app.mixu.client.eink.StrokePattern
 import app.mixu.client.theme.MixuTheme
+import app.mixu.client.ui.MixuBrandLogo
 import app.mixu.client.ui.MixuIcons
 import app.mixu.graph.EntityType
 import app.mixu.graph.EpistemicStatus
@@ -230,22 +231,31 @@ fun CaseBoardScreen(
             Column(modifier = Modifier.fillMaxWidth().background(colors.surface)) {
                 TopAppBar(
                     title = {
-                        Column {
-                            Text(
-                                text = stringResource(R.string.caseboard_title),
-                                style =
-                                    MixuTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                    ),
-                                color = colors.onSurface,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            MixuBrandLogo(
+                                size = 26.dp,
+                                cornerRadius = 6.dp,
                             )
-                            Text(
-                                text = uiState.bookTitle,
-                                style = MixuTheme.typography.caption,
-                                color = colors.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.caseboard_title),
+                                    style =
+                                        MixuTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                    color = colors.onSurface,
+                                )
+                                Text(
+                                    text = uiState.bookTitle,
+                                    style = MixuTheme.typography.caption,
+                                    color = colors.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     },
                     navigationIcon = {

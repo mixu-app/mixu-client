@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: MPL-2.0
+@file:Suppress("ktlint:standard:function-naming")
+
 package app.mixu.client.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -12,8 +25,55 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.mixu.client.R
+import app.mixu.client.theme.MixuTheme
 import app.mixu.graph.EntityType
+
+/**
+ * Renders the official Mixu brand mark (an open book whose negative space forms a lowercase `e`)
+ * following the canonical brand specification (`#211431` plate and `#E7DDF6` mark on standard
+ * displays, or pure monochrome on E-Ink).
+ */
+@Composable
+fun MixuBrandLogo(
+    modifier: Modifier = Modifier,
+    size: Dp = 32.dp,
+    cornerRadius: Dp = 8.dp,
+) {
+    val colors = MixuTheme.colors
+    val isEInk = MixuTheme.einkPolicy.isActive || colors.isEInk
+    val plateColor = if (isEInk) colors.primary else Color(0xFF211431)
+    val markTint = if (isEInk) colors.onPrimary else Color(0xFFE7DDF6)
+    val shape = RoundedCornerShape(if (isEInk) 2.dp else cornerRadius)
+
+    Box(
+        modifier =
+            modifier
+                .size(size)
+                .background(color = plateColor, shape = shape)
+                .then(
+                    if (isEInk) {
+                        Modifier.border(
+                            BorderStroke(1.5.dp, colors.outline),
+                            shape = shape,
+                        )
+                    } else {
+                        Modifier
+                    },
+                ).padding(size * 0.14f),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(id = R.drawable.ic_mixu_logo_mark),
+            contentDescription = "Mixu Logo",
+            tint = markTint,
+            modifier = Modifier.size(size * 0.72f),
+        )
+    }
+}
 
 /**
  * Pure-Kotlin SVG vector icons ([ImageVector]) and [DrawScope] vector glyphs for Mixu UI and

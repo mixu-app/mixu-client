@@ -85,6 +85,7 @@ data class LibraryUiState(
     val sortOrder: LibrarySortOrder = LibrarySortOrder.LAST_READ,
     val isLoading: Boolean = false,
     val selectedCollection: String? = null,
+    val selectedTag: String? = null,
 ) {
     /**
      * True when the library contains zero books and is not actively loading.
@@ -93,10 +94,12 @@ data class LibraryUiState(
         get() = !isLoading && books.isEmpty()
 
     /**
-     * True when the current search query or collection filter returned zero results despite the library holding books.
+     * True when the current search query, collection filter, or tag filter returned zero results despite the library holding books.
      */
     val isSearchEmpty: Boolean
-        get() = (searchQuery.isNotBlank() || selectedCollection != null) && filteredBooks.isEmpty()
+        get() =
+            (searchQuery.isNotBlank() || selectedCollection != null || selectedTag != null) &&
+                filteredBooks.isEmpty()
 
     /**
      * Distinct sorted list of collection names across all books in the library.
@@ -109,7 +112,21 @@ data class LibraryUiState(
                 .sorted()
 
     /**
-     * Resolved list of books filtered by [selectedCollection] and [searchQuery] and sorted by [sortOrder].
+     * Distinct list of mystery tags across all books in the library, ordered by frequency.
+     */
+    val availableTags: List<String>
+        get() =
+            books
+                .flatMap { it.tags }
+                .groupingBy { it }
+                .eachCount()
+                .entries
+                .sortedWith(
+                    compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key },
+                ).map { it.key }
+
+    /**
+     * Resolved list of books filtered by [selectedCollection], [selectedTag], and [searchQuery] and sorted by [sortOrder].
      */
     val filteredBooks: List<BookItem>
         get() {
@@ -119,12 +136,18 @@ data class LibraryUiState(
                     BookItem.FAVORITES_FILTER_KEY -> books.filter { it.isFavorite }
                     else -> books.filter { it.collections.contains(selectedCollection) }
                 }
+            val tagFiltered =
+                if (selectedTag == null) {
+                    collectionFiltered
+                } else {
+                    collectionFiltered.filter { it.tags.contains(selectedTag) }
+                }
             val query = searchQuery.trim()
             val filtered =
                 if (query.isEmpty()) {
-                    collectionFiltered
+                    tagFiltered
                 } else {
-                    collectionFiltered.filter { book ->
+                    tagFiltered.filter { book ->
                         book.title.contains(query, ignoreCase = true) ||
                             book.author.contains(query, ignoreCase = true) ||
                             (
@@ -133,7 +156,8 @@ data class LibraryUiState(
                                     ignoreCase = true,
                                 ) == true
                             ) ||
-                            book.collections.any { it.contains(query, ignoreCase = true) }
+                            book.collections.any { it.contains(query, ignoreCase = true) } ||
+                            book.tags.any { it.contains(query, ignoreCase = true) }
                     }
                 }
 

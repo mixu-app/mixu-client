@@ -34,6 +34,7 @@ import kotlinx.serialization.decodeFromString
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Loads companion `.graph.json` narrative graph packs for imported books,
@@ -44,6 +45,8 @@ class BookGraphPackLoader(
     private val packsDirectory: File,
     private val logger: StructuredLogger = StructuredLogger.default,
 ) {
+    private val memoryCache = ConcurrentHashMap<String, GraphPack>()
+
     init {
         packsDirectory.mkdirs()
     }
@@ -59,6 +62,7 @@ class BookGraphPackLoader(
         importService: BookImportService,
     ): List<String> {
         packsDirectory.mkdirs()
+        memoryCache.clear()
         val discoveredBookIds = mutableListOf<String>()
 
         for (dir in importDirectories) {
@@ -147,6 +151,7 @@ class BookGraphPackLoader(
     ): GraphPack {
         if (asset != null) {
             val sha = asset.sha256Checksum.lowercase()
+            memoryCache[sha]?.let { return it }
             val shortHash = sha.take(16)
             val candidates =
                 listOf(
@@ -165,6 +170,7 @@ class BookGraphPackLoader(
                 if (candidate.isFile) {
                     val loaded = decodeGraphPackOrNull(candidate)
                     if (loaded != null) {
+                        memoryCache[sha] = loaded
                         return loaded
                     }
                 }
@@ -180,6 +186,7 @@ class BookGraphPackLoader(
             for (packFile in packFiles) {
                 val loaded = decodeGraphPackOrNull(packFile)
                 if (loaded != null && loaded.manifest.editionId.value == expectedEditionId) {
+                    memoryCache[sha] = loaded
                     return loaded
                 }
             }
@@ -191,7 +198,9 @@ class BookGraphPackLoader(
                         if (f.isFile) EpubBookPublication.open(f) else null
                     }.getOrNull()
             if (effectivePub != null) {
-                return createSpineFallbackPack(asset, effectivePub)
+                val fallback = createSpineFallbackPack(asset, effectivePub)
+                memoryCache[sha] = fallback
+                return fallback
             }
         }
         return SyntheticMysteryData.createMysteryGraphPack()
@@ -448,6 +457,15 @@ class BookGraphPackLoader(
                     "问题",
                     "回答",
                     "声音",
+                    "官网",
+                    "制作",
+                    "声明",
+                    "论坛",
+                    "精校",
+                    "排版",
+                    "扫描",
+                    "版权",
+                    "出版",
                 )
 
             val knownMysteryCharacters =
@@ -538,6 +556,8 @@ class BookGraphPackLoader(
                     "绳索",
                 )
 
+            val cjkDramatisPersonaeRegex =
+                Regex("^([\\u4E00-\\u9FFF·]{2,6})[：:]\\s*(.{2,30})$")
             val cjkHonorificRegex =
                 Regex("([\\u4E00-\\u9FFF]{1,3}(?:博士|教授|警部|警官|刑警|侦探|先生|小姐|夫人|主任|社长|医生|管家|老师|学长))")
             val cjkDialogueSpeakerRegex =
@@ -551,6 +571,26 @@ class BookGraphPackLoader(
 
             val chaptersToScan = publication.chapters.take(24)
             for ((idx, chapter) in chaptersToScan.withIndex()) {
+                val chapterTitle = chapter.spineItem.title
+                if (chapterTitle.contains("制作声明") || chapterTitle.contains("版权")) {
+                    continue
+                }
+                for (paragraph in chapter.paragraphs) {
+                    val trimmed = paragraph.replace('\u3000', ' ').trim()
+                    val castMatch = cjkDramatisPersonaeRegex.matchEntire(trimmed)
+                    if (castMatch != null) {
+                        val castName = castMatch.groupValues[1]
+                        if (castName !in cjkStopWords) {
+                            val revealAt = if (idx <= 2) 0 else idx
+                            recordCandidate(
+                                castName,
+                                EntityType.PERSON,
+                                revealAt,
+                                weight = 45,
+                            )
+                        }
+                    }
+                }
                 val sampleText = chapter.fullText.take(12000)
                 for (name in knownMysteryCharacters) {
                     if (sampleText.contains(name)) {
@@ -613,7 +653,22 @@ class BookGraphPackLoader(
             for ((i, cand) in topCandidates.withIndex()) {
                 val entId = EntityId("ent:${shortHash}_$i")
                 val nameId = NameId("name:${shortHash}_$i:canonical")
-                val revealOrd = cand.firstReveal.coerceIn(0, maxOrdinal)
+                // Initial core cast/setting (top 5 entities) are visible at ordinal 0 (opening/cast),
+                // while subsequent clues/suspects unlock progressively across chapters to prevent spoilers.
+                val revealOrd =
+                    if (i <= 4) {
+                        0
+                    } else {
+                        maxOf(
+                            cand.firstReveal,
+                            (
+                                (i - 4) * maxOrdinal /
+                                    (topCandidates.size - 4).coerceAtLeast(
+                                        1,
+                                    )
+                            ).coerceAtLeast(1),
+                        ).coerceIn(0, maxOrdinal)
+                    }
                 entities.add(
                     Entity(
                         entityId = entId,
@@ -651,12 +706,11 @@ class BookGraphPackLoader(
 
             // Connect discovered entities to the central hub and across co-occurring peers
             for (i in 1 until topCandidates.size) {
-                val cand = topCandidates[i]
                 val subjectId = entityIdsByIndex[i]
                 val targetIdx = if (i <= 3) 0 else (i % 3)
                 val objectId = entityIdsByIndex[targetIdx]
                 val revealOrd =
-                    maxOf(cand.firstReveal, topCandidates[targetIdx].firstReveal)
+                    maxOf(entities[i].firstReveal, entities[targetIdx].firstReveal)
                         .coerceIn(0, maxOrdinal)
                 val (pred, status) = predicates[assertionCounter % predicates.size]
                 assertions.add(
@@ -675,10 +729,9 @@ class BookGraphPackLoader(
                 assertionCounter++
 
                 if (i + 1 < topCandidates.size && i % 2 == 1) {
-                    val peerCand = topCandidates[i + 1]
                     val peerId = entityIdsByIndex[i + 1]
                     val peerOrd =
-                        maxOf(cand.firstReveal, peerCand.firstReveal)
+                        maxOf(entities[i].firstReveal, entities[i + 1].firstReveal)
                             .coerceIn(0, maxOrdinal)
                     val (peerPred, peerStatus) = predicates[assertionCounter % predicates.size]
                     assertions.add(

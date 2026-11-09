@@ -77,16 +77,16 @@ data class ProjectedGraphNode(
  */
 object ForceDirectedGraphEngine {
     private const val SIMULATION_ITERATIONS = 90
-    private const val REPULSION_STANDARD = 26000.0
-    private const val REPULSION_EINK = 42000.0
-    private const val SPRING_STRENGTH_STANDARD = 0.062
-    private const val SPRING_STRENGTH_EINK = 0.050
-    private const val IDEAL_LINK_DISTANCE_STANDARD = 160.0
-    private const val IDEAL_LINK_DISTANCE_EINK = 205.0
-    private const val CENTER_GRAVITY_STANDARD = 0.028
-    private const val CENTER_GRAVITY_EINK = 0.020
-    private const val MIN_COLLISION_STANDARD = 76.0
-    private const val MIN_COLLISION_EINK = 102.0
+    private const val REPULSION_STANDARD = 30000.0
+    private const val REPULSION_EINK = 44000.0
+    private const val SPRING_STRENGTH_STANDARD = 0.058
+    private const val SPRING_STRENGTH_EINK = 0.048
+    private const val IDEAL_LINK_DISTANCE_STANDARD = 178.0
+    private const val IDEAL_LINK_DISTANCE_EINK = 215.0
+    private const val CENTER_GRAVITY_STANDARD = 0.024
+    private const val CENTER_GRAVITY_EINK = 0.018
+    private const val MIN_COLLISION_STANDARD = 88.0
+    private const val MIN_COLLISION_EINK = 108.0
     private const val MAX_COORD_BOUND = 420.0
     private const val GOLDEN_ANGLE = 2.399963229728653
 
@@ -192,10 +192,10 @@ object ForceDirectedGraphEngine {
                 val objId = sortedEntities[v].entity.entityId.value
                 val baseCurve =
                     if (count == 1) {
-                        if (mode == GraphDimensionMode.HIERARCHICAL) 0.04f else 0.08f
+                        0f
                     } else {
                         val centered = idx - (count - 1) / 2.0f
-                        centered * 0.26f
+                        centered * 0.22f
                     }
                 val sign = if (u < v) 1f else -1f
                 edgeLayouts.add(
@@ -561,10 +561,12 @@ object ForceDirectedGraphEngine {
         }
 
         val safeZoom = zoom.coerceAtLeast(0.4f)
+        val deltaX = screenDx / safeZoom
+        val deltaY = screenDy / safeZoom
         val updated = currentOffsets.toMutableMap()
         val (prevDx, prevDy) = updated[draggedEntityId] ?: (0f to 0f)
-        val rawDraggedDx = (prevDx + screenDx / safeZoom).coerceIn(-720f, 720f)
-        val rawDraggedDy = (prevDy + screenDy / safeZoom).coerceIn(-720f, 720f)
+        val rawDraggedDx = (prevDx + deltaX).coerceIn(-720f, 720f)
+        val rawDraggedDy = (prevDy + deltaY).coerceIn(-720f, 720f)
         updated[draggedEntityId] =
             if (isEInk) {
                 ((rawDraggedDx / 4f).roundToInt() * 4f) to ((rawDraggedDy / 4f).roundToInt() * 4f)
@@ -587,106 +589,72 @@ object ForceDirectedGraphEngine {
         val scaleX = (baseFitScale * 0.35f + fitScaleX * 0.65f).coerceAtLeast(0.5f)
         val scaleY = (baseFitScale * 0.55f + fitScaleY * 0.45f).coerceAtLeast(0.5f)
 
-        val orderedIds = layouts.map { it.entityId }
-        val idToIndex = orderedIds.withIndex().associate { (i, id) -> id to i }
-        val n = orderedIds.size
-
-        val posX = DoubleArray(n)
-        val posY = DoubleArray(n)
-        for (i in 0 until n) {
-            val id = orderedIds[i]
-            val baseNode = nodes.getValue(id)
-            val (offX, offY) = updated[id] ?: (0f to 0f)
-            posX[i] = (baseNode.x + offX / scaleX).toDouble()
-            posY[i] = (baseNode.y + offY / scaleY).toDouble()
-        }
-
-        val springStrength =
-            when (physicsMode) {
-                GraphPhysicsMode.STRONG_GRAVITY -> 0.165
-                GraphPhysicsMode.LIVE_SPRING -> 0.115
-                GraphPhysicsMode.PIN_NODE -> 0.0
-            }
-        val gravityStrength =
-            when (physicsMode) {
-                GraphPhysicsMode.STRONG_GRAVITY -> 0.052
-                GraphPhysicsMode.LIVE_SPRING -> 0.022
-                GraphPhysicsMode.PIN_NODE -> 0.0
-            }
-        val idealDist = if (isEInk) 185.0 else 148.0
-        val repulsion = if (isEInk) 28000.0 else 19000.0
-        val minCollision = if (isEInk) 92.0 else 70.0
-        val subSteps = if (isEInk) 3 else 5
-
-        repeat(subSteps) {
-            val forceX = DoubleArray(n)
-            val forceY = DoubleArray(n)
-
-            for (i in 0 until n) {
-                for (j in i + 1 until n) {
-                    val dx = posX[i] - posX[j]
-                    val dy = posY[i] - posY[j]
-                    val distSq = dx * dx + dy * dy + 25.0
-                    val dist = sqrt(distSq)
-                    var repMag = repulsion / distSq
-                    if (dist < minCollision) {
-                        repMag += (minCollision - dist) * 3.8
-                    }
-                    val ux = dx / dist
-                    val uy = dy / dist
-                    forceX[i] += ux * repMag
-                    forceY[i] += uy * repMag
-                    forceX[j] -= ux * repMag
-                    forceY[j] -= uy * repMag
+        val directNeighbors = layoutResult.neighborMap[draggedEntityId].orEmpty()
+        val twoHopNeighbors =
+            buildSet {
+                for (nb in directNeighbors) {
+                    layoutResult.neighborMap[nb]?.let { addAll(it) }
                 }
+                remove(draggedEntityId)
+                removeAll(directNeighbors)
             }
 
-            for (edge in layoutResult.edges) {
-                val u = idToIndex[edge.sourceId] ?: continue
-                val v = idToIndex[edge.targetId] ?: continue
-                if (u == v) continue
-                val dx = posX[v] - posX[u]
-                val dy = posY[v] - posY[u]
-                val dist = hypot(dx, dy).coerceAtLeast(1.0)
-                val displacement = dist - idealDist
-                val boost =
-                    if (edge.sourceId == draggedEntityId || edge.targetId == draggedEntityId) {
-                        1.45
-                    } else {
-                        1.0
-                    }
-                val springMag = springStrength * boost * displacement
-                val ux = dx / dist
-                val uy = dy / dist
-                forceX[u] += ux * springMag
-                forceY[u] += uy * springMag
-                forceX[v] -= ux * springMag
-                forceY[v] -= uy * springMag
+        val oneHopFactor =
+            when (physicsMode) {
+                GraphPhysicsMode.STRONG_GRAVITY -> 0.44f
+                GraphPhysicsMode.LIVE_SPRING -> 0.26f
+                GraphPhysicsMode.PIN_NODE -> 0f
+            }
+        val twoHopFactor =
+            when (physicsMode) {
+                GraphPhysicsMode.STRONG_GRAVITY -> 0.16f
+                GraphPhysicsMode.LIVE_SPRING -> 0.08f
+                GraphPhysicsMode.PIN_NODE -> 0f
             }
 
-            for (i in 0 until n) {
-                val id = orderedIds[i]
-                if (id == draggedEntityId || pinnedEntityIds.contains(id)) continue
-                forceX[i] -= posX[i] * gravityStrength
-                forceY[i] -= posY[i] * gravityStrength
-                val stepX = (forceX[i] * 0.28).coerceIn(-18.0, 18.0)
-                val stepY = (forceY[i] * 0.28).coerceIn(-18.0, 18.0)
-                posX[i] = (posX[i] + stepX).coerceIn(-MAX_COORD_BOUND * 1.3, MAX_COORD_BOUND * 1.3)
-                posY[i] = (posY[i] + stepY).coerceIn(-MAX_COORD_BOUND * 1.3, MAX_COORD_BOUND * 1.3)
-            }
-        }
+        val draggedBase = nodes.getValue(draggedEntityId)
+        val draggedWorldX = draggedBase.x * scaleX + rawDraggedDx
+        val draggedWorldY = draggedBase.y * scaleY + rawDraggedDy
+        val minClearancePx = if (isEInk) 115f else 92f
 
-        for (i in 0 until n) {
-            val id = orderedIds[i]
-            if (id == draggedEntityId) continue
-            val baseNode = nodes.getValue(id)
-            val newOffX = ((posX[i] - baseNode.x) * scaleX).toFloat().coerceIn(-720f, 720f)
-            val newOffY = ((posY[i] - baseNode.y) * scaleY).toFloat().coerceIn(-720f, 720f)
+        for (node in layouts) {
+            val id = node.entityId
+            if (id == draggedEntityId || pinnedEntityIds.contains(id)) continue
+            val (curOffX, curOffY) = updated[id] ?: (0f to 0f)
+            var nextOffX = curOffX
+            var nextOffY = curOffY
+
+            val coupling =
+                when {
+                    directNeighbors.contains(id) -> oneHopFactor
+                    twoHopNeighbors.contains(id) -> twoHopFactor
+                    else -> 0f
+                }
+
+            if (coupling > 0f) {
+                nextOffX += deltaX * coupling
+                nextOffY += deltaY * coupling
+            }
+
+            // Smooth collision-avoidance repulsion around the dragged node so nodes never overlap
+            val nodeWorldX = node.x * scaleX + nextOffX
+            val nodeWorldY = node.y * scaleY + nextOffY
+            val dx = nodeWorldX - draggedWorldX
+            val dy = nodeWorldY - draggedWorldY
+            val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+            if (dist < minClearancePx && dist > 0.5f) {
+                val push = (minClearancePx - dist) * 0.35f
+                nextOffX += (dx / dist) * push
+                nextOffY += (dy / dist) * push
+            }
+
+            val clampedX = nextOffX.coerceIn(-720f, 720f)
+            val clampedY = nextOffY.coerceIn(-720f, 720f)
             updated[id] =
                 if (isEInk) {
-                    ((newOffX / 4f).roundToInt() * 4f) to ((newOffY / 4f).roundToInt() * 4f)
+                    ((clampedX / 4f).roundToInt() * 4f) to ((clampedY / 4f).roundToInt() * 4f)
                 } else {
-                    newOffX to newOffY
+                    clampedX to clampedY
                 }
         }
 

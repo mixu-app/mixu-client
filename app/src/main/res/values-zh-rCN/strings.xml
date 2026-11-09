@@ -308,4 +308,16 @@
     <string name="more_account_email_label">账号邮箱或自建服务标识</string>
     <string name="more_account_signin_confirm">开启云同步</string>
     <string name="more_account_switch_guest">切换回离线访客模式</string>
+
+    <!-- EPUB Image & AI Diagram Inspector + Case Board Canonical Filters (CTX-0030) -->
+    <string name="reader_image_zoom_btn">🔍 查看大图</string>
+    <string name="reader_image_ai_inspect_btn">✦ AI 识图 / 平面图线索解析</string>
+    <string name="reader_image_dialog_title">插图与案发现场平面图检视 (AI Copilot)</string>
+    <string name="reader_image_ai_badge">AI-008 · 防剧透视觉线索与平面图解析 (边界：第 %1$d 节)</string>
+    <string name="reader_image_ai_summary">已识别书中插图 / 建筑平面图 / 现场示意图。AI 视觉解析已严格锁定在当前阅读认知边界（第 %1$d 节）内，自动提取空间方位、门窗密室状态与不在场证明动线，绝不剧透后续章节真相。</string>
+    <string name="caseboard_filter_all">全部</string>
+    <string name="caseboard_filter_person">👤 人物</string>
+    <string name="caseboard_filter_location">📍 地点</string>
+    <string name="caseboard_filter_object">🔑 证物</string>
+    <string name="caseboard_current_chapter_badge">当前阅读：第 %1$d 节 (防剧透保护中)</string>
 </resources>

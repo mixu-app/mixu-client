@@ -308,4 +308,16 @@
     <string name="more_account_email_label">Account Email or Self-Hosted ID</string>
     <string name="more_account_signin_confirm">Enable Sync</string>
     <string name="more_account_switch_guest">Use Offline Guest Mode</string>
+
+    <!-- EPUB Image & AI Diagram Inspector + Case Board Canonical Filters (CTX-0030) -->
+    <string name="reader_image_zoom_btn">🔍 Enlarge</string>
+    <string name="reader_image_ai_inspect_btn">✦ AI Diagram Analysis</string>
+    <string name="reader_image_dialog_title">Book Illustration &amp; Scene Diagram Inspector</string>
+    <string name="reader_image_ai_badge">AI-008 · Spoiler-Safe Visual Clue Analysis (Horizon Ch.%1$d)</string>
+    <string name="reader_image_ai_summary">Detected mystery illustration / floor plan / scene diagram. Spatial layout, room entry points, and visual clues are indexed within your current Knowledge Horizon (Chapter %1$d) with zero future-chapter leaks.</string>
+    <string name="caseboard_filter_all">All</string>
+    <string name="caseboard_filter_person">👤 Persons</string>
+    <string name="caseboard_filter_location">📍 Places</string>
+    <string name="caseboard_filter_object">🔑 Clues</string>
+    <string name="caseboard_current_chapter_badge">Current Reading: Ch.%1$d (Spoiler Protected)</string>
 </resources>

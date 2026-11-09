@@ -133,24 +133,15 @@ fun SettingsPreviewScreen(
                     }
                 },
                 title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        MixuBrandLogo(
-                            size = 28.dp,
-                            cornerRadius = 6.dp,
-                        )
-                        Text(
-                            text =
-                                stringResource(R.string.nav_more) +
-                                    " · " +
-                                    stringResource(R.string.nav_settings),
-                            style = typography.titleLarge,
-                            color = colors.onSurface,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
+                    Text(
+                        text =
+                            stringResource(R.string.nav_more) +
+                                " · " +
+                                stringResource(R.string.nav_settings),
+                        style = typography.titleLarge,
+                        color = colors.onSurface,
+                        fontWeight = FontWeight.Bold,
+                    )
                 },
                 actions = {
                     TextButton(
@@ -911,46 +902,39 @@ fun SettingsPreviewScreen(
                 // =========================================================================
                 SettingsGroupCard(title = stringResource(R.string.settings_group_about)) {
                     // Brand Identity Header
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        MixuBrandLogo(
-                            size = 46.dp,
-                            cornerRadius = 11.dp,
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.app_name) + " · Mixu",
-                                    style = typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colors.onSurface,
-                                )
-                                Text(
-                                    text = APP_VERSION_NAME,
-                                    style = typography.caption,
-                                    color = colors.onSurfaceVariant,
-                                )
-                            }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             Text(
-                                text = stringResource(R.string.app_tagline),
+                                text = stringResource(R.string.app_name) + " · Mixu",
+                                style = typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.onSurface,
+                            )
+                            Text(
+                                text = APP_VERSION_NAME,
                                 style = typography.caption,
                                 color = colors.onSurfaceVariant,
                             )
-                            Text(
-                                text =
-                                    stringResource(R.string.account_guest_title) +
-                                        " · " +
-                                        userSession.anonymousId,
-                                style = typography.caption,
-                                color = colors.onSurfaceVariant.copy(alpha = 0.8f),
-                            )
                         }
+                        Text(
+                            text = stringResource(R.string.app_tagline),
+                            style = typography.caption,
+                            color = colors.onSurfaceVariant,
+                        )
+                        Text(
+                            text =
+                                stringResource(R.string.account_guest_title) +
+                                    " · " +
+                                    userSession.anonymousId,
+                            style = typography.caption,
+                            color = colors.onSurfaceVariant.copy(alpha = 0.8f),
+                        )
                     }
 
                     SettingsDivider()
@@ -1023,17 +1007,11 @@ fun SettingsPreviewScreen(
         AlertDialog(
             onDismissRequest = { showLicenseDialog = false },
             title = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    MixuBrandLogo(size = 28.dp, cornerRadius = 6.dp)
-                    Text(
-                        text = stringResource(R.string.about_license_title),
-                        style = typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+                Text(
+                    text = stringResource(R.string.about_license_title),
+                    style = typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
             },
             text = {
                 Text(

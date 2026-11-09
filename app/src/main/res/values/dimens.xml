@@ -13,7 +13,7 @@
     <dimen name="library_card_corner_radius">8dp</dimen>
     <dimen name="library_card_corner_radius_eink">0dp</dimen>
     <dimen name="library_card_padding">12dp</dimen>
-    <dimen name="library_cover_height_grid">120dp</dimen>
+    <dimen name="library_cover_height_grid">148dp</dimen>
     <dimen name="library_cover_width_list">56dp</dimen>
     <dimen name="library_cover_height_list">72dp</dimen>
     <dimen name="library_cover_corner_radius">4dp</dimen>

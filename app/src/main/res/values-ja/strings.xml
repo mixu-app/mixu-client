@@ -320,4 +320,27 @@
     <string name="caseboard_filter_location">📍 場所</string>
     <string name="caseboard_filter_object">🔑 証拠品</string>
     <string name="caseboard_current_chapter_badge">現在の読書位置：第 %1$d 章 (ネタバレ防止有効)</string>
+
+    <!-- AI Agent Mini-Window & Butler (CTX-0031, i18n ready) -->
+    <string name="ai_agent_title">AI Agent</string>
+    <string name="ai_agent_tab_global">執事</string>
+    <string name="ai_agent_tab_copilot">読書伴走</string>
+    <string name="ai_agent_tab_new">新規</string>
+    <string name="ai_agent_badge_global">グローバル執事 · 独立セッション</string>
+    <string name="ai_agent_badge_copilot">ネタバレ防止 · 第 1~%1$d 章</string>
+    <string name="ai_agent_welcome_global">こんにちは、**Mixu AI Agent** です。このセッションは特定の書籍に縛られません。トピックを選択するか自由に質問してください：</string>
+    <string name="ai_agent_welcome_copilot">**『%1$s』** を伴走中（現在ページ `%2$s` と **第 1~%3$d 章** の既読範囲のみ参照）。操作を選択してください：</string>
+    <string name="ai_agent_action_gallery">蔵書とカバーギャラリーを分析 (%1$d 冊)</string>
+    <string name="ai_agent_action_collections">蔵書を整理してコレクションを作成</string>
+    <string name="ai_agent_action_tags">書籍のミステリ Tag 配列を一括作成</string>
+    <string name="ai_agent_action_cloud">クラウド同期とアカウント状態を確認</string>
+    <string name="ai_agent_action_chars">第 %1$d 章までの登場人物と関係を整理</string>
+    <string name="ai_agent_action_timeline">既読章の時系列とアリバイを要約</string>
+    <string name="ai_agent_action_image">現在ページの画像 (%1$s) を解析</string>
+    <string name="ai_agent_toggle_image_on">ページ画像を添付中</string>
+    <string name="ai_agent_toggle_image_off">現在ページ画像を添付</string>
+    <string name="ai_agent_toggle_web_on">Web検索: ON</string>
+    <string name="ai_agent_toggle_web_off">Web検索: OFF</string>
+    <string name="ai_agent_input_hint_copilot">現在ページや挿絵について質問（第 1~%1$d 章）…</string>
+    <string name="ai_agent_input_hint_global">自由に質問、または蔵書整理・タグ作成…</string>
 </resources>

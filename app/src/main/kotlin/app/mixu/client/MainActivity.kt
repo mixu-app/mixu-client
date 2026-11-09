@@ -47,6 +47,9 @@ import app.mixu.client.caseboard.CaseBoardController
 import app.mixu.client.caseboard.CaseBoardScreen
 import app.mixu.client.caseboard.SyntheticMysteryData
 import app.mixu.client.config.ReaderDisplayConfig
+import app.mixu.client.copilot.AiButlerCopilotDialog
+import app.mixu.client.copilot.CopilotSessionMode
+import app.mixu.client.copilot.MixuAiButlerFab
 import app.mixu.client.db.LocalLibraryDatabase
 import app.mixu.client.eink.EInkDetector
 import app.mixu.client.importer.BookImportResult
@@ -57,9 +60,11 @@ import app.mixu.client.library.BookItem
 import app.mixu.client.library.KindleHomeScreen
 import app.mixu.client.library.LibraryScreen
 import app.mixu.client.reader.EpubBookPublication
+import app.mixu.client.reader.ParsedReaderImageToken
 import app.mixu.client.reader.ReaderScreen
 import app.mixu.client.reader.ReaderSessionController
 import app.mixu.client.reader.ReadiumEpubNavigator
+import app.mixu.client.reader.parseReaderImageTokenOrNull
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.theme.createMixuTypography
 import app.mixu.client.ui.MixuIcons
@@ -172,6 +177,22 @@ class MainActivity :
                     var readerTick by remember { mutableIntStateOf(0) }
                     var hardwareKeyTurnSignal by remember { mutableIntStateOf(0) }
                     var hardwareKeyTurnDirection by remember { mutableIntStateOf(0) }
+                    val openButlerExtra = intent?.getStringExtra("open_ai_butler")?.lowercase()
+                    var showAiButlerDialog by remember {
+                        mutableStateOf(!openButlerExtra.isNullOrBlank())
+                    }
+                    var aiButlerInitialMode by remember {
+                        mutableStateOf(
+                            if (openButlerExtra == "book") {
+                                CopilotSessionMode.BOOK_COPILOT
+                            } else {
+                                CopilotSessionMode.GLOBAL_BUTLER
+                            },
+                        )
+                    }
+                    var aiButlerImageToken by remember {
+                        mutableStateOf<ParsedReaderImageToken?>(null)
+                    }
 
                     onHardwareKeyEvent = { event ->
                         if (currentDestination != MainScreenDestination.READER) {
@@ -592,6 +613,12 @@ class MainActivity :
                                                     libraryBooks = loadLibraryBooks()
                                                 }
                                             },
+                                            onOpenAiButler = { currentImgToken ->
+                                                aiButlerInitialMode =
+                                                    CopilotSessionMode.BOOK_COPILOT
+                                                aiButlerImageToken = currentImgToken
+                                                showAiButlerDialog = true
+                                            },
                                             hardwareKeyTurnSignal = hardwareKeyTurnSignal,
                                             hardwareKeyTurnDirection = hardwareKeyTurnDirection,
                                         )
@@ -654,6 +681,65 @@ class MainActivity :
                                             },
                                         )
                                     }
+                                }
+
+                                // Floating AI Agent Orb or Bottom-Right Mini-Window
+                                if (showAiButlerDialog) {
+                                    val activeNav = readerSession.activeNavigator
+                                    val currentPage = activeNav?.currentPage
+                                    val currentParagraphs =
+                                        activeNav?.viewportState?.currentChapterParagraphs
+                                            ?: currentPage?.paragraphs.orEmpty()
+                                    val fallbackImgToken =
+                                        aiButlerImageToken
+                                            ?: currentParagraphs.firstNotNullOfOrNull {
+                                                parseReaderImageTokenOrNull(it)
+                                            }
+                                    val currentVisibleTxt =
+                                        currentParagraphs
+                                            .firstOrNull { parseReaderImageTokenOrNull(it) == null }
+                                            .orEmpty()
+
+                                    AiButlerCopilotDialog(
+                                        initialMode = aiButlerInitialMode,
+                                        books = libraryBooks,
+                                        activeBook = lastReadBook,
+                                        currentChapterIndex = currentPage?.spineIndex ?: 0,
+                                        currentChapterTitle = currentPage?.chapterTitle ?: "第 1 节",
+                                        currentVisibleText = currentVisibleTxt,
+                                        currentPageImageToken = fallbackImgToken,
+                                        userSession = userSession,
+                                        database = database,
+                                        onLibraryMutated = {
+                                            libraryBooks = loadLibraryBooks()
+                                        },
+                                        onDismiss = {
+                                            showAiButlerDialog = false
+                                        },
+                                        modifier =
+                                            Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(end = 18.dp, bottom = 12.dp),
+                                    )
+                                } else if (currentDestination != MainScreenDestination.READER) {
+                                    MixuAiButlerFab(
+                                        onClick = {
+                                            aiButlerInitialMode =
+                                                if (currentDestination ==
+                                                    MainScreenDestination.CASE_BOARD
+                                                ) {
+                                                    CopilotSessionMode.BOOK_COPILOT
+                                                } else {
+                                                    CopilotSessionMode.GLOBAL_BUTLER
+                                                }
+                                            aiButlerImageToken = null
+                                            showAiButlerDialog = true
+                                        },
+                                        modifier =
+                                            Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(end = 18.dp, bottom = 14.dp),
+                                    )
                                 }
                             }
                         }

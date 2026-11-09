@@ -320,4 +320,27 @@
     <string name="caseboard_filter_location">📍 Places</string>
     <string name="caseboard_filter_object">🔑 Clues</string>
     <string name="caseboard_current_chapter_badge">Current Reading: Ch.%1$d (Spoiler Protected)</string>
+
+    <!-- AI Agent Mini-Window & Butler (CTX-0031, i18n ready) -->
+    <string name="ai_agent_title">AI Agent</string>
+    <string name="ai_agent_tab_global">Butler</string>
+    <string name="ai_agent_tab_copilot">Copilot</string>
+    <string name="ai_agent_tab_new">New</string>
+    <string name="ai_agent_badge_global">Global Butler · Independent Session</string>
+    <string name="ai_agent_badge_copilot">Spoiler-Safe · Ch. 1~%1$d</string>
+    <string name="ai_agent_welcome_global">Hi! I am your **Mixu AI Agent**. This session is independent of any single book. Select a topic below or ask anything:</string>
+    <string name="ai_agent_welcome_copilot">Reading **《%1$s》** (`%2$s`, locked to **Ch. 1~%3$d** with zero spoilers). Select an action or ask a question:</string>
+    <string name="ai_agent_action_gallery">Analyze library &amp; cover gallery (%1$d books)</string>
+    <string name="ai_agent_action_collections">Organize books &amp; create collections</string>
+    <string name="ai_agent_action_tags">Batch generate mystery Tag arrays</string>
+    <string name="ai_agent_action_cloud">Read cloud account &amp; sync queue</string>
+    <string name="ai_agent_action_chars">Summarize characters up to Ch. %1$d</string>
+    <string name="ai_agent_action_timeline">Timeline &amp; alibis in read chapters</string>
+    <string name="ai_agent_action_image">Analyze current page image (%1$s)</string>
+    <string name="ai_agent_toggle_image_on">Image Attached</string>
+    <string name="ai_agent_toggle_image_off">Attach Image</string>
+    <string name="ai_agent_toggle_web_on">Web Search: ON</string>
+    <string name="ai_agent_toggle_web_off">Web Search: OFF</string>
+    <string name="ai_agent_input_hint_copilot">Ask about current page or image (Ch. 1~%1$d)…</string>
+    <string name="ai_agent_input_hint_global">Ask anything, or organize library / tags…</string>
 </resources>

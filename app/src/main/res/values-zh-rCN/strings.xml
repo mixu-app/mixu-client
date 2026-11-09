@@ -320,4 +320,27 @@
     <string name="caseboard_filter_location">📍 地点</string>
     <string name="caseboard_filter_object">🔑 证物</string>
     <string name="caseboard_current_chapter_badge">当前阅读：第 %1$d 节 (防剧透保护中)</string>
+
+    <!-- AI Agent Mini-Window & Butler (CTX-0031, i18n ready) -->
+    <string name="ai_agent_title">AI Agent</string>
+    <string name="ai_agent_tab_global">独立管家</string>
+    <string name="ai_agent_tab_copilot">伴读</string>
+    <string name="ai_agent_tab_new">新会话</string>
+    <string name="ai_agent_badge_global">全局管家 · 独立 Session</string>
+    <string name="ai_agent_badge_copilot">防剧透锁定 · 第 1~%1$d 节</string>
+    <string name="ai_agent_welcome_global">你好，我是 **谜序 AI Agent**（全局管家）。本会话独立于单本书籍，什么都可以问，请选择下方主题或直接输入：</string>
+    <string name="ai_agent_welcome_copilot">正在伴读 **《%1$s》**（仅读取当前页 `%2$s` 及 **第 1~%3$d 节** 已读内容，绝不剧透）。请选择伴读操作：</string>
+    <string name="ai_agent_action_gallery">分析图库与藏书结构 (%1$d 本)</string>
+    <string name="ai_agent_action_collections">整理图书并建立推理收藏夹</string>
+    <string name="ai_agent_action_tags">批量给书籍创建 Tag 标签数组</string>
+    <string name="ai_agent_action_cloud">读取云端账号与同步队列信息</string>
+    <string name="ai_agent_action_chars">梳理截至第 %1$d 节登场人物与关系</string>
+    <string name="ai_agent_action_timeline">汇总已读章节时间线与不在场证明</string>
+    <string name="ai_agent_action_image">分析当前页图片 (%1$s)</string>
+    <string name="ai_agent_toggle_image_on">已附带当前页图片</string>
+    <string name="ai_agent_toggle_image_off">附带当前页图片</string>
+    <string name="ai_agent_toggle_web_on">联网搜索: 开启</string>
+    <string name="ai_agent_toggle_web_off">联网搜索: 关闭</string>
+    <string name="ai_agent_input_hint_copilot">询问当前页/图片线索（第 1~%1$d 节防剧透）…</string>
+    <string name="ai_agent_input_hint_global">提问任何问题，或整理图书 / 创建 Tag…</string>
 </resources>

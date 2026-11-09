@@ -95,13 +95,14 @@ import app.mixu.client.config.PageColumnMode
 import app.mixu.client.config.ReaderDisplayConfig
 import app.mixu.client.config.ReaderPreset
 import app.mixu.client.config.ReadingLayoutMode
+import app.mixu.client.copilot.AgentAvatarBadge
 import app.mixu.client.lookup.LookupAndTranslationEngine
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.theme.MixuThemeMode
 import java.io.File
 import kotlin.math.roundToInt
 
-private object ReaderImageBitmapCache {
+internal object ReaderImageBitmapCache {
     private val cache = LruCache<String, ImageBitmap>(32)
 
     fun load(
@@ -145,7 +146,7 @@ private object PaginationMeasurementCache {
     }
 }
 
-internal data class ParsedReaderImageToken(
+data class ParsedReaderImageToken(
     val filePath: String,
     val caption: String,
 )
@@ -209,22 +210,19 @@ internal fun paginateParagraphsByExactLineBounds(
 
     for (para in normalizedParagraphs) {
         if (parseReaderImageTokenOrNull(para) != null) {
-            val imageHeightPx = (safeHeightPx * 0.72f).toInt().coerceAtLeast(160)
-            val spacingBefore = if (currentSlices.isEmpty()) 0 else paragraphSpacingPx
-            if (currentSlices.isNotEmpty() &&
-                usedHeightPx + spacingBefore + imageHeightPx > safeHeightPx
-            ) {
+            if (currentSlices.isNotEmpty()) {
                 subPages.add(currentSlices.toList())
                 currentSlices = mutableListOf()
                 usedHeightPx = 0
             }
-            currentSlices.add(
-                MeasuredParagraphSlice(
-                    text = para,
-                    isContinuation = false,
+            subPages.add(
+                listOf(
+                    MeasuredParagraphSlice(
+                        text = para,
+                        isContinuation = false,
+                    ),
                 ),
             )
-            usedHeightPx += imageHeightPx
             continue
         }
 
@@ -343,6 +341,7 @@ fun ReaderScreen(
     onUpdateConfig: ((ReaderDisplayConfig) -> Unit)? = null,
     isBookFavorite: Boolean = false,
     onToggleBookFavorite: (() -> Unit)? = null,
+    onOpenAiButler: ((ParsedReaderImageToken?) -> Unit)? = null,
     hardwareKeyTurnSignal: Int = 0,
     hardwareKeyTurnDirection: Int = 0,
 ) {
@@ -482,13 +481,13 @@ fun ReaderScreen(
         mutableStateOf(fullChapterParagraphs.firstOrNull().orEmpty())
     }
 
-    // Long-press text selection, highlights, reading notes, and embedded image inspector state
+    // Long-press text selection, highlights, reading notes, and embedded image preview state
     var selectedPassage by remember { mutableStateOf<String?>(null) }
     var selectedWord by remember { mutableStateOf("alibi") }
     var passageHighlights by remember { mutableStateOf<Map<String, Color>>(emptyMap()) }
     var passageNotes by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var inspectedImageToken by remember { mutableStateOf<ParsedReaderImageToken?>(null) }
-    var showAiImageAnalysis by remember { mutableStateOf(false) }
+    var currentVisibleImageToken by remember { mutableStateOf<ParsedReaderImageToken?>(null) }
     var viewportWidthPx by remember { mutableIntStateOf(1) }
 
     val handleViewportTapAtRootX: (Float) -> Unit = { rootX ->
@@ -703,14 +702,44 @@ fun ReaderScreen(
                             emptyList()
                         }
 
-                    LaunchedEffect(leftColumnSlices) {
+                    LaunchedEffect(leftColumnSlices, rightColumnSlices) {
                         val firstSlice = leftColumnSlices.firstOrNull()?.text
                         if (!firstSlice.isNullOrBlank()) {
                             currentVisibleSampleText = firstSlice
                         }
+                        currentVisibleImageToken =
+                            (leftColumnSlices + rightColumnSlices)
+                                .firstNotNullOfOrNull { parseReaderImageTokenOrNull(it.text) }
                     }
 
-                    if (isTwoColumn) {
+                    val standaloneImageToken =
+                        if (leftColumnSlices.size == 1 && rightColumnSlices.isEmpty()) {
+                            parseReaderImageTokenOrNull(leftColumnSlices[0].text)
+                        } else {
+                            null
+                        }
+
+                    if (standaloneImageToken != null) {
+                        // Full-Viewport Cover / Illustration Page (Kindle / Apple Books / Readest standard)
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(
+                                        horizontal = horizontalMarginDp,
+                                        vertical = 4.dp,
+                                    ).clipToBounds(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            ReaderEmbeddedImageCard(
+                                token = standaloneImageToken,
+                                fillViewport = true,
+                                onTapRootX = handleViewportTapAtRootX,
+                                onInspect = { inspectedImageToken = standaloneImageToken },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    } else if (isTwoColumn) {
                         Row(
                             modifier =
                                 Modifier
@@ -751,10 +780,10 @@ fun ReaderScreen(
                                         onLongPressAtChar = { charIdx ->
                                             handleLongPressOnParagraph(slice.text, charIdx)
                                         },
-                                        onInspectImage = { token, aiAnalyze ->
+                                        onInspectImage = { token ->
                                             inspectedImageToken = token
-                                            showAiImageAnalysis = aiAnalyze
                                         },
+                                        fillViewportForImages = true,
                                     )
                                 }
                             }
@@ -807,10 +836,10 @@ fun ReaderScreen(
                                         onLongPressAtChar = { charIdx ->
                                             handleLongPressOnParagraph(slice.text, charIdx)
                                         },
-                                        onInspectImage = { token, aiAnalyze ->
+                                        onInspectImage = { token ->
                                             inspectedImageToken = token
-                                            showAiImageAnalysis = aiAnalyze
                                         },
+                                        fillViewportForImages = true,
                                     )
                                 }
                             }
@@ -848,10 +877,10 @@ fun ReaderScreen(
                                     onLongPressAtChar = { charIdx ->
                                         handleLongPressOnParagraph(slice.text, charIdx)
                                     },
-                                    onInspectImage = { token, aiAnalyze ->
+                                    onInspectImage = { token ->
                                         inspectedImageToken = token
-                                        showAiImageAnalysis = aiAnalyze
                                     },
+                                    fillViewportForImages = true,
                                 )
                             }
                         }
@@ -862,6 +891,15 @@ fun ReaderScreen(
                         fullChapterParagraphs
                             .map { it.trimStart('\u3000', ' ', '\t').trimEnd() }
                             .filter { it.isNotEmpty() }
+
+                    LaunchedEffect(chapterParagraphs) {
+                        currentVisibleImageToken =
+                            chapterParagraphs.firstNotNullOfOrNull {
+                                parseReaderImageTokenOrNull(
+                                    it,
+                                )
+                            }
+                    }
 
                     LazyColumn(
                         modifier =
@@ -900,10 +938,10 @@ fun ReaderScreen(
                                 onLongPressAtChar = { charIdx ->
                                     handleLongPressOnParagraph(paragraph, charIdx)
                                 },
-                                onInspectImage = { token, aiAnalyze ->
+                                onInspectImage = { token ->
                                     inspectedImageToken = token
-                                    showAiImageAnalysis = aiAnalyze
                                 },
+                                fillViewportForImages = false,
                             )
                         }
                         item {
@@ -1162,6 +1200,17 @@ fun ReaderScreen(
                                 style = MixuTheme.typography.caption,
                                 color = colors.onSurface,
                             )
+                        }
+                        if (onOpenAiButler != null) {
+                            OutlinedButton(
+                                onClick = { onOpenAiButler(currentVisibleImageToken) },
+                                modifier = Modifier.sizeIn(minWidth = 42.dp, minHeight = 40.dp),
+                                shape = RoundedCornerShape(buttonRadius),
+                                border = BorderStroke(strokeWidth, colors.primary),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            ) {
+                                AgentAvatarBadge(sizeDp = 24)
+                            }
                         }
                         Button(
                             onClick = onOpenCaseBoard,
@@ -1616,16 +1665,13 @@ fun ReaderScreen(
             )
         }
 
-        // 7. Embedded EPUB Image Viewer & AI Diagram Clue Inspector (AI-008)
+        // 7. Full-Screen EPUB Image Zoom Preview Dialog
         val activeInspectedImage = inspectedImageToken
         if (activeInspectedImage != null) {
             ReaderImageInspectionDialog(
                 token = activeInspectedImage,
-                currentChapterIndex = page.spineIndex,
-                initialShowAiAnalysis = showAiImageAnalysis,
                 onDismiss = {
                     inspectedImageToken = null
-                    showAiImageAnalysis = false
                 },
             )
         }
@@ -1754,16 +1800,18 @@ private fun SelectableReaderParagraph(
     noteText: String?,
     onTapRootX: (Float) -> Unit,
     onLongPressAtChar: (Int) -> Unit,
-    onInspectImage: (ParsedReaderImageToken, Boolean) -> Unit = { _, _ -> },
+    onInspectImage: (ParsedReaderImageToken) -> Unit = { _ -> },
+    fillViewportForImages: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val imageToken = remember(text) { parseReaderImageTokenOrNull(text) }
     if (imageToken != null) {
         ReaderEmbeddedImageCard(
             token = imageToken,
+            fillViewport = fillViewportForImages,
             onTapRootX = onTapRootX,
-            onInspect = { aiAnalyze -> onInspectImage(imageToken, aiAnalyze) },
-            modifier = modifier,
+            onInspect = { onInspectImage(imageToken) },
+            modifier = if (fillViewportForImages) modifier.fillMaxSize() else modifier,
         )
         return
     }
@@ -2532,121 +2580,88 @@ private fun QuickConfigPill(
 @Composable
 private fun ReaderEmbeddedImageCard(
     token: ParsedReaderImageToken,
+    fillViewport: Boolean,
     onTapRootX: (Float) -> Unit,
-    onInspect: (Boolean) -> Unit,
+    onInspect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
-    val eInkPolicy = MixuTheme.einkPolicy
     var rootXOffset by remember { mutableStateOf(0f) }
     val bitmap =
         remember(token.filePath) {
             ReaderImageBitmapCache.load(
                 path = token.filePath,
-                reqWidth = 1080,
-                reqHeight = 1440,
+                reqWidth = 1440,
+                reqHeight = 1920,
             )
+        }
+    val showCaption =
+        remember(token.caption) {
+            token.caption.isNotBlank() &&
+                !token.caption.equals("Cover", ignoreCase = true) &&
+                !token.caption.matches(Regex("^(cover|img|image|_?\\d+)$", RegexOption.IGNORE_CASE))
         }
 
     Column(
         modifier =
-            modifier
-                .fillMaxWidth()
-                .onGloballyPositioned { coords ->
-                    rootXOffset = coords.positionInRoot().x
-                }.pointerInput(token.filePath) {
-                    detectTapGestures(
-                        onTap = { localOffset ->
-                            onTapRootX(rootXOffset + localOffset.x)
-                        },
-                        onLongPress = {
-                            onInspect(true)
-                        },
-                    )
-                },
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Surface(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(340.dp),
-            shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 10.dp),
-            color = colors.surfaceVariant.copy(alpha = 0.35f),
-            border =
-                BorderStroke(
-                    if (eInkPolicy.isActive) 1.5.dp else 1.dp,
-                    colors.outlineVariant,
-                ),
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap,
-                        contentDescription = token.caption,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+            (
+                if (fillViewport) {
+                    modifier.fillMaxSize()
                 } else {
-                    Text(
-                        text = token.caption,
-                        style = MixuTheme.typography.bodyMedium,
-                        color = colors.onSurfaceVariant,
-                    )
+                    modifier.fillMaxWidth().heightIn(min = 420.dp, max = 680.dp)
                 }
+            ).onGloballyPositioned { coords ->
+                rootXOffset = coords.positionInRoot().x
+            }.pointerInput(token.filePath) {
+                detectTapGestures(
+                    onTap = { localOffset ->
+                        onTapRootX(rootXOffset + localOffset.x)
+                    },
+                    onDoubleTap = {
+                        onInspect()
+                    },
+                    onLongPress = {
+                        onInspect()
+                    },
+                )
+            },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(
+            modifier =
+                if (fillViewport) {
+                    Modifier.fillMaxWidth().weight(1f)
+                } else {
+                    Modifier.fillMaxWidth().height(480.dp)
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = token.caption,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Text(
+                    text = token.caption,
+                    style = MixuTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                )
             }
         }
 
-        // Caption + Quick Action Row (Zoom + AI Visual Clue Analysis)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        if (showCaption) {
             Text(
                 text = token.caption,
                 style = MixuTheme.typography.caption,
                 color = colors.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.padding(top = 6.dp),
             )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
-                    modifier = Modifier.clickable { onInspect(false) },
-                    shape = RoundedCornerShape(6.dp),
-                    color = colors.surfaceVariant,
-                    border = BorderStroke(0.8.dp, colors.outlineVariant),
-                ) {
-                    Text(
-                        text = stringResource(R.string.reader_image_zoom_btn),
-                        style = MixuTheme.typography.caption,
-                        color = colors.onSurface,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
-                }
-                Surface(
-                    modifier = Modifier.clickable { onInspect(true) },
-                    shape = RoundedCornerShape(6.dp),
-                    color = colors.primaryContainer,
-                    border = BorderStroke(0.8.dp, colors.primary),
-                ) {
-                    Text(
-                        text = stringResource(R.string.reader_image_ai_inspect_btn),
-                        style = MixuTheme.typography.caption,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
-                }
-            }
         }
     }
 }
@@ -2654,21 +2669,16 @@ private fun ReaderEmbeddedImageCard(
 @Composable
 private fun ReaderImageInspectionDialog(
     token: ParsedReaderImageToken,
-    currentChapterIndex: Int,
-    initialShowAiAnalysis: Boolean,
     onDismiss: () -> Unit,
 ) {
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
-    var showAiPanel by remember(token.filePath, initialShowAiAnalysis) {
-        mutableStateOf(initialShowAiAnalysis)
-    }
     val bitmap =
         remember(token.filePath) {
             ReaderImageBitmapCache.load(
                 path = token.filePath,
                 reqWidth = 1440,
-                reqHeight = 1800,
+                reqHeight = 1920,
             )
         }
 
@@ -2676,100 +2686,36 @@ private fun ReaderImageInspectionDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.surface,
         title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = token.caption,
-                    style = MixuTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Surface(
-                    modifier = Modifier.clickable { showAiPanel = !showAiPanel },
-                    shape = RoundedCornerShape(6.dp),
-                    color = if (showAiPanel) colors.primaryContainer else colors.surfaceVariant,
-                    border =
-                        BorderStroke(
-                            1.dp,
-                            if (showAiPanel) colors.primary else colors.outlineVariant,
-                        ),
-                ) {
-                    Text(
-                        text = stringResource(R.string.reader_image_ai_inspect_btn),
-                        style = MixuTheme.typography.caption,
-                        fontWeight = FontWeight.Bold,
-                        color = if (showAiPanel) colors.onPrimaryContainer else colors.onSurface,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
-                }
-            }
+            Text(
+                text = token.caption,
+                style = MixuTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = colors.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         },
         text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+            Surface(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(420.dp),
+                shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
+                color = colors.background,
+                border = BorderStroke(1.dp, colors.outlineVariant),
             ) {
-                Surface(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(300.dp),
-                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
-                    color = colors.background,
-                    border = BorderStroke(1.dp, colors.outlineVariant),
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(6.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize().padding(8.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (bitmap != null) {
-                            Image(
-                                bitmap = bitmap,
-                                contentDescription = token.caption,
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                    }
-                }
-
-                if (showAiPanel) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        color = colors.primaryContainer.copy(alpha = 0.45f),
-                        border = BorderStroke(1.dp, colors.primary),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                text =
-                                    stringResource(
-                                        R.string.reader_image_ai_badge,
-                                        currentChapterIndex + 1,
-                                    ),
-                                style = MixuTheme.typography.caption,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.primary,
-                            )
-                            Text(
-                                text =
-                                    stringResource(
-                                        R.string.reader_image_ai_summary,
-                                        currentChapterIndex + 1,
-                                    ),
-                                style = MixuTheme.typography.bodyMedium,
-                                color = colors.onSurface,
-                            )
-                        }
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap,
+                            contentDescription = token.caption,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     }
                 }
             }

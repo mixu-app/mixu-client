@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.FlingBehavior
 import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.gestures.ScrollableDefaults
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,7 +30,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -68,21 +71,25 @@ fun LibraryScreen(
     onNavigateToSettings: () -> Unit = {},
     onBookClick: (BookItem) -> Unit = {},
     onImportBook: () -> Unit = {},
+    onToggleFavorite: (BookItem) -> Unit = {},
+    onUpdateCollections: (BookItem, Set<String>) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     var books by remember(initialBooks) { mutableStateOf(initialBooks) }
     var searchQuery by remember { mutableStateOf("") }
     var layoutMode by remember { mutableStateOf(LibraryLayoutMode.GRID) }
     var sortOrder by remember { mutableStateOf(LibrarySortOrder.LAST_READ) }
+    var selectedCollection by remember { mutableStateOf<String?>(null) }
 
     val uiState =
-        remember(books, searchQuery, layoutMode, sortOrder) {
+        remember(books, searchQuery, layoutMode, sortOrder, selectedCollection) {
             LibraryUiState(
                 books = books,
                 searchQuery = searchQuery,
                 layoutMode = layoutMode,
                 sortOrder = sortOrder,
                 isLoading = false,
+                selectedCollection = selectedCollection,
             )
         }
 
@@ -99,6 +106,21 @@ fun LibraryScreen(
             onImportBook()
         },
         onNavigateToSettings = onNavigateToSettings,
+        onSelectCollection = { selectedCollection = it },
+        onToggleFavorite = { target ->
+            books =
+                books.map { item ->
+                    if (item.id == target.id) item.copy(isFavorite = !item.isFavorite) else item
+                }
+            onToggleFavorite(target)
+        },
+        onUpdateCollections = { target, nextCols ->
+            books =
+                books.map { item ->
+                    if (item.id == target.id) item.copy(collections = nextCols) else item
+                }
+            onUpdateCollections(target, nextCols)
+        },
         modifier = modifier,
     )
 }
@@ -117,11 +139,16 @@ fun LibraryScreen(
     onImportClick: () -> Unit,
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    onSelectCollection: (String?) -> Unit = {},
+    onToggleFavorite: (BookItem) -> Unit = {},
+    onUpdateCollections: (BookItem, Set<String>) -> Unit = { _, _ -> },
 ) {
     val colors = MixuTheme.colors
     val typography = MixuTheme.typography
     val einkPolicy = MixuTheme.einkPolicy
     val isEInk = einkPolicy.isActive || colors.isEInk
+    var editingCollectionsBook by remember { mutableStateOf<BookItem?>(null) }
+    var newCollectionDraft by remember { mutableStateOf("") }
 
     val flingBehavior =
         if (einkPolicy.isActive) {
@@ -228,6 +255,19 @@ fun LibraryScreen(
 
             Spacer(modifier = Modifier.height(dimensionResource(R.dimen.library_control_spacing)))
 
+            // Kindle-style Collections & Favorites Filter Bar
+            LibraryCollectionsBar(
+                totalCount = uiState.books.size,
+                favoritesCount = uiState.books.count { it.isFavorite },
+                availableCollections = uiState.availableCollections,
+                selectedCollection = uiState.selectedCollection,
+                onSelectCollection = onSelectCollection,
+                isEInk = isEInk,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.library_control_spacing)))
+
             LibraryControlsRow(
                 layoutMode = uiState.layoutMode,
                 onLayoutModeChange = onLayoutModeChange,
@@ -255,7 +295,10 @@ fun LibraryScreen(
                 uiState.isSearchEmpty -> {
                     LibrarySearchEmptyState(
                         query = uiState.searchQuery,
-                        onClearQuery = { onSearchQueryChange("") },
+                        onClearQuery = {
+                            onSearchQueryChange("")
+                            onSelectCollection(null)
+                        },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -288,6 +331,11 @@ fun LibraryScreen(
                             LibraryBookGridCard(
                                 book = book,
                                 onClick = { onBookClick(book) },
+                                onToggleFavorite = { onToggleFavorite(book) },
+                                onEditCollections = {
+                                    editingCollectionsBook = book
+                                    newCollectionDraft = ""
+                                },
                             )
                         }
                     }
@@ -313,11 +361,139 @@ fun LibraryScreen(
                             LibraryBookListItem(
                                 book = book,
                                 onClick = { onBookClick(book) },
+                                onToggleFavorite = { onToggleFavorite(book) },
+                                onEditCollections = {
+                                    editingCollectionsBook = book
+                                    newCollectionDraft = ""
+                                },
                             )
                         }
                     }
                 }
             }
+        }
+
+        // Kindle-style Collection Assignment & Cloud Sync Dialog
+        val activeCollectionBook = editingCollectionsBook
+        if (activeCollectionBook != null) {
+            val currentBookState =
+                uiState.books.firstOrNull { it.id == activeCollectionBook.id }
+                    ?: activeCollectionBook
+            val candidateCollections =
+                (
+                    listOf(
+                        "欧美黄金古典",
+                        "暴风雪山庄 & 馆系列",
+                        "新本格 & 时刻表",
+                        "本格推理",
+                        "待读推理清单",
+                    ) + uiState.availableCollections + currentBookState.collections
+                ).distinct()
+
+            AlertDialog(
+                onDismissRequest = { editingCollectionsBook = null },
+                title = {
+                    Text(
+                        text = stringResource(R.string.library_collections_dialog_title),
+                        style = typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
+                text = {
+                    Column(
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                dimensionResource(R.dimen.library_control_spacing),
+                            ),
+                    ) {
+                        Text(
+                            text = currentBookState.title,
+                            style = typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.primary,
+                        )
+                        Text(
+                            text = stringResource(R.string.library_collections_sync_hint),
+                            style = typography.caption,
+                            color = colors.onSurfaceVariant,
+                        )
+                        val chipRadius =
+                            if (isEInk) {
+                                dimensionResource(R.dimen.library_sort_chip_corner_radius_eink)
+                            } else {
+                                dimensionResource(R.dimen.library_sort_chip_corner_radius)
+                            }
+                        val chipBorder =
+                            if (isEInk) {
+                                dimensionResource(R.dimen.library_card_border_width_eink)
+                            } else {
+                                dimensionResource(R.dimen.library_card_border_width)
+                            }
+                        for (colName in candidateCollections) {
+                            val checked = currentBookState.collections.contains(colName)
+                            LibraryFilterChip(
+                                label = (if (checked) "✓ " else "+ ") + colName,
+                                isSelected = checked,
+                                onClick = {
+                                    val nextSet =
+                                        if (checked) {
+                                            currentBookState.collections - colName
+                                        } else {
+                                            currentBookState.collections + colName
+                                        }
+                                    onUpdateCollections(currentBookState, nextSet)
+                                },
+                                cornerRadius = chipRadius,
+                                borderWidth = chipBorder,
+                                isEInk = isEInk,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement =
+                                Arrangement.spacedBy(
+                                    dimensionResource(R.dimen.library_control_spacing),
+                                ),
+                        ) {
+                            OutlinedTextField(
+                                value = newCollectionDraft,
+                                onValueChange = { newCollectionDraft = it },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                placeholder = {
+                                    Text(
+                                        text =
+                                            stringResource(
+                                                R.string.library_collections_new_hint,
+                                            ),
+                                        style = typography.caption,
+                                    )
+                                },
+                            )
+                            Button(
+                                onClick = {
+                                    val trimmed = newCollectionDraft.trim()
+                                    if (trimmed.isNotEmpty()) {
+                                        onUpdateCollections(
+                                            currentBookState,
+                                            currentBookState.collections + trimmed,
+                                        )
+                                        newCollectionDraft = ""
+                                    }
+                                },
+                            ) {
+                                Text(stringResource(R.string.library_collections_add_btn))
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { editingCollectionsBook = null }) {
+                        Text(stringResource(R.string.settings_reset))
+                    }
+                },
+            )
         }
     }
 }
@@ -541,6 +717,84 @@ private fun LibraryFilterChip(
     }
 }
 
+@Composable
+private fun LibraryCollectionsBar(
+    totalCount: Int,
+    favoritesCount: Int,
+    availableCollections: List<String>,
+    selectedCollection: String?,
+    onSelectCollection: (String?) -> Unit,
+    isEInk: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MixuTheme.colors
+    val typography = MixuTheme.typography
+    val chipCornerRadius =
+        if (isEInk) {
+            dimensionResource(R.dimen.library_sort_chip_corner_radius_eink)
+        } else {
+            dimensionResource(R.dimen.library_sort_chip_corner_radius)
+        }
+    val chipBorderWidth =
+        if (isEInk) {
+            dimensionResource(R.dimen.library_card_border_width_eink)
+        } else {
+            dimensionResource(R.dimen.library_card_border_width)
+        }
+
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement =
+            Arrangement.spacedBy(dimensionResource(R.dimen.library_control_spacing)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LibraryFilterChip(
+            label = "${stringResource(R.string.library_collection_all)} ($totalCount)",
+            isSelected = selectedCollection == null,
+            onClick = { onSelectCollection(null) },
+            cornerRadius = chipCornerRadius,
+            borderWidth = chipBorderWidth,
+            isEInk = isEInk,
+        )
+
+        LibraryFilterChip(
+            label = "★ ${stringResource(R.string.library_collection_favorites)} ($favoritesCount)",
+            isSelected = selectedCollection == BookItem.FAVORITES_FILTER_KEY,
+            onClick = {
+                onSelectCollection(
+                    if (selectedCollection == BookItem.FAVORITES_FILTER_KEY) {
+                        null
+                    } else {
+                        BookItem.FAVORITES_FILTER_KEY
+                    },
+                )
+            },
+            cornerRadius = chipCornerRadius,
+            borderWidth = chipBorderWidth,
+            isEInk = isEInk,
+        )
+
+        for (col in availableCollections) {
+            val isSelected = selectedCollection == col
+            LibraryFilterChip(
+                label = "▤ $col",
+                isSelected = isSelected,
+                onClick = { onSelectCollection(if (isSelected) null else col) },
+                cornerRadius = chipCornerRadius,
+                borderWidth = chipBorderWidth,
+                isEInk = isEInk,
+            )
+        }
+
+        Text(
+            text = stringResource(R.string.library_collection_sync_badge),
+            style = typography.caption,
+            color = colors.primary,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
 /**
  * Grid card presentation of a single library book.
  */
@@ -549,6 +803,8 @@ fun LibraryBookGridCard(
     book: BookItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onToggleFavorite: () -> Unit = {},
+    onEditCollections: () -> Unit = {},
 ) {
     val colors = MixuTheme.colors
     val typography = MixuTheme.typography
@@ -600,15 +856,37 @@ fun LibraryBookGridCard(
 
             Spacer(modifier = Modifier.height(dimensionResource(R.dimen.library_control_spacing)))
 
-            // Title & Author
-            Text(
-                text = book.title,
-                style = typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = colors.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            // Title & Favorite Star Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    text = book.title,
+                    style = typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = if (book.isFavorite) "★" else "☆",
+                    style = typography.titleMedium,
+                    color = if (book.isFavorite) colors.primary else colors.onSurfaceVariant,
+                    fontWeight = FontWeight.Bold,
+                    modifier =
+                        Modifier
+                            .clickable { onToggleFavorite() }
+                            .padding(
+                                horizontal =
+                                    dimensionResource(
+                                        R.dimen.library_badge_padding_horizontal,
+                                    ),
+                            ),
+                )
+            }
 
             Text(
                 text = book.author,
@@ -617,6 +895,42 @@ fun LibraryBookGridCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        dimensionResource(R.dimen.library_badge_padding_vertical),
+                    ),
+            )
+
+            // Collection Tag Pill + Edit Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val primaryCol =
+                    book.collections.firstOrNull()
+                        ?: stringResource(R.string.library_collection_unassigned)
+                Text(
+                    text = "▤ $primaryCol",
+                    style = typography.caption,
+                    color = colors.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .clickable { onEditCollections() },
+                )
+                Text(
+                    text = "+ " + stringResource(R.string.library_collections_manage_short),
+                    style = typography.caption,
+                    color = colors.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.clickable { onEditCollections() },
+                )
+            }
 
             Spacer(modifier = Modifier.height(dimensionResource(R.dimen.library_control_spacing)))
 
@@ -680,6 +994,8 @@ fun LibraryBookListItem(
     book: BookItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onToggleFavorite: () -> Unit = {},
+    onEditCollections: () -> Unit = {},
 ) {
     val colors = MixuTheme.colors
     val typography = MixuTheme.typography
@@ -736,14 +1052,28 @@ fun LibraryBookListItem(
             Column(
                 modifier = Modifier.weight(1f),
             ) {
-                Text(
-                    text = book.title,
-                    style = typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement =
+                        Arrangement.spacedBy(dimensionResource(R.dimen.library_control_spacing)),
+                ) {
+                    Text(
+                        text = book.title,
+                        style = typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Text(
+                        text = if (book.isFavorite) "★" else "☆",
+                        style = typography.titleMedium,
+                        color = if (book.isFavorite) colors.primary else colors.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { onToggleFavorite() },
+                    )
+                }
 
                 Text(
                     text = book.author,
@@ -751,6 +1081,21 @@ fun LibraryBookListItem(
                     color = colors.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+
+                val colSummary =
+                    if (book.collections.isNotEmpty()) {
+                        "▤ " + book.collections.joinToString(" · ")
+                    } else {
+                        "▤ " + stringResource(R.string.library_collection_unassigned)
+                    }
+                Text(
+                    text = colSummary,
+                    style = typography.caption,
+                    color = colors.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.clickable { onEditCollections() },
                 )
 
                 Spacer(

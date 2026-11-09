@@ -855,7 +855,7 @@ class LocalLibraryDatabase private constructor(
                     ORDER BY li.last_opened_at DESC, li.added_at DESC, li.display_title ASC
                     """.trimIndent(),
             )
-        return rows.map { parseJoinedBookItemRow(it) }
+        return enrichBookItemsWithCollections(rows.map { parseJoinedBookItemRow(it) })
     }
 
     /**
@@ -879,7 +879,124 @@ class LocalLibraryDatabase private constructor(
                     LIMIT $limit
                     """.trimIndent(),
             )
-        return rows.map { parseJoinedBookItemRow(it) }
+        return enrichBookItemsWithCollections(rows.map { parseJoinedBookItemRow(it) })
+    }
+
+    /**
+     * Persists a book's favorite status and enqueues a cloud/self-hosted sync mutation.
+     */
+    fun setBookFavorite(
+        bookId: String,
+        isFavorite: Boolean,
+        updatedAt: Long = System.currentTimeMillis(),
+    ) {
+        ensureOpen()
+        val scopeKey = "book:$bookId"
+        val script =
+            buildString {
+                appendLine("BEGIN IMMEDIATE;")
+                append("INSERT OR REPLACE INTO reader_settings(")
+                append("scope_key, setting_key, setting_value, updated_at) VALUES (")
+                append(sqlText(scopeKey)).append(", ")
+                append(sqlText("is_favorite")).append(", ")
+                append(sqlText(isFavorite.toString())).append(", ")
+                append(updatedAt).appendLine(");")
+                appendLine("COMMIT;")
+            }
+        engine.executeScript(script)
+        enqueueSyncMutation(
+            SyncOutboxRecord(
+                mutationId = "fav-$bookId-$updatedAt",
+                entityTable = "book_collections",
+                entityId = bookId,
+                operation = "SET_FAVORITE",
+                payloadJson = """{"bookId":"$bookId","isFavorite":$isFavorite}""",
+                createdAt = updatedAt,
+            ),
+        )
+    }
+
+    /**
+     * Persists a book's Kindle-style collection memberships and enqueues a cloud/self-hosted sync mutation.
+     */
+    fun setBookCollections(
+        bookId: String,
+        collections: Set<String>,
+        updatedAt: Long = System.currentTimeMillis(),
+    ) {
+        ensureOpen()
+        val scopeKey = "book:$bookId"
+        val serialized =
+            collections
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .joinToString("|")
+        val script =
+            buildString {
+                appendLine("BEGIN IMMEDIATE;")
+                append("INSERT OR REPLACE INTO reader_settings(")
+                append("scope_key, setting_key, setting_value, updated_at) VALUES (")
+                append(sqlText(scopeKey)).append(", ")
+                append(sqlText("collections")).append(", ")
+                append(sqlText(serialized)).append(", ")
+                append(updatedAt).appendLine(");")
+                appendLine("COMMIT;")
+            }
+        engine.executeScript(script)
+        val jsonArray =
+            collections.joinToString(prefix = "[", postfix = "]") {
+                "\"${it.replace("\"", "\\\"")}\""
+            }
+        enqueueSyncMutation(
+            SyncOutboxRecord(
+                mutationId = "col-$bookId-$updatedAt",
+                entityTable = "book_collections",
+                entityId = bookId,
+                operation = "SET_COLLECTIONS",
+                payloadJson = """{"bookId":"$bookId","collections":$jsonArray}""",
+                createdAt = updatedAt,
+            ),
+        )
+    }
+
+    private fun enrichBookItemsWithCollections(items: List<BookItem>): List<BookItem> {
+        if (items.isEmpty()) return items
+        val rows =
+            engine.queryHexEncodedRows(
+                selectExpressions = listOf("scope_key", "setting_key", "setting_value"),
+                fromAndWhereClause = "FROM reader_settings WHERE scope_key LIKE 'book:%'",
+            )
+        val favByBook = mutableMapOf<String, Boolean>()
+        val colsByBook = mutableMapOf<String, Set<String>>()
+        for (row in rows) {
+            val bookId = row[0]!!.removePrefix("book:")
+            val key = row[1]!!
+            val value = row[2]!!
+            if (key == "is_favorite") {
+                favByBook[bookId] = value.toBooleanStrictOrNull() ?: false
+            } else if (key == "collections") {
+                colsByBook[bookId] =
+                    if (value.isBlank()) {
+                        emptySet()
+                    } else {
+                        value
+                            .split("|")
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                            .toSet()
+                    }
+            }
+        }
+        return items.map { item ->
+            val isFav = favByBook[item.id] ?: item.isFavorite
+            val cols =
+                colsByBook[item.id]
+                    ?: BookItem.defaultCollectionsFor(item.id, item.title, item.author)
+            item.copy(
+                isFavorite = isFav,
+                collections = cols,
+            )
+        }
     }
 
     /**

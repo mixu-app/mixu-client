@@ -84,6 +84,7 @@ data class LibraryUiState(
     val layoutMode: LibraryLayoutMode = LibraryLayoutMode.GRID,
     val sortOrder: LibrarySortOrder = LibrarySortOrder.LAST_READ,
     val isLoading: Boolean = false,
+    val selectedCollection: String? = null,
 ) {
     /**
      * True when the library contains zero books and is not actively loading.
@@ -92,25 +93,47 @@ data class LibraryUiState(
         get() = !isLoading && books.isEmpty()
 
     /**
-     * True when the current search query returned zero results despite the library holding books.
+     * True when the current search query or collection filter returned zero results despite the library holding books.
      */
     val isSearchEmpty: Boolean
-        get() = searchQuery.isNotBlank() && filteredBooks.isEmpty()
+        get() = (searchQuery.isNotBlank() || selectedCollection != null) && filteredBooks.isEmpty()
 
     /**
-     * Resolved list of books filtered by [searchQuery] and sorted by [sortOrder].
+     * Distinct sorted list of collection names across all books in the library.
+     */
+    val availableCollections: List<String>
+        get() =
+            books
+                .flatMap { it.collections }
+                .distinct()
+                .sorted()
+
+    /**
+     * Resolved list of books filtered by [selectedCollection] and [searchQuery] and sorted by [sortOrder].
      */
     val filteredBooks: List<BookItem>
         get() {
+            val collectionFiltered =
+                when (selectedCollection) {
+                    null -> books
+                    BookItem.FAVORITES_FILTER_KEY -> books.filter { it.isFavorite }
+                    else -> books.filter { it.collections.contains(selectedCollection) }
+                }
             val query = searchQuery.trim()
             val filtered =
                 if (query.isEmpty()) {
-                    books
+                    collectionFiltered
                 } else {
-                    books.filter { book ->
+                    collectionFiltered.filter { book ->
                         book.title.contains(query, ignoreCase = true) ||
                             book.author.contains(query, ignoreCase = true) ||
-                            (book.lastReadChapterTitle?.contains(query, ignoreCase = true) == true)
+                            (
+                                book.lastReadChapterTitle?.contains(
+                                    query,
+                                    ignoreCase = true,
+                                ) == true
+                            ) ||
+                            book.collections.any { it.contains(query, ignoreCase = true) }
                     }
                 }
 

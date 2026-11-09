@@ -24,6 +24,8 @@ data class BookItem(
     val lastReadOrdinal: Int = 0,
     val progressPercent: Int = 0,
     val lastReadEpochMs: Long = 0L,
+    val isFavorite: Boolean = false,
+    val collections: Set<String> = emptySet(),
 ) {
     val isStarted: Boolean
         get() = progressPercent > 0 || lastReadOrdinal > 0
@@ -35,6 +37,50 @@ data class BookItem(
         get() = title.firstOrNull()?.uppercase() ?: "?"
 
     companion object {
+        const val FAVORITES_FILTER_KEY = "__FAVORITES__"
+
+        fun defaultCollectionsFor(
+            id: String,
+            title: String,
+            author: String,
+        ): Set<String> {
+            val combined = "$id $title $author".lowercase()
+            val tags = linkedSetOf<String>()
+            if (combined.contains("christie") ||
+                combined.contains("ackroyd") ||
+                combined.contains("styles") ||
+                combined.contains("doyle") ||
+                combined.contains("baskerville") ||
+                combined.contains("poe") ||
+                combined.contains("morgue") ||
+                combined.contains("leroux") ||
+                combined.contains("yellow")
+            ) {
+                tags.add("欧美黄金古典")
+            }
+            if (combined.contains("clocktower") ||
+                combined.contains("钟塔") ||
+                combined.contains("pavilion") ||
+                combined.contains("雾越") ||
+                combined.contains("manor") ||
+                combined.contains("庄园") ||
+                combined.contains("blackwood")
+            ) {
+                tags.add("暴风雪山庄 & 馆系列")
+            }
+            if (combined.contains("森博嗣") ||
+                combined.contains("全部成为") ||
+                combined.contains("train") ||
+                combined.contains("夜行")
+            ) {
+                tags.add("新本格 & 时刻表")
+            }
+            if (tags.isEmpty()) {
+                tags.add("本格推理")
+            }
+            return tags
+        }
+
         val SAMPLE_BOOKS =
             listOf(
                 BookItem(

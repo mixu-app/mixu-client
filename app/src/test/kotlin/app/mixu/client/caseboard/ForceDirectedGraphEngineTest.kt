@@ -2,6 +2,7 @@
 package app.mixu.client.caseboard
 
 import app.mixu.client.config.GraphDimensionMode
+import app.mixu.client.config.GraphPhysicsMode
 import app.mixu.graph.TemporalProjectionEngine
 import kotlin.math.hypot
 import kotlin.test.Test
@@ -131,6 +132,63 @@ class ForceDirectedGraphEngineTest {
         assertNotEquals(
             projectedDefault.map { it.screenX to it.screenY },
             projectedWithDrag.map { it.screenX to it.screenY },
+        )
+    }
+
+    @Test
+    fun `applyNodeDragStep moves dragged node and couples neighbors under spring physics`() {
+        val pack = SyntheticMysteryData.createMysteryGraphPack()
+        val projection = TemporalProjectionEngine(pack).project(4)
+        val layout =
+            ForceDirectedGraphEngine.computeLayout(
+                editionId = pack.manifest.editionId.value,
+                entities = projection.entities,
+                assertions = projection.assertions,
+                mode = GraphDimensionMode.FORCE_2D,
+            )
+
+        val draggedId =
+            layout.neighborMap.entries
+                .first { it.value.isNotEmpty() }
+                .key
+        val neighborId = layout.neighborMap.getValue(draggedId).first()
+
+        // 1. PIN_NODE moves only the dragged node
+        val pinOffsets =
+            ForceDirectedGraphEngine.applyNodeDragStep(
+                layoutResult = layout,
+                currentOffsets = emptyMap(),
+                draggedEntityId = draggedId,
+                screenDx = 80f,
+                screenDy = -50f,
+                viewportWidthPx = 1200f,
+                viewportHeightPx = 900f,
+                zoom = 1.0f,
+                physicsMode = GraphPhysicsMode.PIN_NODE,
+                pinnedEntityIds = setOf(draggedId),
+            )
+        assertTrue(pinOffsets.containsKey(draggedId))
+        assertEquals(null, pinOffsets[neighborId])
+
+        // 2. LIVE_SPRING pulls unpinned connected neighbors via Hooke spring attraction
+        val springOffsets =
+            ForceDirectedGraphEngine.applyNodeDragStep(
+                layoutResult = layout,
+                currentOffsets = emptyMap(),
+                draggedEntityId = draggedId,
+                screenDx = 120f,
+                screenDy = 75f,
+                viewportWidthPx = 1200f,
+                viewportHeightPx = 900f,
+                zoom = 1.0f,
+                physicsMode = GraphPhysicsMode.LIVE_SPRING,
+                pinnedEntityIds = setOf(draggedId),
+            )
+        assertTrue(springOffsets.containsKey(draggedId))
+        val neighborOffset = springOffsets[neighborId]
+        assertTrue(
+            neighborOffset != null && (neighborOffset.first != 0f || neighborOffset.second != 0f),
+            "Expected connected neighbor $neighborId to experience spring pull when $draggedId is dragged",
         )
     }
 }

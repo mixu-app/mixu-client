@@ -4,6 +4,7 @@
 package app.mixu.client.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -51,14 +52,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.mixu.client.R
 import app.mixu.client.auth.UserSession
+import app.mixu.client.billing.ClientCreditWallet
+import app.mixu.client.billing.ClientStorageStatus
+import app.mixu.client.billing.StorageQuotaState
 import app.mixu.client.config.FontFamilyChoice
 import app.mixu.client.config.GraphPhysicsMode
 import app.mixu.client.config.LookupProviderMode
@@ -100,6 +107,10 @@ fun SettingsPreviewScreen(
     var showSignInDialog by remember { mutableStateOf(false) }
     var signedInAccount by remember { mutableStateOf<String?>(null) }
     var accountDraft by remember { mutableStateOf("reader@mixu.local") }
+    var wallet by remember { mutableStateOf(ClientCreditWallet()) }
+    var storageState by remember { mutableStateOf(StorageQuotaState()) }
+    var showEInkQrAdDialog by remember { mutableStateOf(false) }
+    val isEInkActive = einkPolicy.isActive || config.eInkMode == EInkMode.FORCE_ON
 
     val flingBehavior =
         if (einkPolicy.isActive) {
@@ -226,6 +237,116 @@ fun SettingsPreviewScreen(
                         style = typography.caption,
                         color = colors.onSurfaceVariant,
                     )
+
+                    SettingsDivider()
+
+                    // Three-Bucket Credit Wallet & E-Ink Cross-Device QR Ad Reward (ADR-030)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f).padding(end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.wallet_title, wallet.totalCredits),
+                                style = typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.onSurface,
+                            )
+                            Text(
+                                text =
+                                    stringResource(
+                                        R.string.wallet_buckets_summary,
+                                        wallet.promoCredits,
+                                        wallet.subCredits,
+                                        wallet.paidCredits,
+                                    ),
+                                style = typography.caption,
+                                color = colors.onSurfaceVariant,
+                            )
+                        }
+                        CompactSegmentPill(
+                            label =
+                                if (isEInkActive) {
+                                    stringResource(R.string.wallet_ad_reward_eink_btn)
+                                } else {
+                                    stringResource(R.string.wallet_ad_reward_btn)
+                                },
+                            isSelected = false,
+                            onClick = {
+                                if (isEInkActive) {
+                                    showEInkQrAdDialog = true
+                                } else {
+                                    wallet = wallet.claimRewardedAd()
+                                }
+                            },
+                        )
+                    }
+
+                    SettingsDivider()
+
+                    // Cloud Storage Quota & 7-Day Grace Period (ADR-030)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f).padding(end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text =
+                                    stringResource(
+                                        R.string.storage_quota_label,
+                                        storageState.usedMb,
+                                        storageState.quotaMb,
+                                    ),
+                                style = typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.onSurface,
+                            )
+                            Text(
+                                text =
+                                    if (storageState.status == ClientStorageStatus.GRACE_PERIOD) {
+                                        stringResource(R.string.storage_status_grace_desc)
+                                    } else {
+                                        stringResource(R.string.storage_status_active_desc)
+                                    },
+                                style = typography.caption,
+                                color =
+                                    if (storageState.status == ClientStorageStatus.GRACE_PERIOD) {
+                                        colors.claimed
+                                    } else {
+                                        colors.onSurfaceVariant
+                                    },
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CompactSegmentPill(
+                                label = stringResource(R.string.storage_status_toggle_active),
+                                isSelected = storageState.status == ClientStorageStatus.ACTIVE,
+                                onClick = {
+                                    storageState =
+                                        storageState.copy(status = ClientStorageStatus.ACTIVE)
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.storage_status_toggle_grace),
+                                isSelected =
+                                    storageState.status == ClientStorageStatus.GRACE_PERIOD,
+                                onClick = {
+                                    storageState =
+                                        storageState.copy(
+                                            status = ClientStorageStatus.GRACE_PERIOD,
+                                        )
+                                },
+                            )
+                        }
+                    }
                 }
 
                 // =========================================================================
@@ -1080,6 +1201,92 @@ fun SettingsPreviewScreen(
                     },
                 ) {
                     Text(stringResource(R.string.more_account_signin_confirm))
+                }
+            },
+        )
+    }
+
+    if (showEInkQrAdDialog) {
+        val qrPayload =
+            remember(userSession.anonymousId, signedInAccount) {
+                wallet.generateEInkQrChallengePayload(
+                    anonymousOrUserId = signedInAccount ?: userSession.anonymousId,
+                )
+            }
+        val qrMatrix = remember(qrPayload) { wallet.generateQrMatrix(qrPayload) }
+
+        AlertDialog(
+            onDismissRequest = { showEInkQrAdDialog = false },
+            title = {
+                Text(
+                    text = stringResource(R.string.wallet_eink_qr_dialog_title),
+                    style = typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(168.dp)
+                                .background(Color.White)
+                                .border(2.dp, Color.Black)
+                                .padding(10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val dim = qrMatrix.size.coerceAtLeast(1)
+                            val cellW = size.width / dim
+                            val cellH = size.height / dim
+                            for (r in 0 until dim) {
+                                for (c in 0 until dim) {
+                                    if (qrMatrix[r][c]) {
+                                        drawRect(
+                                            color = Color.Black,
+                                            topLeft = Offset(c * cellW, r * cellH),
+                                            size = Size(cellW + 0.5f, cellH + 0.5f),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Text(
+                        text = qrPayload,
+                        style = typography.caption.copy(fontFamily = FontFamily.Monospace),
+                        color = colors.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text =
+                            stringResource(
+                                R.string.wallet_eink_qr_dialog_desc,
+                                wallet.dailyAdCreditsClaimed,
+                            ),
+                        style = typography.caption,
+                        color = colors.onSurface,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEInkQrAdDialog = false }) {
+                    Text(stringResource(R.string.caseboard_hypothesis_cancel))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        wallet = wallet.claimRewardedAd()
+                        showEInkQrAdDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.wallet_eink_qr_confirm_btn))
                 }
             },
         )

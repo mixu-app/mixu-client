@@ -86,6 +86,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.mixu.client.R
+import app.mixu.client.billing.ClientCreditWallet
+import app.mixu.client.billing.EditionMatchTier
+import app.mixu.client.billing.SharedPackMarketplaceOffer
 import app.mixu.client.config.GraphDimensionMode
 import app.mixu.client.config.GraphPhysicsMode
 import app.mixu.client.eink.StrokePattern
@@ -216,6 +219,30 @@ fun CaseBoardScreen(
 ) {
     val eInkPolicy = MixuTheme.einkPolicy
     val colors = MixuTheme.colors
+    var showMarketplaceDialog by remember { mutableStateOf(false) }
+    var marketplaceWallet by remember { mutableStateOf(ClientCreditWallet()) }
+    var marketplaceOffer by remember(uiState.editionId, uiState.revealedGraphView) {
+        val entitiesCount =
+            uiState.revealedGraphView
+                ?.entities
+                ?.size
+                ?.coerceAtLeast(1)
+                ?: SharedPackMarketplaceOffer.DEFAULT_ENTITY_COUNT
+        val assertionsCount =
+            uiState.revealedGraphView
+                ?.assertions
+                ?.size
+                ?.coerceAtLeast(1)
+                ?: SharedPackMarketplaceOffer.DEFAULT_ASSERTION_COUNT
+        mutableStateOf(
+            SharedPackMarketplaceOffer(
+                packId = "gpack-${uiState.editionId}",
+                matchTier = EditionMatchTier.L1_EXACT_SHA256,
+                entityCount = entitiesCount,
+                assertionCount = assertionsCount,
+            ),
+        )
+    }
     val entityDisplayNames =
         remember(uiState.revealedGraphView) {
             uiState.revealedGraphView
@@ -259,6 +286,27 @@ fun CaseBoardScreen(
                         }
                     },
                     actions = {
+                        OutlinedButton(
+                            onClick = { showMarketplaceDialog = true },
+                            modifier =
+                                Modifier
+                                    .padding(end = 6.dp)
+                                    .sizeIn(minWidth = 44.dp, minHeight = 32.dp),
+                            shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
+                            border =
+                                BorderStroke(
+                                    if (eInkPolicy.isActive) 1.5.dp else 1.dp,
+                                    colors.primary,
+                                ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.marketplace_pill_label),
+                                style = MixuTheme.typography.caption,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.primary,
+                            )
+                        }
                         if (eInkPolicy.isActive) {
                             Box(
                                 modifier =
@@ -406,6 +454,212 @@ fun CaseBoardScreen(
             onDismiss = { onOpenAddHypothesisDialog(false) },
         )
     }
+
+    if (showMarketplaceDialog) {
+        SharedGraphPackMarketplaceDialog(
+            bookTitle = uiState.bookTitle,
+            offer = marketplaceOffer,
+            wallet = marketplaceWallet,
+            onCycleMatchTier = {
+                val nextTier =
+                    when (marketplaceOffer.matchTier) {
+                        EditionMatchTier.L1_EXACT_SHA256 ->
+                            EditionMatchTier.L2_STRUCTURE_FINGERPRINT
+                        EditionMatchTier.L2_STRUCTURE_FINGERPRINT ->
+                            EditionMatchTier.L3_ISBN_CHAPTER_ANCHOR
+                        EditionMatchTier.L3_ISBN_CHAPTER_ANCHOR ->
+                            EditionMatchTier.L1_EXACT_SHA256
+                    }
+                marketplaceOffer = marketplaceOffer.copy(matchTier = nextTier)
+            },
+            onUnlockPack = {
+                if (!marketplaceOffer.unlocked &&
+                    marketplaceWallet.canAfford(marketplaceOffer.downloadCostCredits)
+                ) {
+                    marketplaceWallet =
+                        marketplaceWallet.deductCredits(marketplaceOffer.downloadCostCredits)
+                    marketplaceOffer = marketplaceOffer.copy(unlocked = true)
+                }
+            },
+            onPublishPack = {
+                marketplaceOffer = marketplaceOffer.copy(publishedByCurrentUser = true)
+            },
+            onSimulateRoyalty = {
+                marketplaceWallet =
+                    marketplaceWallet.recordCreatorRoyalty(
+                        royaltyCredits = marketplaceOffer.creatorRoyaltyCredits,
+                        buildCostCredits = marketplaceOffer.buildCostCredits,
+                    )
+            },
+            onDismiss = { showMarketplaceDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun SharedGraphPackMarketplaceDialog(
+    bookTitle: String,
+    offer: SharedPackMarketplaceOffer,
+    wallet: ClientCreditWallet,
+    onCycleMatchTier: () -> Unit,
+    onUnlockPack: () -> Unit,
+    onPublishPack: () -> Unit,
+    onSimulateRoyalty: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = MixuTheme.colors
+    val typography = MixuTheme.typography
+    val eInkPolicy = MixuTheme.einkPolicy
+    val tierLabel =
+        when (offer.matchTier) {
+            EditionMatchTier.L1_EXACT_SHA256 ->
+                stringResource(R.string.marketplace_tier_l1_badge)
+            EditionMatchTier.L2_STRUCTURE_FINGERPRINT ->
+                stringResource(R.string.marketplace_tier_l2_badge)
+            EditionMatchTier.L3_ISBN_CHAPTER_ANCHOR ->
+                stringResource(R.string.marketplace_tier_l3_badge)
+        }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = stringResource(R.string.marketplace_dialog_title),
+                    style = typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onSurface,
+                )
+                Text(
+                    text = bookTitle,
+                    style = typography.caption,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .border(
+                                    BorderStroke(
+                                        if (eInkPolicy.isActive) 1.5.dp else 1.dp,
+                                        colors.primary,
+                                    ),
+                                    RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                                ).clickable { onCycleMatchTier() }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = tierLabel,
+                            style = typography.caption.copy(fontFamily = FontFamily.Monospace),
+                            fontWeight = FontWeight.Bold,
+                            color = colors.primary,
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.wallet_title, wallet.totalCredits),
+                        style = typography.caption,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.onSurface,
+                    )
+                }
+
+                Text(
+                    text =
+                        stringResource(
+                            R.string.marketplace_offer_summary,
+                            offer.entityCount,
+                            offer.assertionCount,
+                            offer.downloadCostCredits,
+                            offer.buildCostCredits,
+                        ),
+                    style = typography.caption,
+                    color = colors.onSurfaceVariant,
+                )
+
+                if (offer.unlocked) {
+                    Text(
+                        text = stringResource(R.string.marketplace_unlocked_badge),
+                        style = typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.corroborated,
+                    )
+                } else {
+                    Button(
+                        onClick = onUnlockPack,
+                        enabled = wallet.canAfford(offer.downloadCostCredits),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors =
+                            ButtonDefaults.buttonColors(
+                                containerColor = colors.primary,
+                                contentColor = colors.onPrimary,
+                            ),
+                    ) {
+                        Text(
+                            text =
+                                stringResource(
+                                    R.string.marketplace_unlock_btn,
+                                    offer.downloadCostCredits,
+                                ),
+                            style = typography.caption,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+
+                HorizontalDivider(
+                    thickness = 0.5.dp,
+                    color = colors.outlineVariant.copy(alpha = 0.6f),
+                )
+
+                if (offer.publishedByCurrentUser) {
+                    Text(
+                        text =
+                            stringResource(
+                                R.string.marketplace_published_badge,
+                                wallet.creatorRoyaltyEarned,
+                            ),
+                        style = typography.caption,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.primary,
+                    )
+                    OutlinedButton(
+                        onClick = onSimulateRoyalty,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.marketplace_simulate_royalty_btn),
+                            style = typography.caption,
+                        )
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onPublishPack,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.marketplace_publish_btn),
+                            style = typography.caption,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.settings_reset))
+            }
+        },
+    )
 }
 
 /**

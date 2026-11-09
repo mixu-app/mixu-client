@@ -343,4 +343,29 @@
     <string name="ai_agent_toggle_web_off">Web Search: OFF</string>
     <string name="ai_agent_input_hint_copilot">Ask about current page or image (Ch. 1~%1$d)…</string>
     <string name="ai_agent_input_hint_global">Ask anything, or organize library / tags…</string>
+
+    <!-- Three-Bucket Credit Wallet, E-Ink QR Ad Reward, 7-Day Grace Period & Shared GraphPack Marketplace (ADR-030 & ADR-040) -->
+    <string name="wallet_title">Credit Wallet (%1$d Credits)</string>
+    <string name="wallet_buckets_summary">Promo %1$d · Sub %2$d · Paid %3$d</string>
+    <string name="wallet_ad_reward_btn">+3 Credits (Ad)</string>
+    <string name="wallet_ad_reward_eink_btn">E-Ink QR (+3 Credits)</string>
+    <string name="wallet_eink_qr_dialog_title">E-Ink Cross-Device QR Ad Reward</string>
+    <string name="wallet_eink_qr_dialog_desc">E-Ink devices skip video playback to prevent ghosting and battery drain. Scan this QR code with your phone to complete the reward check and claim +3 Promo Credits (%1$d / 30 daily cap).</string>
+    <string name="wallet_eink_qr_confirm_btn">Phone Scan Complete (+3)</string>
+    <string name="storage_quota_label">Cloud Storage (%1$d MB / %2$d MB)</string>
+    <string name="storage_status_active_desc">Active · Upload &amp; multi-device sync enabled</string>
+    <string name="storage_status_grace_desc">7-Day Grace Period: Download &amp; reading active, new uploads paused</string>
+    <string name="storage_status_toggle_active">Active</string>
+    <string name="storage_status_toggle_grace">7-Day Grace</string>
+    <string name="marketplace_pill_label">✦ Graph Marketplace</string>
+    <string name="marketplace_dialog_title">Shared GraphPack Marketplace (ADR-040)</string>
+    <string name="marketplace_tier_l1_badge">L1 Exact SHA-256 Match</string>
+    <string name="marketplace_tier_l2_badge">L2 Structure Fingerprint Match</string>
+    <string name="marketplace_tier_l3_badge">L3 ISBN &amp; Chapter Anchor Match</string>
+    <string name="marketplace_offer_summary">Community-verified narrative graph (%1$d entities · %2$d claims) protected by local Knowledge Horizon firewall. Unlock for %3$d Credits instead of %4$d Credits full-book AI extraction.</string>
+    <string name="marketplace_unlock_btn">Unlock Shared Pack (-%1$d Credits)</string>
+    <string name="marketplace_unlocked_badge">✓ Shared GraphPack Unlocked &amp; Mounted</string>
+    <string name="marketplace_publish_btn">Publish GraphPack (0 Credits · +1 Royalty/Download)</string>
+    <string name="marketplace_published_badge">✓ Published to Shared Catalog · Royalties: +%1$d Credits (Cap 120)</string>
+    <string name="marketplace_simulate_royalty_btn">Simulate Reader Download (+1 Royalty)</string>
 </resources>

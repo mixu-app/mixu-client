@@ -11,12 +11,34 @@ android {
     defaultConfig {
         applicationId = "app.mixu.client"
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.0.1"
+    }
+
+    val keystorePath = System.getenv("MIXU_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
+    val keystorePassword = System.getenv("MIXU_KEYSTORE_PASSWORD").orEmpty()
+    val keyAlias = System.getenv("MIXU_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "mixu-release"
+    val keyPassword =
+        System.getenv("MIXU_KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: keystorePassword
+
+    signingConfigs {
+        if (keystorePath != null && file(keystorePath).exists()) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig =
+                signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

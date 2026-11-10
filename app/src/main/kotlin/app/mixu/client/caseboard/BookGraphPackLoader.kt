@@ -228,16 +228,18 @@ class BookGraphPackLoader(
         val shortHash = sha.take(16)
         val editionId = asset.editionId ?: "urn:mixu:edition:$shortHash"
 
+        val boundedChapters = publication.chapters.take(MAX_CLOUD_CHAPTERS)
+        val perChapterBudget =
+            (MAX_TOTAL_CLOUD_CHARS / boundedChapters.size.coerceAtLeast(1))
+                .coerceIn(MIN_CLOUD_CHAPTER_CHARS, MAX_SINGLE_CLOUD_CHAPTER_CHARS)
         val digests =
-            publication.chapters
-                .take(16)
-                .mapIndexed { idx, ch ->
-                    CloudChapterDigestDto(
-                        ordinal = idx,
-                        title = ch.spineItem.title,
-                        excerpt = ch.fullText.take(400),
-                    )
-                }
+            boundedChapters.mapIndexed { idx, ch ->
+                CloudChapterDigestDto(
+                    ordinal = idx,
+                    title = ch.spineItem.title,
+                    excerpt = sampleChapterForCloudExtraction(ch.fullText, perChapterBudget),
+                )
+            }
 
         val cloudResult =
             apiClient.extractBookGraph(
@@ -312,6 +314,41 @@ class BookGraphPackLoader(
         }.getOrNull()
 
     companion object {
+        const val MAX_CLOUD_CHAPTERS = 80
+        const val MAX_TOTAL_CLOUD_CHARS = 160_000
+        const val MIN_CLOUD_CHAPTER_CHARS = 2_400
+        const val MAX_SINGLE_CLOUD_CHAPTER_CHARS = 48_000
+
+        /**
+         * Preserves the full chapter text when within [maxChars] (up to 48,000 chars for
+         * short stories and novellas), or samples Head (40%) + Middle (30%) + Tail (30%)
+         * when an individual chapter exceeds [maxChars].
+         *
+         * Time complexity: O(L) where L is [rawText] length.
+         * Space complexity: O(min(L, maxChars)).
+         */
+        fun sampleChapterForCloudExtraction(
+            rawText: String,
+            maxChars: Int = MAX_SINGLE_CLOUD_CHAPTER_CHARS,
+        ): String {
+            val normalized = rawText.trim()
+            if (normalized.length <= maxChars) {
+                return normalized
+            }
+            val headLen = (maxChars * 4) / 10
+            val midLen = (maxChars * 3) / 10
+            val tailLen = maxChars - headLen - midLen
+            val midStart = (normalized.length / 2 - midLen / 2).coerceAtLeast(headLen)
+            val head = normalized.substring(0, headLen)
+            val mid =
+                normalized.substring(
+                    midStart,
+                    (midStart + midLen).coerceAtMost(normalized.length),
+                )
+            val tail = normalized.takeLast(tailLen)
+            return "$head\n...\n$mid\n...\n$tail"
+        }
+
         /**
          * Creates a valid spine-aligned [GraphPack] for an imported EPUB that does not yet
          * have an AI-extracted `.graph.json` companion pack.

@@ -189,6 +189,47 @@ fun CaseBoardScreen(
             controller.setAddHypothesisDialogOpen(isOpen)
             state = controller.state
         },
+        onOpenAddEntityDialog = { isOpen ->
+            controller.setAddEntityDialogOpen(isOpen)
+            state = controller.state
+        },
+        onAddEntity = { label, type ->
+            controller.addEntity(label = label, type = type)
+            state = controller.state
+        },
+        onStartEditEntity = { entity ->
+            controller.setEditingEntity(entity)
+            state = controller.state
+        },
+        onUpdateEntity = { entityId, label, type ->
+            controller.updateEntity(entityId = entityId, newLabel = label, newType = type)
+            state = controller.state
+        },
+        onDeleteEntity = { entityId ->
+            controller.deleteEntity(entityId = entityId)
+            state = controller.state
+        },
+        onOpenAddAssertionDialog = { isOpen ->
+            controller.setAddAssertionDialogOpen(isOpen)
+            state = controller.state
+        },
+        onAddAssertion = { subjId, pred, objId, status ->
+            controller.addAssertion(
+                subjectId = subjId,
+                predicate = pred,
+                objectId = objId,
+                status = status,
+            )
+            state = controller.state
+        },
+        onCycleAssertionStatus = { assertionId ->
+            controller.cycleAssertionStatus(assertionId)
+            state = controller.state
+        },
+        onDeleteAssertion = { assertionId ->
+            controller.deleteAssertion(assertionId)
+            state = controller.state
+        },
         onNavigateBack = onNavigateBack,
         onNavigateToSettings = onNavigateToSettings,
         onJumpToOrdinal = onJumpToOrdinal,
@@ -222,6 +263,15 @@ fun CaseBoardScreen(
     isBuildingAiGraph: Boolean = false,
     initialGraphMode: GraphDimensionMode = GraphDimensionMode.FORCE_2D,
     modifier: Modifier = Modifier,
+    onOpenAddEntityDialog: (Boolean) -> Unit = {},
+    onAddEntity: (String, EntityType) -> Unit = { _, _ -> },
+    onStartEditEntity: (RevealedEntity?) -> Unit = {},
+    onUpdateEntity: (String, String, EntityType) -> Unit = { _, _, _ -> },
+    onDeleteEntity: (String) -> Unit = {},
+    onOpenAddAssertionDialog: (Boolean) -> Unit = {},
+    onAddAssertion: (String, String, String, EpistemicStatus) -> Unit = { _, _, _, _ -> },
+    onCycleAssertionStatus: (String) -> Unit = {},
+    onDeleteAssertion: (String) -> Unit = {},
 ) {
     val eInkPolicy = MixuTheme.einkPolicy
     val colors = MixuTheme.colors
@@ -427,8 +477,52 @@ fun CaseBoardScreen(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
                 )
+
+                // User Knowledge Graph Quick-Edit Toolbar (+ 节点 / + 关系)
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(
+                        onClick = { onOpenAddEntityDialog(true) },
+                        modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 30.dp),
+                        shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = "+ 节点",
+                            style = MixuTheme.typography.caption,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.primary,
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { onOpenAddAssertionDialog(true) },
+                        modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 30.dp),
+                        shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = "+ 关系",
+                            style = MixuTheme.typography.caption,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.primary,
+                        )
+                    }
+                    Text(
+                        text = "点选节点可改名/删改，点击关系标签可切换状态",
+                        style = MixuTheme.typography.caption,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         },
         containerColor = colors.background,
@@ -460,6 +554,13 @@ fun CaseBoardScreen(
                             entityDisplayNames = entityDisplayNames,
                             onClose = { onSelectEntity(null) },
                             onJumpToOrdinal = onJumpToOrdinal,
+                            onEditEntity = { onStartEditEntity(uiState.selectedEntity) },
+                            onDeleteEntity = {
+                                onDeleteEntity(uiState.selectedEntity.entity.entityId.value)
+                            },
+                            onAddRelation = { onOpenAddAssertionDialog(true) },
+                            onCycleAssertionStatus = onCycleAssertionStatus,
+                            onDeleteAssertion = onDeleteAssertion,
                             modifier =
                                 Modifier
                                     .align(Alignment.BottomCenter)
@@ -473,6 +574,8 @@ fun CaseBoardScreen(
                         assertions = uiState.revealedGraphView?.assertions ?: emptyList(),
                         entityDisplayNames = entityDisplayNames,
                         onJumpToOrdinal = onJumpToOrdinal,
+                        onCycleAssertionStatus = onCycleAssertionStatus,
+                        onDeleteAssertion = onDeleteAssertion,
                         modifier = Modifier.fillMaxSize().padding(16.dp),
                     )
                 }
@@ -493,6 +596,47 @@ fun CaseBoardScreen(
             revealedEntities = uiState.revealedGraphView?.entities ?: emptyList(),
             onSave = onAddHypothesis,
             onDismiss = { onOpenAddHypothesisDialog(false) },
+        )
+    }
+
+    if (uiState.isAddEntityDialogOpen) {
+        EntityEditorDialog(
+            titleText = "新增图谱节点",
+            initialLabel = "",
+            initialType = EntityType.PERSON,
+            onConfirm = { label, type ->
+                onAddEntity(label, type)
+            },
+            onDismiss = { onOpenAddEntityDialog(false) },
+        )
+    }
+
+    val editingTarget = uiState.editingEntity
+    if (editingTarget != null) {
+        val currentLabel =
+            editingTarget.canonicalName?.displayText
+                ?: editingTarget.entity.entityId.value
+        EntityEditorDialog(
+            titleText = "编辑图谱节点",
+            initialLabel = currentLabel,
+            initialType = editingTarget.entity.entityType,
+            onConfirm = { label, type ->
+                onUpdateEntity(editingTarget.entity.entityId.value, label, type)
+            },
+            onDismiss = { onStartEditEntity(null) },
+        )
+    }
+
+    if (uiState.isAddAssertionDialogOpen) {
+        AddAssertionDialog(
+            revealedEntities = uiState.revealedGraphView?.entities ?: emptyList(),
+            defaultSubjectId =
+                uiState.selectedEntity
+                    ?.entity
+                    ?.entityId
+                    ?.value,
+            onSave = onAddAssertion,
+            onDismiss = { onOpenAddAssertionDialog(false) },
         )
     }
 
@@ -1966,6 +2110,11 @@ private fun EntityDossierInspectionSheet(
     entityDisplayNames: Map<String, String>,
     onClose: () -> Unit,
     onJumpToOrdinal: ((Int) -> Unit)? = null,
+    onEditEntity: (() -> Unit)? = null,
+    onDeleteEntity: (() -> Unit)? = null,
+    onAddRelation: (() -> Unit)? = null,
+    onCycleAssertionStatus: (String) -> Unit = {},
+    onDeleteAssertion: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
@@ -1977,7 +2126,7 @@ private fun EntityDossierInspectionSheet(
         border = BorderStroke(strokeWidth, colors.primary),
         colors = CardDefaults.cardColors(containerColor = colors.surface),
         shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 12.dp),
-        modifier = modifier.heightIn(max = 260.dp),
+        modifier = modifier.heightIn(max = 310.dp),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1985,9 +2134,12 @@ private fun EntityDossierInspectionSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = stringResource(R.string.caseboard_entity_inspect_title),
+                        text =
+                            "${stringResource(
+                                R.string.caseboard_entity_inspect_title,
+                            )} · ${entity.entity.entityType}",
                         style = MixuTheme.typography.caption.copy(fontWeight = FontWeight.Bold),
                         color = colors.primary,
                     )
@@ -1997,15 +2149,52 @@ private fun EntityDossierInspectionSheet(
                         color = colors.onSurface,
                     )
                 }
-                OutlinedButton(
-                    onClick = onClose,
-                    modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 40.dp),
-                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
-                ) {
-                    Text(
-                        stringResource(R.string.caseboard_entity_close),
-                        style = MixuTheme.typography.caption,
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (onEditEntity != null) {
+                        OutlinedButton(
+                            onClick = onEditEntity,
+                            modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 34.dp),
+                            shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Text("✎ 编辑", style = MixuTheme.typography.caption)
+                        }
+                    }
+                    if (onAddRelation != null) {
+                        OutlinedButton(
+                            onClick = onAddRelation,
+                            modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 34.dp),
+                            shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Text("+ 关系", style = MixuTheme.typography.caption)
+                        }
+                    }
+                    if (onDeleteEntity != null) {
+                        OutlinedButton(
+                            onClick = onDeleteEntity,
+                            modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 34.dp),
+                            shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                "删",
+                                style = MixuTheme.typography.caption,
+                                color = colors.contradicted,
+                            )
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = onClose,
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 34.dp),
+                        shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.caseboard_entity_close),
+                            style = MixuTheme.typography.caption,
+                        )
+                    }
                 }
             }
 
@@ -2065,6 +2254,12 @@ private fun EntityDossierInspectionSheet(
                             assertion = assertion,
                             entityDisplayNames = entityDisplayNames,
                             onJumpToOrdinal = onJumpToOrdinal,
+                            onCycleStatus = {
+                                onCycleAssertionStatus(assertion.assertion.assertionId.value)
+                            },
+                            onDelete = {
+                                onDeleteAssertion(assertion.assertion.assertionId.value)
+                            },
                         )
                     }
                 }
@@ -2081,6 +2276,8 @@ private fun AssertionItemRow(
     assertion: RevealedAssertion,
     entityDisplayNames: Map<String, String> = emptyMap(),
     onJumpToOrdinal: ((Int) -> Unit)? = null,
+    onCycleStatus: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
 ) {
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
@@ -2093,24 +2290,20 @@ private fun AssertionItemRow(
             is ObjectRef.Literal -> "${obj.value} ${obj.unit ?: ""}".trim()
         }
 
-    val rowMod =
-        if (onJumpToOrdinal != null) {
-            Modifier
-                .fillMaxWidth()
-                .clickable { onJumpToOrdinal(assertion.assertion.firstReveal) }
-                .padding(vertical = 4.dp)
-        } else {
-            Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp)
-        }
-
     Row(
-        modifier = rowMod,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        val textMod =
+            if (onJumpToOrdinal != null) {
+                Modifier
+                    .weight(1f)
+                    .clickable { onJumpToOrdinal(assertion.assertion.firstReveal) }
+            } else {
+                Modifier.weight(1f)
+            }
+        Column(modifier = textMod) {
             val rawSub = assertion.assertion.subjectId.value
             val sub = entityDisplayNames[rawSub] ?: rawSub
             val pred = assertion.assertion.predicate
@@ -2130,18 +2323,42 @@ private fun AssertionItemRow(
             )
         }
 
-        Box(
-            modifier =
-                Modifier
-                    .border(BorderStroke(1.dp, colors.outline), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = epistemicStyle.symbolBadge,
-                style = MixuTheme.typography.caption.copy(fontFamily = FontFamily.Monospace),
-                fontWeight = FontWeight.Bold,
-                color = colors.onSurface,
-            )
+            Box(
+                modifier =
+                    Modifier
+                        .border(BorderStroke(1.dp, colors.outline), RoundedCornerShape(4.dp))
+                        .clickable(enabled = onCycleStatus != null) { onCycleStatus?.invoke() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    text = epistemicStyle.symbolBadge,
+                    style = MixuTheme.typography.caption.copy(fontFamily = FontFamily.Monospace),
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onSurface,
+                )
+            }
+            if (onDelete != null) {
+                Box(
+                    modifier =
+                        Modifier
+                            .border(
+                                BorderStroke(1.dp, colors.outlineVariant),
+                                RoundedCornerShape(4.dp),
+                            ).clickable { onDelete() }
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        text = "✕",
+                        style = MixuTheme.typography.caption,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.contradicted,
+                    )
+                }
+            }
         }
     }
 }
@@ -2154,6 +2371,8 @@ private fun ActiveClaimsList(
     assertions: List<RevealedAssertion>,
     entityDisplayNames: Map<String, String> = emptyMap(),
     onJumpToOrdinal: ((Int) -> Unit)? = null,
+    onCycleAssertionStatus: (String) -> Unit = {},
+    onDeleteAssertion: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
@@ -2184,6 +2403,12 @@ private fun ActiveClaimsList(
                             assertion = assertion,
                             entityDisplayNames = entityDisplayNames,
                             onJumpToOrdinal = onJumpToOrdinal,
+                            onCycleStatus = {
+                                onCycleAssertionStatus(assertion.assertion.assertionId.value)
+                            },
+                            onDelete = {
+                                onDeleteAssertion(assertion.assertion.assertionId.value)
+                            },
                         )
                         val transitionReason = assertion.activeTransition?.reason
                         if (transitionReason != null) {
@@ -2498,6 +2723,296 @@ private fun AddHypothesisDialog(
                     stringResource(R.string.caseboard_hypothesis_save),
                     fontWeight = FontWeight.Bold,
                 )
+            }
+        },
+        dismissButton = {
+            OutlinedButton(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 44.dp),
+            ) {
+                Text(stringResource(R.string.caseboard_hypothesis_cancel))
+            }
+        },
+    )
+}
+
+/**
+ * Dialog for adding a new entity node or editing an existing entity's label and type.
+ */
+@Composable
+private fun EntityEditorDialog(
+    titleText: String,
+    initialLabel: String,
+    initialType: EntityType,
+    onConfirm: (label: String, type: EntityType) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var label by remember(initialLabel) { mutableStateOf(initialLabel) }
+    var selectedType by remember(initialType) { mutableStateOf(initialType) }
+    val colors = MixuTheme.colors
+    val typeOptions =
+        listOf(
+            EntityType.PERSON to "人物 (PERSON)",
+            EntityType.LOCATION to "地点 (LOCATION)",
+            EntityType.OBJECT to "物证/线索 (OBJECT)",
+            EntityType.ORGANIZATION to "组织/团体 (ORGANIZATION)",
+        )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = titleText,
+                style = MixuTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            )
+        },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text("节点名称（如：顾言、左肩烧伤旧疤）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors =
+                        OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colors.primary,
+                            unfocusedBorderColor = colors.outline,
+                        ),
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "节点类型",
+                    style = MixuTheme.typography.caption,
+                    color = colors.onSurfaceVariant,
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for ((type, typeLabel) in typeOptions) {
+                        val isSelected = selectedType == type
+                        GraphPillButton(
+                            label = if (isSelected) "● $typeLabel" else typeLabel,
+                            selected = isSelected,
+                            onClick = { selectedType = type },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (label.isNotBlank()) {
+                        onConfirm(label.trim(), selectedType)
+                    }
+                },
+                enabled = label.isNotBlank(),
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 44.dp),
+            ) {
+                Text("保存", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            OutlinedButton(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 44.dp),
+            ) {
+                Text(stringResource(R.string.caseboard_hypothesis_cancel))
+            }
+        },
+    )
+}
+
+/**
+ * Dialog for adding a user-authored relational assertion edge between two revealed entities.
+ */
+@Composable
+private fun AddAssertionDialog(
+    revealedEntities: List<RevealedEntity>,
+    defaultSubjectId: String? = null,
+    onSave: (
+        subjectId: String,
+        predicate: String,
+        objectId: String,
+        status: EpistemicStatus,
+    ) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val firstId =
+        revealedEntities
+            .firstOrNull()
+            ?.entity
+            ?.entityId
+            ?.value
+    val secondId =
+        revealedEntities
+            .getOrNull(1)
+            ?.entity
+            ?.entityId
+            ?.value ?: firstId
+    var subjectId by remember(defaultSubjectId, firstId) {
+        mutableStateOf(defaultSubjectId ?: firstId)
+    }
+    var objectId by remember(defaultSubjectId, firstId, secondId) {
+        val candidate =
+            revealedEntities
+                .firstOrNull {
+                    it.entity.entityId.value != (defaultSubjectId ?: firstId)
+                }?.entity
+                ?.entityId
+                ?.value
+                ?: secondId
+        mutableStateOf(candidate)
+    }
+    var predicate by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf(EpistemicStatus.OBSERVED) }
+    val colors = MixuTheme.colors
+    val statusOptions =
+        listOf(
+            EpistemicStatus.OBSERVED to "事实 [OBS]",
+            EpistemicStatus.CLAIMED to "证词 [CLM]",
+            EpistemicStatus.CONTRADICTED to "矛盾 [⚔]",
+            EpistemicStatus.CORROBORATED to "印证 [✓]",
+            EpistemicStatus.INFERRED to "推演 [INF]",
+        )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "新增图谱关系断言",
+                style = MixuTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = "1. 选择主体节点 (Subject)",
+                    style = MixuTheme.typography.caption,
+                    color = colors.onSurfaceVariant,
+                )
+                LazyColumn(modifier = Modifier.height(68.dp)) {
+                    items(revealedEntities) { ent ->
+                        val id = ent.entity.entityId.value
+                        val name = ent.canonicalName?.displayText ?: id
+                        val selected = subjectId == id
+                        val weight = if (selected) FontWeight.Bold else FontWeight.Normal
+                        Text(
+                            text = (if (selected) "▶ " else "  ") + name,
+                            style = MixuTheme.typography.bodyMedium.copy(fontWeight = weight),
+                            color = if (selected) colors.primary else colors.onSurface,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { subjectId = id }
+                                    .padding(vertical = 2.dp),
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = predicate,
+                    onValueChange = { predicate = it },
+                    label = { Text("2. 关系谓词（如：推翻不在场证明、声称目击）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors =
+                        OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colors.primary,
+                            unfocusedBorderColor = colors.outline,
+                        ),
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "3. 选择客体节点 (Object，不可与主体相同)",
+                    style = MixuTheme.typography.caption,
+                    color = colors.onSurfaceVariant,
+                )
+                LazyColumn(modifier = Modifier.height(68.dp)) {
+                    items(revealedEntities) { ent ->
+                        val id = ent.entity.entityId.value
+                        val name = ent.canonicalName?.displayText ?: id
+                        val selected = objectId == id
+                        val weight = if (selected) FontWeight.Bold else FontWeight.Normal
+                        Text(
+                            text = (if (selected) "▶ " else "  ") + name,
+                            style = MixuTheme.typography.bodyMedium.copy(fontWeight = weight),
+                            color = if (selected) colors.primary else colors.onSurface,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { objectId = id }
+                                    .padding(vertical = 2.dp),
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "4. 认知状态 (Epistemic Status)",
+                    style = MixuTheme.typography.caption,
+                    color = colors.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    for ((st, stLabel) in statusOptions.take(3)) {
+                        GraphPillButton(
+                            label = stLabel,
+                            selected = status == st,
+                            onClick = { status = st },
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    for ((st, stLabel) in statusOptions.drop(3)) {
+                        GraphPillButton(
+                            label = stLabel,
+                            selected = status == st,
+                            onClick = { status = st },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val canSave =
+                subjectId != null &&
+                    objectId != null &&
+                    subjectId != objectId &&
+                    predicate.isNotBlank()
+            Button(
+                onClick = {
+                    val s = subjectId
+                    val o = objectId
+                    if (s != null && o != null && s != o && predicate.isNotBlank()) {
+                        onSave(s, predicate.trim(), o, status)
+                    }
+                },
+                enabled = canSave,
+                shape = RoundedCornerShape(4.dp),
+                modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 44.dp),
+            ) {
+                Text("保存关系", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

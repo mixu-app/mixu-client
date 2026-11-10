@@ -1,8 +1,25 @@
 // SPDX-License-Identifier: MPL-2.0
 package app.mixu.client.caseboard
 
+import app.mixu.graph.AnchorId
+import app.mixu.graph.Assertion
+import app.mixu.graph.AssertionId
+import app.mixu.graph.Attribution
+import app.mixu.graph.AttributionKind
+import app.mixu.graph.Entity
+import app.mixu.graph.EntityId
+import app.mixu.graph.EntityName
+import app.mixu.graph.EntityType
+import app.mixu.graph.EpistemicStatus
+import app.mixu.graph.EvidenceAnchorId
 import app.mixu.graph.GraphPack
+import app.mixu.graph.Locator
+import app.mixu.graph.ManifestCounts
+import app.mixu.graph.NameId
+import app.mixu.graph.NameKind
 import app.mixu.graph.ObjectRef
+import app.mixu.graph.RevealAnchor
+import app.mixu.graph.RevealKind
 import app.mixu.graph.RevealedAssertion
 import app.mixu.graph.RevealedEntity
 import app.mixu.graph.RevealedGraphView
@@ -59,6 +76,9 @@ data class CaseBoardUiState(
     val panOffsetX: Float = 0f,
     val panOffsetY: Float = 0f,
     val isAddHypothesisDialogOpen: Boolean = false,
+    val isAddEntityDialogOpen: Boolean = false,
+    val editingEntity: RevealedEntity? = null,
+    val isAddAssertionDialogOpen: Boolean = false,
 ) {
     val maxReveal: Int
         get() = knowledgeHorizon
@@ -69,7 +89,7 @@ data class CaseBoardUiState(
 
 /**
  * Controller providing state management, temporal graph projection,
- * deterministic layout anchoring, and hypothesis tracking for the Case Board.
+ * deterministic layout anchoring, user graph editing, and hypothesis tracking for the Case Board.
  */
 class CaseBoardController(
     val graphPack: GraphPack = SyntheticMysteryData.createMysteryGraphPack(),
@@ -77,8 +97,11 @@ class CaseBoardController(
     initialHorizon: Int = 4,
     initialViewPosition: Int = 4,
     initialBookTitle: String = "Blackwood Manor Mystery",
+    private val onGraphPackMutated: ((GraphPack) -> Unit)? = null,
 ) {
-    private val projectionEngine = TemporalProjectionEngine(graphPack)
+    var activeGraphPack: GraphPack = graphPack
+        private set
+    private var projectionEngine = TemporalProjectionEngine(activeGraphPack)
     private val previousPositions = mutableMapOf<String, Point>()
 
     var state: CaseBoardUiState =
@@ -181,6 +204,308 @@ class CaseBoardController(
 
     fun setAddHypothesisDialogOpen(isOpen: Boolean) {
         state = state.copy(isAddHypothesisDialogOpen = isOpen)
+    }
+
+    fun setAddEntityDialogOpen(isOpen: Boolean) {
+        state = state.copy(isAddEntityDialogOpen = isOpen)
+    }
+
+    fun setEditingEntity(entity: RevealedEntity?) {
+        state = state.copy(editingEntity = entity)
+    }
+
+    fun setAddAssertionDialogOpen(isOpen: Boolean) {
+        state = state.copy(isAddAssertionDialogOpen = isOpen)
+    }
+
+    /**
+     * Adds a user-created entity node to the knowledge graph at [firstReveal] and persists the pack.
+     *
+     * Time complexity: O(V + E) where V is entity count and E is assertion count.
+     * Space complexity: O(V + E).
+     */
+    fun addEntity(
+        label: String,
+        type: EntityType = EntityType.PERSON,
+        firstReveal: Int = state.graphViewPosition,
+    ) {
+        val cleanLabel = label.trim()
+        require(cleanLabel.isNotBlank()) { "Entity label cannot be blank" }
+        val revealOrd = firstReveal.coerceIn(0, state.knowledgeHorizon)
+        val suffix = System.currentTimeMillis()
+        val entId = EntityId("ent:user_$suffix")
+        val nameId = NameId("name:user_$suffix:canonical")
+        val anchorId = ensureAnchorForOrdinal(revealOrd)
+
+        val newEntity =
+            Entity(
+                entityId = entId,
+                entityType = type,
+                firstReveal = revealOrd,
+                canonicalNameId = nameId,
+            )
+        val newName =
+            EntityName(
+                nameId = nameId,
+                entityId = entId,
+                displayText = cleanLabel,
+                firstReveal = revealOrd,
+                nameKind = NameKind.CANONICAL,
+                evidenceAnchorId = EvidenceAnchorId(anchorId.value),
+            )
+
+        updateGraphPack(
+            entities = activeGraphPack.entities + newEntity,
+            names = activeGraphPack.names + newName,
+            assertions = activeGraphPack.assertions,
+        )
+        state = state.copy(isAddEntityDialogOpen = false)
+    }
+
+    /**
+     * Renames an existing entity node and/or updates its [EntityType].
+     *
+     * Time complexity: O(V + E).
+     * Space complexity: O(V + E).
+     */
+    fun updateEntity(
+        entityId: String,
+        newLabel: String,
+        newType: EntityType,
+    ) {
+        val cleanLabel = newLabel.trim()
+        require(cleanLabel.isNotBlank()) { "Entity label cannot be blank" }
+        val targetId = EntityId(entityId)
+        val targetEntity = activeGraphPack.entities.find { it.entityId == targetId } ?: return
+
+        val updatedEntities =
+            activeGraphPack.entities.map { ent ->
+                if (ent.entityId == targetId) {
+                    ent.copy(entityType = newType)
+                } else {
+                    ent
+                }
+            }
+        val updatedNames =
+            activeGraphPack.names.map { nm ->
+                if (nm.nameId == targetEntity.canonicalNameId ||
+                    (nm.entityId == targetId && nm.nameKind == NameKind.CANONICAL)
+                ) {
+                    nm.copy(displayText = cleanLabel)
+                } else {
+                    nm
+                }
+            }
+
+        updateGraphPack(
+            entities = updatedEntities,
+            names = updatedNames,
+            assertions = activeGraphPack.assertions,
+        )
+        state = state.copy(editingEntity = null)
+    }
+
+    /**
+     * Deletes an entity node and all incident assertions from the knowledge graph.
+     *
+     * Time complexity: O(V + E).
+     * Space complexity: O(V + E).
+     */
+    fun deleteEntity(entityId: String) {
+        val targetId = EntityId(entityId)
+        val remainingEntities = activeGraphPack.entities.filterNot { it.entityId == targetId }
+        if (remainingEntities.isEmpty()) {
+            // Keep at least one node in the graph pack so canonical validation succeeds
+            return
+        }
+        val remainingNames = activeGraphPack.names.filterNot { it.entityId == targetId }
+        val remainingAssertions =
+            activeGraphPack.assertions.filterNot { assertion ->
+                val obj = assertion.objectRef
+                assertion.subjectId == targetId ||
+                    (obj is ObjectRef.Entity && obj.entityId == targetId)
+            }
+        previousPositions.remove(entityId)
+
+        updateGraphPack(
+            entities = remainingEntities,
+            names = remainingNames,
+            assertions = remainingAssertions,
+        )
+        if (state.selectedEntity?.entity?.entityId == targetId) {
+            state =
+                state.copy(
+                    selectedEntity = null,
+                    selectedEntityAssertions = emptyList(),
+                    editingEntity = null,
+                )
+        }
+    }
+
+    /**
+     * Adds a user-authored relational assertion edge between [subjectId] and [objectId].
+     *
+     * Time complexity: O(V + E).
+     * Space complexity: O(V + E).
+     */
+    fun addAssertion(
+        subjectId: String,
+        predicate: String,
+        objectId: String,
+        status: EpistemicStatus = EpistemicStatus.OBSERVED,
+        firstReveal: Int = state.graphViewPosition,
+    ) {
+        val cleanPredicate = predicate.trim()
+        require(cleanPredicate.isNotBlank()) { "Predicate cannot be blank" }
+        require(subjectId != objectId) { "Self-loop assertions are not allowed" }
+
+        val subjEnt =
+            activeGraphPack.entities.find { it.entityId.value == subjectId } ?: return
+        val objEnt =
+            activeGraphPack.entities.find { it.entityId.value == objectId } ?: return
+
+        val revealOrd =
+            maxOf(
+                firstReveal.coerceIn(0, state.knowledgeHorizon),
+                subjEnt.firstReveal,
+                objEnt.firstReveal,
+            ).coerceIn(0, state.knowledgeHorizon)
+        val anchorId = ensureAnchorForOrdinal(revealOrd)
+        val newAssertion =
+            Assertion(
+                assertionId = AssertionId("assertion:user_${System.currentTimeMillis()}"),
+                subjectId = subjEnt.entityId,
+                predicate = cleanPredicate,
+                objectRef = ObjectRef.Entity(objEnt.entityId),
+                attribution = Attribution(AttributionKind.READER_INFERENCE),
+                firstReveal = revealOrd,
+                evidenceAnchorId = EvidenceAnchorId(anchorId.value),
+                epistemicStatus = status,
+                extractionConfidence = 1.0,
+            )
+
+        updateGraphPack(
+            entities = activeGraphPack.entities,
+            names = activeGraphPack.names,
+            assertions = activeGraphPack.assertions + newAssertion,
+        )
+        state = state.copy(isAddAssertionDialogOpen = false)
+    }
+
+    /**
+     * Cycles the epistemic status of an assertion (`OBSERVED -> CLAIMED -> CORROBORATED -> INFERRED -> CONTRADICTED -> UNRESOLVED`).
+     */
+    fun cycleAssertionStatus(assertionId: String) {
+        val targetId = AssertionId(assertionId)
+        val order =
+            listOf(
+                EpistemicStatus.OBSERVED,
+                EpistemicStatus.CLAIMED,
+                EpistemicStatus.CORROBORATED,
+                EpistemicStatus.INFERRED,
+                EpistemicStatus.CONTRADICTED,
+                EpistemicStatus.UNRESOLVED,
+            )
+        val updatedAssertions =
+            activeGraphPack.assertions.map { assertion ->
+                if (assertion.assertionId == targetId) {
+                    val idx = order.indexOf(assertion.epistemicStatus)
+                    val nextStatus = order[(idx + 1).mod(order.size)]
+                    assertion.copy(epistemicStatus = nextStatus)
+                } else {
+                    assertion
+                }
+            }
+        updateGraphPack(
+            entities = activeGraphPack.entities,
+            names = activeGraphPack.names,
+            assertions = updatedAssertions,
+        )
+    }
+
+    /**
+     * Deletes an assertion edge by [assertionId].
+     */
+    fun deleteAssertion(assertionId: String) {
+        val targetId = AssertionId(assertionId)
+        val updatedAssertions =
+            activeGraphPack.assertions.filterNot { it.assertionId == targetId }
+        updateGraphPack(
+            entities = activeGraphPack.entities,
+            names = activeGraphPack.names,
+            assertions = updatedAssertions,
+        )
+    }
+
+    private fun ensureAnchorForOrdinal(ordinal: Int): AnchorId {
+        val existing = activeGraphPack.anchors.find { it.ordinal == ordinal }
+        if (existing != null) {
+            return existing.anchorId
+        }
+        val fallbackAnchor = activeGraphPack.anchors.firstOrNull()
+        val newAnchor =
+            RevealAnchor(
+                anchorId = AnchorId("anchor:ord_$ordinal"),
+                editionId = activeGraphPack.manifest.editionId,
+                ordinal = ordinal,
+                locator =
+                    fallbackAnchor?.locator ?: Locator(
+                        href = "text/ch$ordinal.xhtml",
+                        type = "application/xhtml+xml",
+                        title = "Chapter ${ordinal + 1}",
+                    ),
+                revealKind = RevealKind.CHAPTER_START,
+            )
+        val updatedAnchors =
+            (activeGraphPack.anchors + newAnchor).sortedBy { it.ordinal }
+        activeGraphPack =
+            GraphPack.canonical(
+                manifest =
+                    activeGraphPack.manifest.copy(
+                        counts =
+                            activeGraphPack.manifest.counts?.copy(
+                                evidenceAnchors = updatedAnchors.size,
+                            ),
+                    ),
+                entities = activeGraphPack.entities,
+                names = activeGraphPack.names,
+                assertions = activeGraphPack.assertions,
+                transitions = activeGraphPack.transitions,
+                anchors = updatedAnchors,
+            )
+        return newAnchor.anchorId
+    }
+
+    private fun updateGraphPack(
+        entities: List<Entity>,
+        names: List<EntityName>,
+        assertions: List<Assertion>,
+    ) {
+        val validAssertionIds = assertions.map { it.assertionId }.toSet()
+        val filteredTransitions =
+            activeGraphPack.transitions.filter { it.assertionId in validAssertionIds }
+        val updatedManifest =
+            activeGraphPack.manifest.copy(
+                counts =
+                    ManifestCounts(
+                        entities = entities.size,
+                        assertions = assertions.size,
+                        events = activeGraphPack.manifest.counts?.events ?: 0,
+                        evidenceAnchors = activeGraphPack.anchors.size,
+                    ),
+            )
+        activeGraphPack =
+            GraphPack.canonical(
+                manifest = updatedManifest,
+                entities = entities,
+                names = names,
+                assertions = assertions,
+                transitions = filteredTransitions,
+                anchors = activeGraphPack.anchors,
+            )
+        projectionEngine = TemporalProjectionEngine(activeGraphPack)
+        reproject(state.graphViewPosition)
+        onGraphPackMutated?.invoke(activeGraphPack)
     }
 
     /**

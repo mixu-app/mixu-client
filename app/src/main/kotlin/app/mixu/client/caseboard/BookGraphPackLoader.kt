@@ -255,13 +255,25 @@ class BookGraphPackLoader(
                 createSpineFallbackPack(asset, publication)
             }
 
+        saveGraphPackForBook(asset, pack)
+        return pack
+    }
+
+    /**
+     * Persists a user-edited or AI-extracted [GraphPack] to [packsDirectory] and updates [memoryCache].
+     */
+    fun saveGraphPackForBook(
+        asset: BookAssetRecord,
+        pack: GraphPack,
+    ) {
+        val sha = asset.sha256Checksum.lowercase()
+        val shortHash = sha.take(16)
         runCatching {
             val encoded = GraphJson.encodeToString(pack)
             File(packsDirectory, "$sha.graph.json").writeText(encoded, Charsets.UTF_8)
             File(packsDirectory, "$shortHash.graph.json").writeText(encoded, Charsets.UTF_8)
         }
         memoryCache[sha] = pack
-        return pack
     }
 
     private fun copyCompanionForAsset(

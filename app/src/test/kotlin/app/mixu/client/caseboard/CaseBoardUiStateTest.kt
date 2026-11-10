@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 package app.mixu.client.caseboard
 
+import app.mixu.graph.EntityType
 import app.mixu.graph.EpistemicStatus
+import app.mixu.graph.GraphPack
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -232,5 +234,94 @@ class CaseBoardUiStateTest {
         assertEquals(1.0f, controller.state.zoomLevel)
         assertEquals(0f, controller.state.panOffsetX)
         assertEquals(0f, controller.state.panOffsetY)
+    }
+
+    @Test
+    fun `user can freely add edit and delete entities and assertions with persistent callback`() {
+        var lastPersistedPack: GraphPack? = null
+        val controller =
+            CaseBoardController(
+                initialReadingPosition = 4,
+                initialHorizon = 4,
+                initialViewPosition = 4,
+                onGraphPackMutated = { updated ->
+                    lastPersistedPack = updated
+                },
+            )
+
+        val initialEntityCount =
+            assertNotNull(controller.state.revealedGraphView).entities.size
+
+        // 1. Add a new clue entity
+        controller.addEntity(
+            label = "左肩烧伤旧疤",
+            type = EntityType.OBJECT,
+            firstReveal = 2,
+        )
+        val afterAddEntities = assertNotNull(controller.state.revealedGraphView).entities
+        assertEquals(initialEntityCount + 1, afterAddEntities.size)
+        val addedEntity =
+            assertNotNull(
+                afterAddEntities.find { it.canonicalName?.displayText == "左肩烧伤旧疤" },
+            )
+        assertEquals(EntityType.OBJECT, addedEntity.entity.entityType)
+        assertNotNull(lastPersistedPack)
+
+        // 2. Rename and change type of the entity
+        controller.updateEntity(
+            entityId = addedEntity.entity.entityId.value,
+            newLabel = "十年前海难烧伤旧疤",
+            newType = EntityType.ORGANIZATION,
+        )
+        val renamedEntity =
+            assertNotNull(
+                controller.state.revealedGraphView?.entities?.find {
+                    it.entity.entityId == addedEntity.entity.entityId
+                },
+            )
+        assertEquals("十年前海难烧伤旧疤", renamedEntity.canonicalName?.displayText)
+        assertEquals(EntityType.ORGANIZATION, renamedEntity.entity.entityType)
+
+        // 3. Add a new assertion between Arthur and the new entity
+        val initialAssertionCount =
+            assertNotNull(controller.state.revealedGraphView).assertions.size
+        controller.addAssertion(
+            subjectId = SyntheticMysteryData.ENTITY_ARTHUR.value,
+            predicate = "尸检发现吻合",
+            objectId = addedEntity.entity.entityId.value,
+            status = EpistemicStatus.OBSERVED,
+            firstReveal = 2,
+        )
+        val afterAddAssertions = assertNotNull(controller.state.revealedGraphView).assertions
+        assertEquals(initialAssertionCount + 1, afterAddAssertions.size)
+        val newAssertion =
+            assertNotNull(
+                afterAddAssertions.find { it.assertion.predicate == "尸检发现吻合" },
+            )
+        assertEquals(EpistemicStatus.OBSERVED, newAssertion.currentStatus)
+
+        // 4. Cycle epistemic status on the assertion
+        controller.cycleAssertionStatus(newAssertion.assertion.assertionId.value)
+        val cycledAssertion =
+            assertNotNull(
+                controller.state.revealedGraphView?.assertions?.find {
+                    it.assertion.assertionId == newAssertion.assertion.assertionId
+                },
+            )
+        assertEquals(EpistemicStatus.CLAIMED, cycledAssertion.currentStatus)
+
+        // 5. Delete the assertion
+        controller.deleteAssertion(newAssertion.assertion.assertionId.value)
+        assertEquals(
+            initialAssertionCount,
+            assertNotNull(controller.state.revealedGraphView).assertions.size,
+        )
+
+        // 6. Delete the entity
+        controller.deleteEntity(addedEntity.entity.entityId.value)
+        assertEquals(
+            initialEntityCount,
+            assertNotNull(controller.state.revealedGraphView).entities.size,
+        )
     }
 }

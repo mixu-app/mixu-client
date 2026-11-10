@@ -968,6 +968,9 @@ class MainActivity :
                 initialHorizon = horizon,
                 initialViewPosition = viewPos,
                 initialBookTitle = title,
+                onGraphPackMutated = { updatedPack ->
+                    packLoader.saveGraphPackForBook(asset, updatedPack)
+                },
             )
         }
         return CaseBoardController(

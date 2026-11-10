@@ -120,8 +120,8 @@ class JdkHttpTransport(
     }
 
     companion object {
-        const val DEFAULT_CONNECT_TIMEOUT_MS = 4_000
-        const val DEFAULT_READ_TIMEOUT_MS = 8_000
+        const val DEFAULT_CONNECT_TIMEOUT_MS = 8_000
+        const val DEFAULT_READ_TIMEOUT_MS = 45_000
     }
 }
 

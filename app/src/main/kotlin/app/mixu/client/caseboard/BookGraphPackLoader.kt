@@ -5,6 +5,9 @@ import app.mixu.client.db.BookAssetRecord
 import app.mixu.client.importer.BookImportResult
 import app.mixu.client.importer.BookImportService
 import app.mixu.client.logging.StructuredLogger
+import app.mixu.client.network.CloudChapterDigestDto
+import app.mixu.client.network.CloudGraphExtractResult
+import app.mixu.client.network.MixuApiClient
 import app.mixu.client.reader.EpubBookPublication
 import app.mixu.graph.AnchorId
 import app.mixu.graph.Assertion
@@ -31,6 +34,7 @@ import app.mixu.graph.RevealAnchor
 import app.mixu.graph.RevealKind
 import app.mixu.graph.WorkId
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -206,6 +210,60 @@ class BookGraphPackLoader(
         return SyntheticMysteryData.createMysteryGraphPack()
     }
 
+    /**
+     * Extracts a progress-gated narrative knowledge graph from [publication] using the cloud
+     * `POST /v1/ai/graph/extract` endpoint, saves the resulting `.graph.json` pack to [packsDirectory],
+     * updates [memoryCache], and returns the canonical [GraphPack].
+     *
+     * Time complexity: O(C) where C is the number of chapters sent to the cloud gateway.
+     * Space complexity: O(E + A) where E is extracted entity count and A is assertion count.
+     */
+    fun extractAndSaveCloudGraphPack(
+        asset: BookAssetRecord,
+        publication: EpubBookPublication,
+        apiClient: MixuApiClient,
+        userId: String,
+    ): GraphPack {
+        val sha = asset.sha256Checksum.lowercase()
+        val shortHash = sha.take(16)
+        val editionId = asset.editionId ?: "urn:mixu:edition:$shortHash"
+
+        val digests =
+            publication.chapters
+                .take(16)
+                .mapIndexed { idx, ch ->
+                    CloudChapterDigestDto(
+                        ordinal = idx,
+                        title = ch.spineItem.title,
+                        excerpt = ch.fullText.take(400),
+                    )
+                }
+
+        val cloudResult =
+            apiClient.extractBookGraph(
+                userId = userId,
+                editionId = editionId,
+                bookTitle = publication.metadata.title,
+                bookAuthor = publication.metadata.author,
+                chapters = digests,
+            )
+
+        val pack =
+            if (cloudResult != null && cloudResult.entities.isNotEmpty()) {
+                createPackFromCloudResult(asset, publication, cloudResult)
+            } else {
+                createSpineFallbackPack(asset, publication)
+            }
+
+        runCatching {
+            val encoded = GraphJson.encodeToString(pack)
+            File(packsDirectory, "$sha.graph.json").writeText(encoded, Charsets.UTF_8)
+            File(packsDirectory, "$shortHash.graph.json").writeText(encoded, Charsets.UTF_8)
+        }
+        memoryCache[sha] = pack
+        return pack
+    }
+
     private fun copyCompanionForAsset(
         companionFile: File,
         asset: BookAssetRecord,
@@ -332,6 +390,122 @@ class BookGraphPackLoader(
                 entities = extracted.entities,
                 names = extracted.names,
                 assertions = extracted.assertions,
+                transitions = emptyList(),
+                anchors = anchors,
+            )
+        }
+
+        /**
+         * Converts a cloud [CloudGraphExtractResult] into a canonical [GraphPack] aligned with
+         * the spine anchors of [publication].
+         */
+        fun createPackFromCloudResult(
+            asset: BookAssetRecord,
+            publication: EpubBookPublication,
+            cloudResult: CloudGraphExtractResult,
+        ): GraphPack {
+            val basePack = createSpineFallbackPack(asset, publication)
+            val sha = asset.sha256Checksum.lowercase()
+            val shortHash = sha.take(16)
+            val anchors = basePack.anchors
+            val maxOrdinal = (anchors.size - 1).coerceAtLeast(0)
+
+            val entities = mutableListOf<Entity>()
+            val names = mutableListOf<EntityName>()
+            val entityIdByLabel = LinkedHashMap<String, EntityId>()
+            val entityRevealById = LinkedHashMap<EntityId, Int>()
+
+            for ((idx, item) in cloudResult.entities.distinctBy { it.label }.withIndex()) {
+                val entId = EntityId("ent:${shortHash}_ai_$idx")
+                val nameId = NameId("name:${shortHash}_ai_$idx:canonical")
+                val entType =
+                    runCatching { EntityType.valueOf(item.type.uppercase()) }
+                        .getOrDefault(EntityType.PERSON)
+                val revealOrd = item.firstReveal.coerceIn(0, maxOrdinal)
+                entities.add(
+                    Entity(
+                        entityId = entId,
+                        entityType = entType,
+                        firstReveal = revealOrd,
+                        canonicalNameId = nameId,
+                    ),
+                )
+                names.add(
+                    EntityName(
+                        nameId = nameId,
+                        entityId = entId,
+                        displayText = item.label,
+                        firstReveal = revealOrd,
+                        nameKind = NameKind.CANONICAL,
+                        evidenceAnchorId = EvidenceAnchorId("anchor:ord_$revealOrd"),
+                    ),
+                )
+                entityIdByLabel[item.label] = entId
+                entityRevealById[entId] = revealOrd
+            }
+
+            if (entities.isEmpty()) {
+                return basePack
+            }
+
+            val firstEntityId = entities.first().entityId
+            val assertions = mutableListOf<Assertion>()
+            for ((idx, item) in cloudResult.assertions.withIndex()) {
+                val subjId =
+                    entityIdByLabel[item.subject]
+                        ?: entityIdByLabel.entries
+                            .firstOrNull {
+                                it.key.contains(item.subject) || item.subject.contains(it.key)
+                            }?.value
+                        ?: firstEntityId
+                val objId =
+                    entityIdByLabel[item.objectLabel]
+                        ?: entityIdByLabel.entries
+                            .firstOrNull {
+                                it.key.contains(item.objectLabel) ||
+                                    item.objectLabel.contains(it.key)
+                            }?.value
+                        ?: firstEntityId
+                val minReveal =
+                    maxOf(
+                        entityRevealById[subjId] ?: 0,
+                        entityRevealById[objId] ?: 0,
+                        item.firstReveal,
+                    ).coerceIn(0, maxOrdinal)
+                val status =
+                    runCatching { EpistemicStatus.valueOf(item.status.uppercase()) }
+                        .getOrDefault(EpistemicStatus.OBSERVED)
+                assertions.add(
+                    Assertion(
+                        assertionId = AssertionId("assertion:${shortHash}_ai_$idx"),
+                        subjectId = subjId,
+                        predicate = item.predicate.ifBlank { "关联线索" },
+                        objectRef = ObjectRef.Entity(objId),
+                        attribution = Attribution(AttributionKind.OBSERVATION),
+                        firstReveal = minReveal,
+                        evidenceAnchorId = EvidenceAnchorId("anchor:ord_$minReveal"),
+                        epistemicStatus = status,
+                        extractionConfidence = 0.92,
+                    ),
+                )
+            }
+
+            val updatedManifest =
+                basePack.manifest.copy(
+                    counts =
+                        ManifestCounts(
+                            entities = entities.size,
+                            assertions = assertions.size,
+                            events = 0,
+                            evidenceAnchors = anchors.size,
+                        ),
+                )
+
+            return GraphPack.canonical(
+                manifest = updatedManifest,
+                entities = entities,
+                names = names,
+                assertions = assertions,
                 transitions = emptyList(),
                 anchors = anchors,
             )

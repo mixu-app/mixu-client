@@ -144,6 +144,8 @@ fun CaseBoardScreen(
     onNavigateBack: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onJumpToOrdinal: ((Int) -> Unit)? = null,
+    onBuildAiGraph: (() -> Unit)? = null,
+    isBuildingAiGraph: Boolean = false,
     initialGraphMode: GraphDimensionMode = GraphDimensionMode.FORCE_2D,
     modifier: Modifier = Modifier,
 ) {
@@ -190,6 +192,8 @@ fun CaseBoardScreen(
         onNavigateBack = onNavigateBack,
         onNavigateToSettings = onNavigateToSettings,
         onJumpToOrdinal = onJumpToOrdinal,
+        onBuildAiGraph = onBuildAiGraph,
+        isBuildingAiGraph = isBuildingAiGraph,
         initialGraphMode = initialGraphMode,
         modifier = modifier,
     )
@@ -214,6 +218,8 @@ fun CaseBoardScreen(
     onNavigateBack: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onJumpToOrdinal: ((Int) -> Unit)? = null,
+    onBuildAiGraph: (() -> Unit)? = null,
+    isBuildingAiGraph: Boolean = false,
     initialGraphMode: GraphDimensionMode = GraphDimensionMode.FORCE_2D,
     modifier: Modifier = Modifier,
 ) {
@@ -286,6 +292,41 @@ fun CaseBoardScreen(
                         }
                     },
                     actions = {
+                        if (onBuildAiGraph != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    if (!isBuildingAiGraph) {
+                                        onBuildAiGraph()
+                                    }
+                                },
+                                modifier =
+                                    Modifier
+                                        .padding(end = 6.dp)
+                                        .sizeIn(minWidth = 44.dp, minHeight = 32.dp),
+                                shape =
+                                    RoundedCornerShape(
+                                        if (eInkPolicy.isActive) 2.dp else 8.dp,
+                                    ),
+                                border =
+                                    BorderStroke(
+                                        if (eInkPolicy.isActive) 1.5.dp else 1.dp,
+                                        colors.primary,
+                                    ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                Text(
+                                    text =
+                                        if (isBuildingAiGraph) {
+                                            "⏳ AI 构建中…"
+                                        } else {
+                                            "✦ AI 构建图谱"
+                                        },
+                                    style = MixuTheme.typography.caption,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.primary,
+                                )
+                            }
+                        }
                         OutlinedButton(
                             onClick = { showMarketplaceDialog = true },
                             modifier =

@@ -4,6 +4,8 @@ package app.mixu.client
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -59,6 +61,7 @@ import app.mixu.client.library.BookCoverThumbnail
 import app.mixu.client.library.BookItem
 import app.mixu.client.library.KindleHomeScreen
 import app.mixu.client.library.LibraryScreen
+import app.mixu.client.network.MixuApiClient
 import app.mixu.client.reader.EpubBookPublication
 import app.mixu.client.reader.ParsedReaderImageToken
 import app.mixu.client.reader.ReaderScreen
@@ -624,6 +627,12 @@ class MainActivity :
                                         )
                                     }
                                     MainScreenDestination.CASE_BOARD -> {
+                                        var caseBoardRebuildTick by remember {
+                                            mutableIntStateOf(
+                                                0,
+                                            )
+                                        }
+                                        var isBuildingAiGraph by remember { mutableStateOf(false) }
                                         val currentSpineKey =
                                             readerSession.activeNavigator
                                                 ?.currentPage
@@ -635,6 +644,7 @@ class MainActivity :
                                                 activeBookId,
                                                 currentSpineKey,
                                                 currentHorizonKey,
+                                                caseBoardRebuildTick,
                                             ) {
                                                 buildCaseBoardController(activeBookId)
                                             }
@@ -664,6 +674,47 @@ class MainActivity :
                                                         MainScreenDestination.READER
                                                 }
                                             },
+                                            onBuildAiGraph = {
+                                                val targetBookId = activeBookId
+                                                val asset =
+                                                    targetBookId?.let {
+                                                        database.getBookAssetForBook(it)
+                                                    }
+                                                if (asset != null && !isBuildingAiGraph) {
+                                                    isBuildingAiGraph = true
+                                                    val client =
+                                                        MixuApiClient.createProductionClient(
+                                                            config,
+                                                        )
+                                                    val uid =
+                                                        userSession.anonymousId.ifBlank {
+                                                            "guest-reader"
+                                                        }
+                                                    Thread {
+                                                        runCatching {
+                                                            val pub =
+                                                                readerSession.activeNavigator
+                                                                    ?.publication
+                                                                    ?: EpubBookPublication.open(
+                                                                        File(
+                                                                            asset.localStoragePath,
+                                                                        ),
+                                                                    )
+                                                            packLoader.extractAndSaveCloudGraphPack(
+                                                                asset = asset,
+                                                                publication = pub,
+                                                                apiClient = client,
+                                                                userId = uid,
+                                                            )
+                                                        }
+                                                        Handler(Looper.getMainLooper()).post {
+                                                            isBuildingAiGraph = false
+                                                            caseBoardRebuildTick++
+                                                        }
+                                                    }.start()
+                                                }
+                                            },
+                                            isBuildingAiGraph = isBuildingAiGraph,
                                             initialGraphMode = config.graphDimensionMode,
                                         )
                                     }
@@ -676,6 +727,9 @@ class MainActivity :
                                                 readerTick++
                                             },
                                             userSession = userSession,
+                                            onSessionChange = { nextSession ->
+                                                userSession = nextSession
+                                            },
                                             onNavigateBack = {
                                                 currentDestination = MainScreenDestination.HOME
                                             },
@@ -716,6 +770,14 @@ class MainActivity :
                                         onDismiss = {
                                             showAiButlerDialog = false
                                         },
+                                        apiClient =
+                                            remember(
+                                                config.selfHostedApiEnabled,
+                                                config.selfHostedApiUrl,
+                                                config.selfHostedStatelessMode,
+                                            ) {
+                                                MixuApiClient.createProductionClient(config)
+                                            },
                                         modifier =
                                             Modifier
                                                 .align(Alignment.BottomEnd)

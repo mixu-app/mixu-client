@@ -270,4 +270,91 @@ class MixuApiClientTest {
         assertFalse(result.offlineFallback)
         assertEquals(2, result.horizonOrdinal)
     }
+
+    @Test
+    fun `sendEmailOtp verifyEmailOtp and extractBookGraph parse live responses`() {
+        val client =
+            MixuApiClient(
+                baseUrl = MixuApiClient.DEFAULT_PRODUCTION_BASE_URL,
+                transport = { req ->
+                    when {
+                        req.url.endsWith("/v1/auth/email/send-code") ->
+                            MixuHttpResponse(
+                                statusCode = 200,
+                                body = """{"status":"OTP_SENT","expires_in_seconds":600}""",
+                            )
+                        req.url.endsWith("/v1/auth/email/verify") ->
+                            MixuHttpResponse(
+                                statusCode = 200,
+                                body =
+                                    """
+                                    {
+                                      "access_token": "jwt-token-01",
+                                      "user": {
+                                        "id": "usr_reader_01",
+                                        "email": "reader@mixuread.com",
+                                        "display_name": "reader"
+                                      },
+                                      "is_new_account": true
+                                    }
+                                    """.trimIndent(),
+                            )
+                        req.url.endsWith("/v1/ai/graph/extract") ->
+                            MixuHttpResponse(
+                                statusCode = 200,
+                                body =
+                                    """
+                                    {
+                                      "edition_id": "urn:mixu:edition:clock",
+                                      "entities": [
+                                        {"label": "江南孝明", "type": "PERSON", "first_reveal": 0},
+                                        {"label": "钟表馆", "type": "LOCATION", "first_reveal": 0}
+                                      ],
+                                      "assertions": [
+                                        {
+                                          "subject": "江南孝明",
+                                          "predicate": "前往",
+                                          "object": "钟表馆",
+                                          "status": "OBSERVED",
+                                          "first_reveal": 0
+                                        }
+                                      ],
+                                      "model_id": "deepseek/deepseek-v4.1-flash-1017",
+                                      "offline_fallback": false
+                                    }
+                                    """.trimIndent(),
+                            )
+                        else -> MixuHttpResponse(statusCode = 404, body = "")
+                    }
+                },
+            )
+
+        val otpRes = client.sendEmailOtp("reader@mixuread.com")
+        assertEquals("OTP_SENT", otpRes.status)
+        assertFalse(otpRes.offlineFallback)
+
+        val verifyRes = client.verifyEmailOtp("reader@mixuread.com", "123456")
+        assertEquals("usr_reader_01", verifyRes?.userId)
+        assertEquals("reader@mixuread.com", verifyRes?.email)
+        assertTrue(verifyRes?.isNewAccount == true)
+
+        val graphRes =
+            client.extractBookGraph(
+                userId = "usr_reader_01",
+                editionId = "urn:mixu:edition:clock",
+                bookTitle = "钟表馆事件",
+                bookAuthor = "绫辻行人",
+                chapters =
+                    listOf(
+                        CloudChapterDigestDto(
+                            ordinal = 0,
+                            title = "序章",
+                            excerpt = "江南孝明前往钟表馆。",
+                        ),
+                    ),
+            )
+        assertEquals(2, graphRes?.entities?.size)
+        assertEquals(1, graphRes?.assertions?.size)
+        assertFalse(graphRes?.offlineFallback ?: true)
+    }
 }

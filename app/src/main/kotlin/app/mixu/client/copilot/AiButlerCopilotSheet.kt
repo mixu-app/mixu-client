@@ -3,6 +3,8 @@
 
 package app.mixu.client.copilot
 
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -68,6 +70,7 @@ import app.mixu.client.R
 import app.mixu.client.auth.UserSession
 import app.mixu.client.db.LocalLibraryDatabase
 import app.mixu.client.library.BookItem
+import app.mixu.client.network.MixuApiClient
 import app.mixu.client.reader.ParsedReaderImageToken
 import app.mixu.client.reader.ReaderImageBitmapCache
 import app.mixu.client.theme.MixuTheme
@@ -414,6 +417,7 @@ fun AiButlerCopilotDialog(
     database: LocalLibraryDatabase,
     onLibraryMutated: () -> Unit,
     onDismiss: () -> Unit,
+    apiClient: MixuApiClient = remember { MixuApiClient.createProductionClient() },
     modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
@@ -528,9 +532,10 @@ fun AiButlerCopilotDialog(
         assistantReply: String,
         badge: String?,
         attachedImage: ParsedReaderImageToken?,
-    ) -> Unit = { userPrompt, assistantReply, badge, attachedImage ->
+    ) -> Pair<Int, String> = { userPrompt, assistantReply, badge, attachedImage ->
         val idx = activeSessionIndex.coerceIn(0, sessions.lastIndex)
         val existing = sessions[idx]
+        val assistantMsgId = "a-${existing.messages.size + 2}"
         val nextMessages =
             existing.messages +
                 listOf(
@@ -543,7 +548,7 @@ fun AiButlerCopilotDialog(
                         animateStreaming = false,
                     ),
                     CopilotChatMessage(
-                        id = "a-${existing.messages.size + 2}",
+                        id = assistantMsgId,
                         isUser = false,
                         text = assistantReply,
                         actionBadge = badge,
@@ -551,6 +556,51 @@ fun AiButlerCopilotDialog(
                     ),
                 )
         sessions[idx] = existing.copy(messages = nextMessages)
+        idx to assistantMsgId
+    }
+
+    val requestCloudCopilotEnrichment: (
+        sessionIdx: Int,
+        assistantMsgId: String,
+        queryPrompt: String,
+    ) -> Unit = { sessionIdx, assistantMsgId, queryPrompt ->
+        val editionKey = activeBook?.id ?: "urn:mixu:edition:active"
+        val horizonOrd = currentChapterIndex.coerceAtLeast(0)
+        val userIdVal = userSession.anonymousId.ifBlank { "guest-reader" }
+        Thread {
+            val res =
+                apiClient.queryCopilot(
+                    userId = userIdVal,
+                    editionId = editionKey,
+                    horizonOrdinal = horizonOrd,
+                    query = queryPrompt,
+                    bookTitle = activeBookTitle,
+                    chapterTitle = currentChapterTitle,
+                    visibleExcerpt = currentVisibleText,
+                )
+            if (!res.offlineFallback && res.answer.isNotBlank()) {
+                runCatching {
+                    Handler(Looper.getMainLooper()).post {
+                        if (sessionIdx in sessions.indices) {
+                            val currentSess = sessions[sessionIdx]
+                            val updatedMsgs =
+                                currentSess.messages.map { msg ->
+                                    if (msg.id == assistantMsgId) {
+                                        msg.copy(
+                                            text = res.answer,
+                                            actionBadge = "云端 AI 伴读 · 第 1~$safeChapterNum 节",
+                                            animateStreaming = true,
+                                        )
+                                    } else {
+                                        msg
+                                    }
+                                }
+                            sessions[sessionIdx] = currentSess.copy(messages = updatedMsgs)
+                        }
+                    }
+                }
+            }
+        }.start()
     }
 
     val executeQuickAction: (String) -> Unit = { actionId ->
@@ -594,29 +644,41 @@ fun AiButlerCopilotDialog(
                 )
             }
             "book_chars" -> {
-                appendExchange(
-                    actionCharsLabel,
-                    buildSpoilerSafeCharacterSummary(
-                        bookTitle = activeBookTitle,
-                        chapterNum = safeChapterNum,
-                        chapterTitle = currentChapterTitle,
-                        visibleText = currentVisibleText,
-                    ),
-                    badgeCopilot,
-                    null,
+                val (sIdx, msgId) =
+                    appendExchange(
+                        actionCharsLabel,
+                        buildSpoilerSafeCharacterSummary(
+                            bookTitle = activeBookTitle,
+                            chapterNum = safeChapterNum,
+                            chapterTitle = currentChapterTitle,
+                            visibleText = currentVisibleText,
+                        ),
+                        badgeCopilot,
+                        null,
+                    )
+                requestCloudCopilotEnrichment(
+                    sIdx,
+                    msgId,
+                    "请梳理前 $safeChapterNum 节已登场的人物身份与相互关系，严禁剧透后续章节。",
                 )
             }
             "book_timeline" -> {
-                appendExchange(
-                    actionTimelineLabel,
-                    buildSpoilerSafeTimelineSummary(
-                        bookTitle = activeBookTitle,
-                        chapterNum = safeChapterNum,
-                        chapterTitle = currentChapterTitle,
-                        visibleText = currentVisibleText,
-                    ),
-                    badgeCopilot,
-                    null,
+                val (sIdx, msgId) =
+                    appendExchange(
+                        actionTimelineLabel,
+                        buildSpoilerSafeTimelineSummary(
+                            bookTitle = activeBookTitle,
+                            chapterNum = safeChapterNum,
+                            chapterTitle = currentChapterTitle,
+                            visibleText = currentVisibleText,
+                        ),
+                        badgeCopilot,
+                        null,
+                    )
+                requestCloudCopilotEnrichment(
+                    sIdx,
+                    msgId,
+                    "请按时间顺序梳理前 $safeChapterNum 节的关键事件与时间节点，严禁剧透后续章节。",
                 )
             }
             "book_image" -> {
@@ -933,7 +995,20 @@ fun AiButlerCopilotDialog(
                             database = database,
                             onLibraryMutated = onLibraryMutated,
                         )
-                    appendExchange(prompt, reply, badge, effectiveImgToken)
+                    val (sIdx, msgId) = appendExchange(prompt, reply, badge, effectiveImgToken)
+                    val lowerPrompt = prompt.lowercase()
+                    val isLocalCommand =
+                        lowerPrompt.contains("收藏夹") ||
+                            lowerPrompt.contains("整理") ||
+                            lowerPrompt.contains("tag") ||
+                            lowerPrompt.contains("标签") ||
+                            lowerPrompt.contains("图库") ||
+                            lowerPrompt.contains("分析书库") ||
+                            lowerPrompt.contains("云端") ||
+                            lowerPrompt.contains("同步")
+                    if (!isLocalCommand) {
+                        requestCloudCopilotEnrichment(sIdx, msgId, prompt)
+                    }
                     inputDraft = ""
                 }
             }

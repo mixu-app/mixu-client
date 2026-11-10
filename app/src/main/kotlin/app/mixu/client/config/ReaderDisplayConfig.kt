@@ -146,7 +146,7 @@ data class ReaderDisplayConfig(
     val volumeKeyPageTurn: Boolean = true,
     val keyboardPageTurn: Boolean = true,
     val selfHostedApiEnabled: Boolean = false,
-    val selfHostedApiUrl: String = "https://api.mixu.local/v1",
+    val selfHostedApiUrl: String = "https://api.mixuread.com",
     val selfHostedStatelessMode: Boolean = true,
 ) {
     init {

@@ -3,6 +3,8 @@
 
 package app.mixu.client.ui
 
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -75,6 +77,7 @@ import app.mixu.client.config.ReaderDisplayConfig
 import app.mixu.client.config.ReaderPreset
 import app.mixu.client.config.ReadingLayoutMode
 import app.mixu.client.eink.EInkMode
+import app.mixu.client.network.MixuApiClient
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.theme.MixuThemeMode
 import app.mixu.graph.EpistemicStatus
@@ -94,6 +97,11 @@ fun SettingsPreviewScreen(
     onConfigChange: (ReaderDisplayConfig) -> Unit,
     modifier: Modifier = Modifier,
     userSession: UserSession = UserSession.DEFAULT,
+    onSessionChange: (UserSession) -> Unit = {},
+    apiClient: MixuApiClient =
+        remember(config.selfHostedApiEnabled, config.selfHostedApiUrl) {
+            MixuApiClient.createProductionClient(config)
+        },
     onNavigateBack: (() -> Unit)? = null,
 ) {
     val colors = MixuTheme.colors
@@ -105,8 +113,13 @@ fun SettingsPreviewScreen(
     var showEpistemicLegend by remember { mutableStateOf(false) }
     var showLicenseDialog by remember { mutableStateOf(false) }
     var showSignInDialog by remember { mutableStateOf(false) }
-    var signedInAccount by remember { mutableStateOf<String?>(null) }
-    var accountDraft by remember { mutableStateOf("reader@mixu.local") }
+    var signedInAccount by remember(userSession) {
+        mutableStateOf(if (userSession.isAuthenticated) userSession.displayName else null)
+    }
+    var accountDraft by remember { mutableStateOf("reader@mixuread.com") }
+    var otpDraft by remember { mutableStateOf("") }
+    var authStatusMessage by remember { mutableStateOf<String?>(null) }
+    var isSendingOtp by remember { mutableStateOf(false) }
     var wallet by remember { mutableStateOf(ClientCreditWallet()) }
     var storageState by remember { mutableStateOf(StorageQuotaState()) }
     var showEInkQrAdDialog by remember { mutableStateOf(false) }
@@ -1178,12 +1191,65 @@ fun SettingsPreviewScreen(
                             )
                         },
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = otpDraft,
+                            onValueChange = { otpDraft = it.filter { ch -> ch.isDigit() }.take(6) },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            label = {
+                                Text(
+                                    text = "6 位邮箱验证码 (OTP)",
+                                    style = typography.caption,
+                                )
+                            },
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                val targetEmail = accountDraft.trim()
+                                if (targetEmail.isNotBlank() && !isSendingOtp) {
+                                    isSendingOtp = true
+                                    authStatusMessage = "正在请求云端发送验证码…"
+                                    Thread {
+                                        val res = apiClient.sendEmailOtp(targetEmail)
+                                        Handler(Looper.getMainLooper()).post {
+                                            isSendingOtp = false
+                                            authStatusMessage =
+                                                if (!res.offlineFallback) {
+                                                    "✓ 验证码已发送至 $targetEmail（发件人 no-reply@mail.mixuread.com）"
+                                                } else {
+                                                    "当前处于离线模式，可直接点击下方确认切换本地账号"
+                                                }
+                                        }
+                                    }.start()
+                                }
+                            },
+                        ) {
+                            Text(
+                                text = if (isSendingOtp) "发送中…" else "发送验证码",
+                                style = typography.caption,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                    if (!authStatusMessage.isNullOrBlank()) {
+                        Text(
+                            text = authStatusMessage.orEmpty(),
+                            style = typography.caption,
+                            color = colors.primary,
+                        )
+                    }
                 }
             },
             dismissButton = {
                 TextButton(
                     onClick = {
                         signedInAccount = null
+                        onSessionChange(UserSession.DEFAULT)
                         showSignInDialog = false
                     },
                 ) {
@@ -1193,11 +1259,49 @@ fun SettingsPreviewScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val trimmed = accountDraft.trim()
-                        if (trimmed.isNotEmpty()) {
-                            signedInAccount = trimmed
+                        val trimmedEmail = accountDraft.trim()
+                        val trimmedOtp = otpDraft.trim()
+                        if (trimmedEmail.isNotEmpty() && trimmedOtp.length == 6) {
+                            authStatusMessage = "正在校验邮箱验证码…"
+                            Thread {
+                                val verified = apiClient.verifyEmailOtp(trimmedEmail, trimmedOtp)
+                                val fetchedWallet =
+                                    if (verified != null) {
+                                        apiClient.fetchWallet(verified.userId)
+                                    } else {
+                                        null
+                                    }
+                                Handler(Looper.getMainLooper()).post {
+                                    if (verified != null) {
+                                        signedInAccount = verified.email
+                                        onSessionChange(
+                                            UserSession.createAuthenticated(
+                                                userId = verified.userId,
+                                                displayName = verified.email,
+                                            ),
+                                        )
+                                        if (fetchedWallet != null) {
+                                            wallet = fetchedWallet
+                                        }
+                                        authStatusMessage = null
+                                        showSignInDialog = false
+                                    } else {
+                                        authStatusMessage = "验证码无效或已过期，请重新获取"
+                                    }
+                                }
+                            }.start()
+                        } else if (trimmedEmail.isNotEmpty()) {
+                            signedInAccount = trimmedEmail
+                            onSessionChange(
+                                UserSession.createAuthenticated(
+                                    userId = trimmedEmail,
+                                    displayName = trimmedEmail,
+                                ),
+                            )
+                            showSignInDialog = false
+                        } else {
+                            showSignInDialog = false
                         }
-                        showSignInDialog = false
                     },
                 ) {
                     Text(stringResource(R.string.more_account_signin_confirm))

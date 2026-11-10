@@ -4,13 +4,17 @@ package app.mixu.client.network
 import app.mixu.client.billing.ClientCreditWallet
 import app.mixu.client.billing.EditionMatchTier
 import app.mixu.client.billing.SharedPackMarketplaceOffer
+import app.mixu.client.config.ReaderDisplayConfig
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -165,6 +169,67 @@ data class CopilotQueryResult(
     val horizonOrdinal: Int,
     val answer: String,
     val statelessMode: Boolean,
+    val offlineFallback: Boolean = false,
+)
+
+/**
+ * Result of requesting an email OTP code (`POST /v1/auth/email/send-code`).
+ */
+data class EmailOtpSendResult(
+    val status: String,
+    val expiresInSeconds: Int,
+    val offlineFallback: Boolean = false,
+)
+
+/**
+ * Result of verifying a 6-digit email OTP code (`POST /v1/auth/email/verify`).
+ */
+data class EmailOtpVerifyResult(
+    val accessToken: String,
+    val userId: String,
+    val email: String,
+    val displayName: String,
+    val isNewAccount: Boolean,
+    val offlineFallback: Boolean = false,
+)
+
+/**
+ * Chapter digest sent to `POST /v1/ai/graph/extract` for cloud AI narrative graph construction.
+ */
+data class CloudChapterDigestDto(
+    val ordinal: Int,
+    val title: String,
+    val excerpt: String,
+)
+
+/**
+ * Entity returned by `POST /v1/ai/graph/extract`.
+ */
+data class CloudExtractedEntityDto(
+    val label: String,
+    val type: String,
+    val firstReveal: Int,
+)
+
+/**
+ * Assertion returned by `POST /v1/ai/graph/extract`.
+ */
+data class CloudExtractedAssertionDto(
+    val subject: String,
+    val predicate: String,
+    val objectLabel: String,
+    val status: String,
+    val firstReveal: Int,
+)
+
+/**
+ * Result of cloud AI narrative graph extraction (`POST /v1/ai/graph/extract`).
+ */
+data class CloudGraphExtractResult(
+    val editionId: String,
+    val entities: List<CloudExtractedEntityDto>,
+    val assertions: List<CloudExtractedAssertionDto>,
+    val modelId: String,
     val offlineFallback: Boolean = false,
 )
 
@@ -460,6 +525,86 @@ class MixuApiClient(
     }
 
     /**
+     * Requests a 6-digit email verification code (`POST /v1/auth/email/send-code`).
+     *
+     * Time complexity: O(1). Space complexity: O(1).
+     */
+    fun sendEmailOtp(email: String): EmailOtpSendResult {
+        val trimmed = email.trim()
+        require(trimmed.isNotBlank()) { "email must not be blank" }
+        val body =
+            buildJsonObject {
+                put("email", JsonPrimitive(trimmed))
+            }.toString()
+        val request =
+            MixuHttpRequest(
+                method = "POST",
+                url = "$normalizedBaseUrl/v1/auth/email/send-code",
+                headers = buildHeaders(userId = trimmed, hasBody = true),
+                body = body,
+            )
+        val response = executeSafely(request)
+        if (response != null && response.isSuccess && response.body.isNotBlank()) {
+            runCatching {
+                val obj = json.parseToJsonElement(response.body).jsonObject
+                return EmailOtpSendResult(
+                    status = obj.stringField("status") ?: "OTP_SENT",
+                    expiresInSeconds = obj.intField("expires_in_seconds") ?: 600,
+                    offlineFallback = false,
+                )
+            }
+        }
+        return EmailOtpSendResult(
+            status = "OFFLINE_FALLBACK",
+            expiresInSeconds = 600,
+            offlineFallback = true,
+        )
+    }
+
+    /**
+     * Verifies a 6-digit email OTP code and returns the authenticated session (`POST /v1/auth/email/verify`).
+     *
+     * Time complexity: O(1). Space complexity: O(1).
+     */
+    fun verifyEmailOtp(
+        email: String,
+        code: String,
+    ): EmailOtpVerifyResult? {
+        val trimmedEmail = email.trim()
+        val trimmedCode = code.trim()
+        require(trimmedEmail.isNotBlank()) { "email must not be blank" }
+        require(trimmedCode.isNotBlank()) { "code must not be blank" }
+        val body =
+            buildJsonObject {
+                put("email", JsonPrimitive(trimmedEmail))
+                put("code", JsonPrimitive(trimmedCode))
+            }.toString()
+        val request =
+            MixuHttpRequest(
+                method = "POST",
+                url = "$normalizedBaseUrl/v1/auth/email/verify",
+                headers = buildHeaders(userId = trimmedEmail, hasBody = true),
+                body = body,
+            )
+        val response = executeSafely(request) ?: return null
+        if (!response.isSuccess || response.body.isBlank()) {
+            return null
+        }
+        return runCatching {
+            val obj = json.parseToJsonElement(response.body).jsonObject
+            val userObj = obj["user"]?.jsonObject
+            EmailOtpVerifyResult(
+                accessToken = obj.stringField("access_token") ?: "",
+                userId = userObj?.stringField("id") ?: trimmedEmail,
+                email = userObj?.stringField("email") ?: trimmedEmail,
+                displayName = userObj?.stringField("display_name") ?: trimmedEmail,
+                isNewAccount = obj.booleanField("is_new_account") ?: false,
+                offlineFallback = false,
+            )
+        }.getOrNull()
+    }
+
+    /**
      * Executes a spoiler-safe AI Butler / Copilot query (`POST /v1/copilot/query`).
      * Enforces `horizonOrdinal >= 0` and attaches `X-Mixu-Stateless-Mode: true` when
      * [statelessSelfHostedMode] is enabled (ADR-037).
@@ -471,6 +616,9 @@ class MixuApiClient(
         editionId: String,
         horizonOrdinal: Int,
         query: String,
+        bookTitle: String? = null,
+        chapterTitle: String? = null,
+        visibleExcerpt: String? = null,
     ): CopilotQueryResult {
         require(userId.isNotBlank()) { "userId must not be blank" }
         require(editionId.isNotBlank()) { "editionId must not be blank" }
@@ -485,6 +633,15 @@ class MixuApiClient(
                 put("edition_id", JsonPrimitive(editionId))
                 put("horizon_ordinal", JsonPrimitive(horizonOrdinal))
                 put("query", JsonPrimitive(query))
+                bookTitle?.takeIf { it.isNotBlank() }?.let {
+                    put("book_title", JsonPrimitive(it))
+                }
+                chapterTitle?.takeIf { it.isNotBlank() }?.let {
+                    put("chapter_title", JsonPrimitive(it))
+                }
+                visibleExcerpt?.takeIf { it.isNotBlank() }?.let {
+                    put("visible_excerpt", JsonPrimitive(it.take(1_200)))
+                }
                 put("stateless_mode", JsonPrimitive(statelessSelfHostedMode))
             }.toString()
         val request =
@@ -518,6 +675,92 @@ class MixuApiClient(
             statelessMode = statelessSelfHostedMode,
             offlineFallback = true,
         )
+    }
+
+    /**
+     * Calls `POST /v1/ai/graph/extract` to construct a progress-gated narrative knowledge graph
+     * from the chapter digests of an imported book via the cloud OpenRouter gateway.
+     *
+     * Time complexity: O(C) where C is the number of chapters.
+     * Space complexity: O(E + A) where E is extracted entity count and A is assertion count.
+     */
+    fun extractBookGraph(
+        userId: String,
+        editionId: String,
+        bookTitle: String,
+        bookAuthor: String,
+        chapters: List<CloudChapterDigestDto>,
+    ): CloudGraphExtractResult? {
+        require(userId.isNotBlank()) { "userId must not be blank" }
+        require(editionId.isNotBlank()) { "editionId must not be blank" }
+        val body =
+            buildJsonObject {
+                put("user_id", JsonPrimitive(userId))
+                put("edition_id", JsonPrimitive(editionId))
+                put("book_title", JsonPrimitive(bookTitle))
+                put("book_author", JsonPrimitive(bookAuthor))
+                put(
+                    "chapters",
+                    buildJsonArray {
+                        for (ch in chapters.take(16)) {
+                            add(
+                                buildJsonObject {
+                                    put("ordinal", JsonPrimitive(ch.ordinal))
+                                    put("title", JsonPrimitive(ch.title))
+                                    put("excerpt", JsonPrimitive(ch.excerpt.take(400)))
+                                },
+                            )
+                        }
+                    },
+                )
+            }.toString()
+        val request =
+            MixuHttpRequest(
+                method = "POST",
+                url = "$normalizedBaseUrl/v1/ai/graph/extract",
+                headers = buildHeaders(userId = userId, hasBody = true),
+                body = body,
+            )
+        val response = executeSafely(request) ?: return null
+        if (!response.isSuccess || response.body.isBlank()) {
+            return null
+        }
+        return runCatching {
+            val obj = json.parseToJsonElement(response.body).jsonObject
+            val entitiesArr = obj["entities"]?.jsonArray ?: JsonArray(emptyList())
+            val entities =
+                entitiesArr.mapNotNull { el ->
+                    val item = el.jsonObject
+                    val label = item.stringField("label") ?: return@mapNotNull null
+                    CloudExtractedEntityDto(
+                        label = label,
+                        type = item.stringField("type") ?: "PERSON",
+                        firstReveal = item.intField("first_reveal") ?: 0,
+                    )
+                }
+            val assertionsArr = obj["assertions"]?.jsonArray ?: JsonArray(emptyList())
+            val assertions =
+                assertionsArr.mapNotNull { el ->
+                    val item = el.jsonObject
+                    val subj = item.stringField("subject") ?: return@mapNotNull null
+                    val pred = item.stringField("predicate") ?: return@mapNotNull null
+                    val objLabel = item.stringField("object") ?: return@mapNotNull null
+                    CloudExtractedAssertionDto(
+                        subject = subj,
+                        predicate = pred,
+                        objectLabel = objLabel,
+                        status = item.stringField("status") ?: "OBSERVED",
+                        firstReveal = item.intField("first_reveal") ?: 0,
+                    )
+                }
+            CloudGraphExtractResult(
+                editionId = obj.stringField("edition_id") ?: editionId,
+                entities = entities,
+                assertions = assertions,
+                modelId = obj.stringField("model_id") ?: "deepseek/deepseek-v4.1-flash-1017",
+                offlineFallback = obj.booleanField("offline_fallback") ?: false,
+            )
+        }.getOrNull()
     }
 
     private fun parseWalletJson(
@@ -598,6 +841,7 @@ class MixuApiClient(
 
     companion object {
         const val DEFAULT_EMULATOR_LOOPBACK = "http://10.0.2.2:8080"
+        const val DEFAULT_PRODUCTION_BASE_URL = "https://api.mixuread.com"
         const val DEFAULT_BUILD_COST_MINOR = 6_000L
         const val DEFAULT_OFFLINE_CHALLENGE_TTL_SECONDS = 300L
         const val HEADER_USER_ID = "X-Mixu-User-Id"
@@ -606,5 +850,33 @@ class MixuApiClient(
         private const val HEADER_ACCEPT = "Accept"
         private const val HEADER_CONTENT_TYPE = "Content-Type"
         private const val CONTENT_TYPE_JSON = "application/json"
+        private const val PRODUCTION_CONNECT_TIMEOUT_MS = 6_000
+        private const val PRODUCTION_READ_TIMEOUT_MS = 22_000
+
+        /**
+         * Creates a production [MixuApiClient] targeting `https://api.mixuread.com`
+         * (or the user's configured self-hosted endpoint when enabled).
+         */
+        fun createProductionClient(config: ReaderDisplayConfig? = null): MixuApiClient {
+            val resolvedBaseUrl =
+                if (config?.selfHostedApiEnabled == true && config.selfHostedApiUrl.isNotBlank()) {
+                    config.selfHostedApiUrl
+                        .trim()
+                        .removeSuffix("/v1")
+                        .removeSuffix("/v1/")
+                } else {
+                    DEFAULT_PRODUCTION_BASE_URL
+                }
+            return MixuApiClient(
+                baseUrl = resolvedBaseUrl,
+                statelessSelfHostedMode =
+                    config?.selfHostedApiEnabled == true && config.selfHostedStatelessMode,
+                transport =
+                    JdkHttpTransport(
+                        connectTimeoutMs = PRODUCTION_CONNECT_TIMEOUT_MS,
+                        readTimeoutMs = PRODUCTION_READ_TIMEOUT_MS,
+                    ),
+            )
+        }
     }
 }

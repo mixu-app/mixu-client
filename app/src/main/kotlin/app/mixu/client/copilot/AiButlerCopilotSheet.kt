@@ -84,10 +84,15 @@ enum class CopilotSessionMode {
 }
 
 /**
- * Selectable LLM model tier for the AI Butler / Copilot, decoupled from the KG extraction model.
+ * Selectable opaque LLM model tier for the AI Butler / Copilot, decoupled from the KG extraction
+ * model.
+ *
+ * The client never knows concrete backend provider model IDs (e.g. OpenRouter / Vertex vendor
+ * strings); it only selects an abstract tier (`"standard"`, `"balanced"`, `"reasoning"`, `"pro"`)
+ * and `mixu-server` privately resolves the underlying model.
  */
 data class CopilotModelOption(
-    val modelId: String,
+    val modelTier: String,
     val shortName: String,
     val creditCost: Int,
 ) {
@@ -98,28 +103,23 @@ data class CopilotModelOption(
         val AVAILABLE_MODELS =
             listOf(
                 CopilotModelOption(
-                    modelId = "deepseek/deepseek-v4.1-flash-1017",
-                    shortName = "DeepSeek V4.1",
+                    modelTier = "standard",
+                    shortName = "标准伴读",
                     creditCost = 1,
                 ),
                 CopilotModelOption(
-                    modelId = "qwen/qwen3.7-flash",
-                    shortName = "Qwen 3.7",
+                    modelTier = "balanced",
+                    shortName = "均衡推演",
                     creditCost = 2,
                 ),
                 CopilotModelOption(
-                    modelId = "z-ai/glm-5.3-flash",
-                    shortName = "GLM 5.3",
-                    creditCost = 2,
-                ),
-                CopilotModelOption(
-                    modelId = "google/gemini-3.8-flash",
-                    shortName = "Gemini 3.8",
+                    modelTier = "reasoning",
+                    shortName = "长文精析",
                     creditCost = 3,
                 ),
                 CopilotModelOption(
-                    modelId = "anthropic/claude-haiku-5.5",
-                    shortName = "Haiku 5.5",
+                    modelTier = "pro",
+                    shortName = "旗舰侦探",
                     creditCost = 5,
                 ),
             )
@@ -206,7 +206,7 @@ fun MixuAiButlerFab(
         if (!eInkPolicy.isActive) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 drawCircle(
-                    color = Color(0xFF6366F1).copy(alpha = 0.22f),
+                    color = colors.copilotFabPrimary.copy(alpha = 0.22f),
                     radius = (size.minDimension / 2f) * pulseScale,
                 )
             }
@@ -234,7 +234,7 @@ fun MixuAiButlerFab(
                                 Brush.linearGradient(
                                     colors =
                                         listOf(
-                                            Color(0xFF4F46E5),
+                                            colors.copilotFabPrimary,
                                             Color(0xFF7C3AED),
                                             Color(0xFF2563EB),
                                         ),
@@ -624,7 +624,7 @@ fun AiButlerCopilotDialog(
                     bookTitle = activeBookTitle,
                     chapterTitle = currentChapterTitle,
                     visibleExcerpt = currentVisibleText,
-                    modelId = chosenModel.modelId,
+                    modelTier = chosenModel.modelTier,
                 )
             if (!res.offlineFallback && res.answer.isNotBlank()) {
                 runCatching {
@@ -885,7 +885,7 @@ fun AiButlerCopilotDialog(
                 }
             }
 
-            // 1.5 Decoupled Copilot Model Tier Selector (1 Cr default DeepSeek vs Premium models)
+            // 1.5 Decoupled Opaque Copilot Model Tier Selector (1 Cr default tier vs higher tiers)
             Row(
                 modifier =
                     Modifier
@@ -895,7 +895,7 @@ fun AiButlerCopilotDialog(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 for (modelOpt in CopilotModelOption.AVAILABLE_MODELS) {
-                    val isSelectedModel = modelOpt.modelId == selectedModel.modelId
+                    val isSelectedModel = modelOpt.modelTier == selectedModel.modelTier
                     Surface(
                         modifier = Modifier.clickable { selectedModel = modelOpt },
                         shape = RoundedCornerShape(10.dp),
@@ -1202,7 +1202,7 @@ private fun CopilotMessageBubble(
             Surface(
                 modifier = Modifier.widthIn(max = 290.dp),
                 shape = RoundedCornerShape(14.dp, 4.dp, 14.dp, 14.dp),
-                color = colors.primaryContainer,
+                color = colors.copilotUserBubbleSurface,
                 border = BorderStroke(1.dp, colors.primary),
             ) {
                 Column(
@@ -1254,7 +1254,7 @@ private fun CopilotMessageBubble(
             Surface(
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
-                color = colors.surface,
+                color = colors.copilotAgentBubbleSurface,
                 border = BorderStroke(1.dp, colors.outlineVariant),
                 shadowElevation = if (eInkPolicy.isActive) 0.dp else 2.dp,
             ) {

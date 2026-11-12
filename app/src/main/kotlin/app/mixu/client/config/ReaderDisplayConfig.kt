@@ -6,6 +6,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.mixu.client.eink.EInkMode
 import app.mixu.client.theme.MixuThemeMode
+import app.mixu.client.theme.MixuThemePack
 
 /**
  * Predefined margin settings for reading viewport layout.
@@ -148,6 +149,7 @@ data class ReaderDisplayConfig(
     val selfHostedApiEnabled: Boolean = false,
     val selfHostedApiUrl: String = "https://api.mixuread.com",
     val selfHostedStatelessMode: Boolean = true,
+    val customThemePackJson: String? = null,
 ) {
     init {
         require(fontSizeSp in 10f..48f) { "fontSizeSp must be in 10..48 sp, got $fontSizeSp" }
@@ -274,40 +276,76 @@ data class ReaderDisplayConfig(
         }
 
     /**
+     * Parses and returns the active [MixuThemePack] when [customThemePackJson] is present.
+     */
+    fun resolvedThemePack(): MixuThemePack? = MixuThemePack.fromJsonOrNull(customThemePackJson)
+
+    /**
+     * Imports a `.mixu-theme.json` configuration string, applying both its color overrides and
+     * any specified reader typography/layout overrides.
+     */
+    fun importThemePackJson(rawJson: String): ReaderDisplayConfig {
+        val pack = MixuThemePack.fromJsonOrNull(rawJson) ?: return this
+        val r = pack.reader
+        val nextFont =
+            r.fontFamily?.let { name ->
+                runCatching { FontFamilyChoice.valueOf(name.trim().uppercase()) }.getOrNull()
+            } ?: fontFamilyChoice
+        val nextColumn =
+            r.pageColumnMode?.let { name ->
+                runCatching { PageColumnMode.valueOf(name.trim().uppercase()) }.getOrNull()
+            } ?: pageColumnMode
+        return copy(
+            themeMode = pack.resolvedBaseMode(),
+            fontFamilyChoice = nextFont,
+            fontSizeSp = (r.fontSizeSp ?: fontSizeSp).coerceIn(10f, 48f),
+            lineHeightMultiplier =
+                (r.lineHeightMultiplier ?: lineHeightMultiplier).coerceIn(1.1f, 2.5f),
+            paragraphIndentEm = (r.paragraphIndentEm ?: paragraphIndentEm).coerceIn(0f, 4f),
+            paragraphSpacingDp = (r.paragraphSpacingDp ?: paragraphSpacingDp).coerceIn(0f, 48f),
+            pageColumnMode = nextColumn,
+            customThemePackJson = pack.toJson(),
+        )
+    }
+
+    /**
      * Serializes this configuration to key-value pairs suitable for storage in SharedPreferences
      * or local database key-value stores.
      */
     fun toMap(): Map<String, String> =
-        mapOf(
-            KEY_THEME_MODE to themeMode.name,
-            KEY_EINK_MODE to eInkMode.name,
-            KEY_FONT_SIZE_SP to fontSizeSp.toString(),
-            KEY_FONT_SCALE to fontScaleMultiplier.toString(),
-            KEY_LINE_HEIGHT to lineHeightMultiplier.toString(),
-            KEY_MARGIN_PRESET to marginPreset.name,
-            KEY_FONT_FAMILY to fontFamilyChoice.name,
-            KEY_REFRESH_INTERVAL to eInkFullRefreshInterval.toString(),
-            KEY_KEEP_SCREEN_ON to keepScreenOn.toString(),
-            KEY_AUTO_BOOKMARK to autoBookmark.toString(),
-            KEY_AUTO_DETECT_CHAPTERS to autoDetectChapters.toString(),
-            KEY_AUTO_EXTRACT_GRAPH to autoExtractGraphOnImport.toString(),
-            KEY_READING_LAYOUT_MODE to readingLayoutMode.name,
-            KEY_PAGE_COLUMN_MODE to pageColumnMode.name,
-            KEY_PARAGRAPH_INDENT_EM to paragraphIndentEm.toString(),
-            KEY_PARAGRAPH_SPACING_DP to paragraphSpacingDp.toString(),
-            KEY_LETTER_SPACING_SP to letterSpacingSp.toString(),
-            KEY_JUSTIFY_TEXT to justifyText.toString(),
-            KEY_MAX_READING_WIDTH_DP to maxReadingWidthDp.toString(),
-            KEY_IMMERSIVE_READER to immersiveReaderMode.toString(),
-            KEY_GRAPH_DIMENSION_MODE to graphDimensionMode.name,
-            KEY_GRAPH_PHYSICS_MODE to graphPhysicsMode.name,
-            KEY_LOOKUP_PROVIDER_MODE to lookupProviderMode.name,
-            KEY_VOLUME_KEY_PAGE_TURN to volumeKeyPageTurn.toString(),
-            KEY_KEYBOARD_PAGE_TURN to keyboardPageTurn.toString(),
-            KEY_SELF_HOSTED_ENABLED to selfHostedApiEnabled.toString(),
-            KEY_SELF_HOSTED_URL to selfHostedApiUrl,
-            KEY_SELF_HOSTED_STATELESS to selfHostedStatelessMode.toString(),
-        )
+        buildMap {
+            put(KEY_THEME_MODE, themeMode.name)
+            put(KEY_EINK_MODE, eInkMode.name)
+            put(KEY_FONT_SIZE_SP, fontSizeSp.toString())
+            put(KEY_FONT_SCALE, fontScaleMultiplier.toString())
+            put(KEY_LINE_HEIGHT, lineHeightMultiplier.toString())
+            put(KEY_MARGIN_PRESET, marginPreset.name)
+            put(KEY_FONT_FAMILY, fontFamilyChoice.name)
+            put(KEY_REFRESH_INTERVAL, eInkFullRefreshInterval.toString())
+            put(KEY_KEEP_SCREEN_ON, keepScreenOn.toString())
+            put(KEY_AUTO_BOOKMARK, autoBookmark.toString())
+            put(KEY_AUTO_DETECT_CHAPTERS, autoDetectChapters.toString())
+            put(KEY_AUTO_EXTRACT_GRAPH, autoExtractGraphOnImport.toString())
+            put(KEY_READING_LAYOUT_MODE, readingLayoutMode.name)
+            put(KEY_PAGE_COLUMN_MODE, pageColumnMode.name)
+            put(KEY_PARAGRAPH_INDENT_EM, paragraphIndentEm.toString())
+            put(KEY_PARAGRAPH_SPACING_DP, paragraphSpacingDp.toString())
+            put(KEY_LETTER_SPACING_SP, letterSpacingSp.toString())
+            put(KEY_JUSTIFY_TEXT, justifyText.toString())
+            put(KEY_MAX_READING_WIDTH_DP, maxReadingWidthDp.toString())
+            put(KEY_IMMERSIVE_READER, immersiveReaderMode.toString())
+            put(KEY_GRAPH_DIMENSION_MODE, graphDimensionMode.name)
+            put(KEY_GRAPH_PHYSICS_MODE, graphPhysicsMode.name)
+            put(KEY_LOOKUP_PROVIDER_MODE, lookupProviderMode.name)
+            put(KEY_VOLUME_KEY_PAGE_TURN, volumeKeyPageTurn.toString())
+            put(KEY_KEYBOARD_PAGE_TURN, keyboardPageTurn.toString())
+            put(KEY_SELF_HOSTED_ENABLED, selfHostedApiEnabled.toString())
+            put(KEY_SELF_HOSTED_URL, selfHostedApiUrl)
+            put(KEY_SELF_HOSTED_STATELESS, selfHostedStatelessMode.toString())
+            customThemePackJson?.takeIf { it.isNotBlank() }?.let {
+                put(KEY_CUSTOM_THEME_PACK_JSON, it)
+            }
+        }
 
     companion object {
         const val KEY_THEME_MODE = "theme_mode"
@@ -338,6 +376,7 @@ data class ReaderDisplayConfig(
         const val KEY_SELF_HOSTED_ENABLED = "self_hosted_api_enabled"
         const val KEY_SELF_HOSTED_URL = "self_hosted_api_url"
         const val KEY_SELF_HOSTED_STATELESS = "self_hosted_stateless_mode"
+        const val KEY_CUSTOM_THEME_PACK_JSON = "custom_theme_pack_json"
 
         val DEFAULT = ReaderDisplayConfig()
 
@@ -487,6 +526,10 @@ data class ReaderDisplayConfig(
                 map[KEY_SELF_HOSTED_STATELESS]?.toBooleanStrictOrNull()
                     ?: DEFAULT.selfHostedStatelessMode
 
+            val customThemeJson =
+                map[KEY_CUSTOM_THEME_PACK_JSON]?.takeIf { it.isNotBlank() }
+                    ?: DEFAULT.customThemePackJson
+
             return ReaderDisplayConfig(
                 themeMode = theme,
                 eInkMode = eink,
@@ -516,6 +559,7 @@ data class ReaderDisplayConfig(
                 selfHostedApiEnabled = selfHostedEnabled,
                 selfHostedApiUrl = selfHostedUrl,
                 selfHostedStatelessMode = selfHostedStateless,
+                customThemePackJson = customThemeJson,
             )
         }
     }

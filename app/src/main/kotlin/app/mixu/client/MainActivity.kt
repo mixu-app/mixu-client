@@ -309,6 +309,7 @@ class MainActivity :
                         themeMode = config.themeMode,
                         eInkPolicy = einkPolicy,
                         typography = typography,
+                        customThemePack = config.resolvedThemePack(),
                     ) {
                         val colors = MixuTheme.colors
                         val strokeWidth = if (einkPolicy.isActive) 2.5.dp else 1.dp

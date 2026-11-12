@@ -163,18 +163,21 @@ data class SharedPackPurchaseResult(
 
 /**
  * Result of a spoiler-safe AI Butler / Copilot query (`POST /v1/copilot/query`).
+ *
+ * The client only receives and displays an opaque [modelTier] (`"standard"`, `"balanced"`,
+ * `"reasoning"`, `"pro"`) rather than concrete backend provider model IDs.
  */
 data class CopilotQueryResult(
     val editionId: String,
     val horizonOrdinal: Int,
     val answer: String,
-    val modelId: String = DEFAULT_COPILOT_MODEL_ID,
+    val modelTier: String = DEFAULT_COPILOT_MODEL_TIER,
     val creditCost: Int = 1,
     val statelessMode: Boolean,
     val offlineFallback: Boolean = false,
 ) {
     companion object {
-        const val DEFAULT_COPILOT_MODEL_ID = "deepseek/deepseek-v4.1-flash-1017"
+        const val DEFAULT_COPILOT_MODEL_TIER = "standard"
     }
 }
 
@@ -235,7 +238,7 @@ data class CloudGraphExtractResult(
     val editionId: String,
     val entities: List<CloudExtractedEntityDto>,
     val assertions: List<CloudExtractedAssertionDto>,
-    val modelId: String,
+    val modelTier: String = CopilotQueryResult.DEFAULT_COPILOT_MODEL_TIER,
     val offlineFallback: Boolean = false,
 )
 
@@ -625,7 +628,7 @@ class MixuApiClient(
         bookTitle: String? = null,
         chapterTitle: String? = null,
         visibleExcerpt: String? = null,
-        modelId: String? = null,
+        modelTier: String? = null,
     ): CopilotQueryResult {
         require(userId.isNotBlank()) { "userId must not be blank" }
         require(editionId.isNotBlank()) { "editionId must not be blank" }
@@ -634,8 +637,8 @@ class MixuApiClient(
         }
         require(query.isNotBlank()) { "query must not be blank" }
 
-        val requestedModel =
-            modelId?.takeIf { it.isNotBlank() } ?: CopilotQueryResult.DEFAULT_COPILOT_MODEL_ID
+        val requestedTier =
+            modelTier?.takeIf { it.isNotBlank() } ?: CopilotQueryResult.DEFAULT_COPILOT_MODEL_TIER
         val body =
             buildJsonObject {
                 put("user_id", JsonPrimitive(userId))
@@ -651,7 +654,7 @@ class MixuApiClient(
                 visibleExcerpt?.takeIf { it.isNotBlank() }?.let {
                     put("visible_excerpt", JsonPrimitive(it.take(8_000)))
                 }
-                put("model_id", JsonPrimitive(requestedModel))
+                put("model_tier", JsonPrimitive(requestedTier))
                 put("stateless_mode", JsonPrimitive(statelessSelfHostedMode))
             }.toString()
         val request =
@@ -669,7 +672,7 @@ class MixuApiClient(
                     editionId = obj.stringField("edition_id") ?: editionId,
                     horizonOrdinal = obj.intField("horizon_ordinal") ?: horizonOrdinal,
                     answer = obj.stringField("answer").orEmpty(),
-                    modelId = obj.stringField("model_id") ?: requestedModel,
+                    modelTier = obj.stringField("model_tier") ?: requestedTier,
                     creditCost = obj.intField("credit_cost") ?: 1,
                     statelessMode =
                         obj.booleanField("stateless_mode") ?: statelessSelfHostedMode,
@@ -684,7 +687,7 @@ class MixuApiClient(
             answer =
                 "[Offline Spoiler-Safe Horizon <= $horizonOrdinal] " +
                     "Verified local graph context for $editionId: $query",
-            modelId = requestedModel,
+            modelTier = requestedTier,
             creditCost = 1,
             statelessMode = statelessSelfHostedMode,
             offlineFallback = true,
@@ -693,7 +696,7 @@ class MixuApiClient(
 
     /**
      * Calls `POST /v1/ai/graph/extract` to construct a progress-gated narrative knowledge graph
-     * from the chapter digests of an imported book via the cloud OpenRouter gateway.
+     * from the chapter digests of an imported book via the cloud gateway.
      *
      * Time complexity: O(C) where C is the number of chapters.
      * Space complexity: O(E + A) where E is extracted entity count and A is assertion count.
@@ -704,7 +707,7 @@ class MixuApiClient(
         bookTitle: String,
         bookAuthor: String,
         chapters: List<CloudChapterDigestDto>,
-        modelId: String? = null,
+        modelTier: String? = null,
     ): CloudGraphExtractResult? {
         require(userId.isNotBlank()) { "userId must not be blank" }
         require(editionId.isNotBlank()) { "editionId must not be blank" }
@@ -714,8 +717,8 @@ class MixuApiClient(
                 put("edition_id", JsonPrimitive(editionId))
                 put("book_title", JsonPrimitive(bookTitle))
                 put("book_author", JsonPrimitive(bookAuthor))
-                modelId?.takeIf { it.isNotBlank() }?.let {
-                    put("model_id", JsonPrimitive(it))
+                modelTier?.takeIf { it.isNotBlank() }?.let {
+                    put("model_tier", JsonPrimitive(it))
                 }
                 put(
                     "chapters",
@@ -775,7 +778,9 @@ class MixuApiClient(
                 editionId = obj.stringField("edition_id") ?: editionId,
                 entities = entities,
                 assertions = assertions,
-                modelId = obj.stringField("model_id") ?: "deepseek/deepseek-v4.1-flash-1017",
+                modelTier =
+                    obj.stringField("model_tier")
+                        ?: (modelTier ?: CopilotQueryResult.DEFAULT_COPILOT_MODEL_TIER),
                 offlineFallback = obj.booleanField("offline_fallback") ?: false,
             )
         }.getOrNull()

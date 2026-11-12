@@ -70,6 +70,7 @@ import app.mixu.client.R
 import app.mixu.client.auth.UserSession
 import app.mixu.client.db.LocalLibraryDatabase
 import app.mixu.client.library.BookItem
+import app.mixu.client.network.CopilotChatTurnDto
 import app.mixu.client.network.MixuApiClient
 import app.mixu.client.reader.ParsedReaderImageToken
 import app.mixu.client.reader.ReaderImageBitmapCache
@@ -614,6 +615,22 @@ fun AiButlerCopilotDialog(
         val horizonOrd = currentChapterIndex.coerceAtLeast(0)
         val userIdVal = userSession.anonymousId.ifBlank { "guest-reader" }
         val chosenModel = selectedModel
+        val historyTurns =
+            if (sessionIdx in sessions.indices) {
+                sessions[sessionIdx]
+                    .messages
+                    .takeWhile { it.id != assistantMsgId }
+                    .dropLast(1)
+                    .filter { !it.id.startsWith("welcome-") && it.text.isNotBlank() }
+                    .map { msg ->
+                        CopilotChatTurnDto(
+                            role = if (msg.isUser) "user" else "assistant",
+                            content = msg.text,
+                        )
+                    }.takeLast(12)
+            } else {
+                emptyList()
+            }
         Thread {
             val res =
                 apiClient.queryCopilot(
@@ -625,6 +642,7 @@ fun AiButlerCopilotDialog(
                     chapterTitle = currentChapterTitle,
                     visibleExcerpt = currentVisibleText,
                     modelTier = chosenModel.modelTier,
+                    conversationHistory = historyTurns,
                 )
             if (!res.offlineFallback && res.answer.isNotBlank()) {
                 runCatching {

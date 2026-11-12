@@ -347,11 +347,11 @@
     <!-- Three-Bucket Credit Wallet, E-Ink QR Ad Reward, 7-Day Grace Period & Shared GraphPack Marketplace (ADR-030 & ADR-040) -->
     <string name="wallet_title">三池推理点钱包 (共 %1$d 推理点)</string>
     <string name="wallet_buckets_summary">赠送 %1$d · 订阅 %2$d · 充值 %3$d</string>
-    <string name="wallet_ad_reward_btn">激励广告 (+3 推理点)</string>
-    <string name="wallet_ad_reward_eink_btn">墨水屏扫码 (+3 推理点)</string>
-    <string name="wallet_eink_qr_dialog_title">墨水屏跨设备扫码激励 (+3 推理点)</string>
-    <string name="wallet_eink_qr_dialog_desc">墨水屏阅读器自动规避视频播放以消除残影与高耗电。请使用手机扫描上方二维码完成激励核验，当前账号将立即入账 +3 赠送推理点（今日已领 %1$d / 30 推理点上限）。</string>
-    <string name="wallet_eink_qr_confirm_btn">已完成扫码入账 (+3 推理点)</string>
+    <string name="wallet_ad_reward_btn">激励广告 (+5 推理点)</string>
+    <string name="wallet_ad_reward_eink_btn">墨水屏扫码 (+5 推理点)</string>
+    <string name="wallet_eink_qr_dialog_title">墨水屏跨设备扫码激励 (+5 推理点)</string>
+    <string name="wallet_eink_qr_dialog_desc">墨水屏阅读器自动规避视频播放以消除残影与高耗电。请使用手机扫描上方二维码完成激励核验，当前账号将立即入账 +5 赠送推理点（每日最多 6 次 · 今日已领 %1$d / 30 推理点上限）。</string>
+    <string name="wallet_eink_qr_confirm_btn">已完成扫码入账 (+5 推理点)</string>
     <string name="storage_quota_label">云端存储配额 (%1$d MB / %2$d MB)</string>
     <string name="storage_status_active_desc">正常活跃 · 支持新书上传与多端双向同步</string>
     <string name="storage_status_grace_desc">7 天宽限期：可正常下载与阅读，暂停新书上传</string>
@@ -361,6 +361,10 @@
     <string name="subscription_plan_free">免费新人档 (100 MB)</string>
     <string name="subscription_plan_plus">Plus 月卡 ¥12/月 (+150推理点 + 5GB)</string>
     <string name="subscription_plan_pro">Pro 藏书家 ¥24/月 (+600推理点 + 20GB)</string>
+    <string name="topup_pack_heading">应急推理点永久充值包 (永不过期)</string>
+    <string name="topup_pack_6">¥6 充 80 推理点</string>
+    <string name="topup_pack_18">¥18 充 300 推理点</string>
+    <string name="topup_pack_45">¥45 充 900 推理点</string>
     <string name="marketplace_pill_label">✦ 图谱集市</string>
     <string name="marketplace_dialog_title">共享图谱集市 (Shared GraphPack Marketplace)</string>
     <string name="marketplace_tier_l1_badge">L1 精确 SHA-256 命中</string>

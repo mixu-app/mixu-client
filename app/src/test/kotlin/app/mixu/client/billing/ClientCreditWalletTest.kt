@@ -50,17 +50,17 @@ class ClientCreditWalletTest {
     }
 
     @Test
-    fun `claimRewardedAd grants 3 promo credits and enforces 30 credits daily cap`() {
+    fun `claimRewardedAd grants 5 promo credits per ad up to 6 per day (30 credits cap)`() {
         var wallet = ClientCreditWallet(promoCredits = 60, dailyAdCreditsClaimed = 0)
 
-        repeat(10) {
-            wallet = wallet.claimRewardedAd(rewardCredits = 3, dailyCapCredits = 30)
+        repeat(6) {
+            wallet = wallet.claimRewardedAd()
         }
         assertEquals(90, wallet.promoCredits)
         assertEquals(30, wallet.dailyAdCreditsClaimed)
 
-        // 11th claim on the same day must be capped at 0 additional credits
-        val capped = wallet.claimRewardedAd(rewardCredits = 3, dailyCapCredits = 30)
+        // 7th claim on the same day must be capped at 0 additional credits
+        val capped = wallet.claimRewardedAd()
         assertEquals(90, capped.promoCredits)
         assertEquals(30, capped.dailyAdCreditsClaimed)
     }
@@ -105,7 +105,7 @@ class ClientCreditWalletTest {
         val wallet = ClientCreditWallet()
         val payload1 = wallet.generateEInkQrChallengePayload("anon-1234", "eink-qr-v1")
         val payload2 = wallet.generateEInkQrChallengePayload("anon-1234", "eink-qr-v1")
-        assertEquals("mixu://ad-reward/qr?uid=anon-1234&nonce=eink-qr-v1&reward=3", payload1)
+        assertEquals("mixu://ad-reward/qr?uid=anon-1234&nonce=eink-qr-v1&reward=5", payload1)
         assertEquals(payload1, payload2)
 
         val matrix1 = wallet.generateQrMatrix(payload1)
@@ -144,5 +144,17 @@ class ClientCreditWalletTest {
         assertEquals(810, proWallet.totalCredits)
         assertEquals(20_480, proStorage.quotaMb)
         assertEquals(SubscriptionPlan.PRO_MONTHLY, proStorage.activePlan)
+    }
+
+    @Test
+    fun `TopUpPack ¥6 ¥18 and ¥45 packs credit permanent paidCredits`() {
+        var wallet = ClientCreditWallet(promoCredits = 10, subCredits = 0, paidCredits = 0)
+        wallet = wallet.purchaseTopUpPack(TopUpPack.PACK_6_CNY)
+        assertEquals(80, wallet.paidCredits)
+        wallet = wallet.purchaseTopUpPack(TopUpPack.PACK_18_CNY)
+        assertEquals(380, wallet.paidCredits)
+        wallet = wallet.purchaseTopUpPack(TopUpPack.PACK_45_CNY)
+        assertEquals(1_280, wallet.paidCredits)
+        assertEquals(1_290, wallet.totalCredits)
     }
 }

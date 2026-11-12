@@ -459,4 +459,33 @@ class LibraryUiStateTest {
             assertFalse(combined.contains("glm"))
         }
     }
+
+    @Test
+    fun distributionChannel_locksCnStoreEndpointAndAllowsGithubFossSelfHosted() {
+        val customConfig =
+            app.mixu.client.config.ReaderDisplayConfig(
+                selfHostedApiEnabled = true,
+                selfHostedApiUrl = "https://custom-node.example.org/v1",
+                selfHostedStatelessMode = true,
+            )
+
+        val cnStoreClient =
+            app.mixu.client.network.MixuApiClient.createProductionClient(
+                config = customConfig,
+                channel = app.mixu.client.config.DistributionChannel.CN_APP_STORE,
+            )
+        assertEquals(
+            app.mixu.client.network.MixuApiClient.DEFAULT_PRODUCTION_BASE_URL,
+            cnStoreClient.baseUrl,
+        )
+        assertFalse(cnStoreClient.statelessSelfHostedMode)
+
+        val githubFossClient =
+            app.mixu.client.network.MixuApiClient.createProductionClient(
+                config = customConfig,
+                channel = app.mixu.client.config.DistributionChannel.GITHUB_FOSS_APK,
+            )
+        assertEquals("https://custom-node.example.org", githubFossClient.baseUrl)
+        assertTrue(githubFossClient.statelessSelfHostedMode)
+    }
 }

@@ -96,6 +96,36 @@ enum class LookupProviderMode {
 }
 
 /**
+ * Distribution channel compliance policy (Scheme 2: CN App Store vs GitHub FOSS `.apk`).
+ *
+ * - [CN_APP_STORE] (default for store builds): hides arbitrary custom server URL inputs in the UI
+ *   and strictly locks `https://api.mixuread.com` so all AI requests pass through the CAC-registered
+ *   Alibaba Cloud Bailian (DashScope) gateway and server-side content safety filters.
+ * - [GITHUB_FOSS_APK]: retains the self-hosted stateless server endpoint configuration (ADR-037).
+ */
+enum class DistributionChannel {
+    CN_APP_STORE,
+    GITHUB_FOSS_APK,
+    ;
+
+    val allowsCustomServerEndpoint: Boolean
+        get() = this == GITHUB_FOSS_APK
+
+    companion object {
+        val CURRENT: DistributionChannel =
+            if (System
+                    .getenv("MIXU_DISTRIBUTION_CHANNEL")
+                    ?.trim()
+                    ?.equals("github_foss", ignoreCase = true) == true
+            ) {
+                GITHUB_FOSS_APK
+            } else {
+                CN_APP_STORE
+            }
+    }
+}
+
+/**
  * Curated one-tap reading and typography configuration presets.
  */
 enum class ReaderPreset {

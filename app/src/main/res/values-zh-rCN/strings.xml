@@ -74,7 +74,7 @@
     <string name="library_title">图书馆</string>
     <string name="library_search_hint">搜索书籍或作者…</string>
     <string name="library_empty_title">书架空空如也</string>
-    <string name="library_empty_description">导入 EPUB 推理小说，开启叙事时序分析、人物证词追踪与认知图谱网络探索。</string>
+    <string name="library_empty_description">导入 EPUB / TXT / MOBI / AZW3 推理小说，开启叙事时序分析、人物证词追踪与认知图谱网络探索。</string>
     <string name="library_import_button">导入书籍</string>
     <string name="library_view_grid">网格视图</string>
     <string name="library_view_list">列表视图</string>
@@ -345,27 +345,31 @@
     <string name="ai_agent_input_hint_global">提问任何问题，或整理图书 / 创建 Tag…</string>
 
     <!-- Three-Bucket Credit Wallet, E-Ink QR Ad Reward, 7-Day Grace Period & Shared GraphPack Marketplace (ADR-030 & ADR-040) -->
-    <string name="wallet_title">三池积分钱包 (共 %1$d 积分)</string>
+    <string name="wallet_title">三池推理点钱包 (共 %1$d 推理点)</string>
     <string name="wallet_buckets_summary">赠送 %1$d · 订阅 %2$d · 充值 %3$d</string>
-    <string name="wallet_ad_reward_btn">激励广告 (+3 积分)</string>
-    <string name="wallet_ad_reward_eink_btn">墨水屏扫码 (+3 积分)</string>
-    <string name="wallet_eink_qr_dialog_title">墨水屏跨设备扫码激励 (+3 积分)</string>
-    <string name="wallet_eink_qr_dialog_desc">墨水屏阅读器自动规避视频播放以消除残影与高耗电。请使用手机扫描上方二维码完成激励核验，当前账号将立即入账 +3 赠送积分（今日已领 %1$d / 30 积分上限）。</string>
-    <string name="wallet_eink_qr_confirm_btn">已完成扫码入账 (+3 积分)</string>
+    <string name="wallet_ad_reward_btn">激励广告 (+3 推理点)</string>
+    <string name="wallet_ad_reward_eink_btn">墨水屏扫码 (+3 推理点)</string>
+    <string name="wallet_eink_qr_dialog_title">墨水屏跨设备扫码激励 (+3 推理点)</string>
+    <string name="wallet_eink_qr_dialog_desc">墨水屏阅读器自动规避视频播放以消除残影与高耗电。请使用手机扫描上方二维码完成激励核验，当前账号将立即入账 +3 赠送推理点（今日已领 %1$d / 30 推理点上限）。</string>
+    <string name="wallet_eink_qr_confirm_btn">已完成扫码入账 (+3 推理点)</string>
     <string name="storage_quota_label">云端存储配额 (%1$d MB / %2$d MB)</string>
     <string name="storage_status_active_desc">正常活跃 · 支持新书上传与多端双向同步</string>
     <string name="storage_status_grace_desc">7 天宽限期：可正常下载与阅读，暂停新书上传</string>
     <string name="storage_status_toggle_active">正常</string>
     <string name="storage_status_toggle_grace">7天宽限期</string>
+    <string name="subscription_plan_heading">云存储与推理点月度订阅</string>
+    <string name="subscription_plan_free">免费新人档 (100 MB)</string>
+    <string name="subscription_plan_plus">Plus 月卡 ¥12/月 (+150推理点 + 5GB)</string>
+    <string name="subscription_plan_pro">Pro 藏书家 ¥24/月 (+600推理点 + 20GB)</string>
     <string name="marketplace_pill_label">✦ 图谱集市</string>
     <string name="marketplace_dialog_title">共享图谱集市 (Shared GraphPack Marketplace)</string>
     <string name="marketplace_tier_l1_badge">L1 精确 SHA-256 命中</string>
     <string name="marketplace_tier_l2_badge">L2 章节结构指纹命中</string>
     <string name="marketplace_tier_l3_badge">L3 ISBN 与章节锚点命中</string>
-    <string name="marketplace_offer_summary">社区已校验防剧透图谱包（含 %1$d 个人物/实体 · %2$d 条证据链），下载后受本地认知边界防火墙严格过滤。仅需 %3$d 积分解锁复用（省去 %4$d 积分全书 AI 从头抽取）。</string>
-    <string name="marketplace_unlock_btn">解锁复用共享图谱 (-%1$d 积分)</string>
+    <string name="marketplace_offer_summary">社区已校验防剧透图谱包（含 %1$d 个人物/实体 · %2$d 条证据链），下载后受本地认知边界防火墙严格过滤。仅需 %3$d 推理点解锁复用（省去 %4$d 推理点全书 AI 从头抽取）。</string>
+    <string name="marketplace_unlock_btn">解锁复用共享图谱 (-%1$d 推理点)</string>
     <string name="marketplace_unlocked_badge">✓ 已解锁并挂载共享图谱包</string>
-    <string name="marketplace_publish_btn">0 积分上传 · 每次被下载自动获赠 +1 积分创作者分成</string>
-    <string name="marketplace_published_badge">✓ 已发布至共享目录 · 累计创作者分成：+%1$d 积分 (上限 120)</string>
+    <string name="marketplace_publish_btn">0 推理点上传 · 每次被下载自动获赠 +1 推理点创作者分成</string>
+    <string name="marketplace_published_badge">✓ 已发布至共享目录 · 累计创作者分成：+%1$d 推理点 (上限 40)</string>
     <string name="marketplace_simulate_royalty_btn">模拟其他读者下载 (+1 创作者分成)</string>
 </resources>

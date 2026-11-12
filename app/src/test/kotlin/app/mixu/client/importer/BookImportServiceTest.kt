@@ -237,10 +237,19 @@ class BookImportServiceTest {
                 val excluded = assertIs<BookImportError.ExcludedFormat>(pdfFailed.error)
                 assertEquals("PDF", excluded.formatCode)
 
-                // TXT rejected as deferred unless enabled in allowlist
+                // TXT rejected as deferred when validator allowlist is restricted to EPUB only
+                val epubOnlyService =
+                    BookImportService(
+                        database = db,
+                        booksDirectory = booksDir,
+                        validator =
+                            PublicationFormatValidator(
+                                enabledFormats = setOf(PublicationFormatValidator.FORMAT_EPUB),
+                            ),
+                    )
                 val txtStream = ByteArrayInputStream("Chapter 1\nSome plain text".toByteArray())
                 val txtResult =
-                    service.importStream(
+                    epubOnlyService.importStream(
                         inputStream = txtStream,
                         fileName = "novel.txt",
                         declaredMimeType = PublicationFormatValidator.MIME_PLAIN_TEXT,
@@ -249,6 +258,92 @@ class BookImportServiceTest {
                 val deferred =
                     assertIs<BookImportError.UnsupportedOrDeferredFormat>(txtFailed.error)
                 assertEquals("TXT", deferred.formatCode)
+            }
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `TXT MOBI and AZW3 files normalize locally into valid EPUB archives with chapters`() {
+        val tempDir = Files.createTempDirectory("mixu-import-multi-format-test").toFile()
+        try {
+            val dbFile = tempDir.resolve(LocalLibraryDatabase.DATABASE_FILE_NAME)
+            val booksDir = tempDir.resolve("books")
+
+            LocalLibraryDatabase.open(dbFile).use { db ->
+                val service = BookImportService(database = db, booksDirectory = booksDir)
+
+                // 1. Import Chinese .txt novel with chapter headings
+                val txtFile = tempDir.resolve("《雾港钟楼疑案》-陈默.txt")
+                txtFile.writeText(
+                    """
+                    书名：《雾港钟楼疑案》
+                    作者：陈默
+
+                    第一章 暴雨中的钟声
+                    冬夜十一点整，雾港钟楼传来了第十三下钟声。侦探周岚推开沉重的橡木门。
+
+                    第二章 消失的怀表
+                    死者掌心紧握着半截断裂的银链，而那块慢了十五分钟的怀表却不翼而飞。
+                    """.trimIndent(),
+                    Charsets.UTF_8,
+                )
+                val txtRes = service.importFile(txtFile, PublicationFormatValidator.MIME_PLAIN_TEXT)
+                val txtImported = assertIs<BookImportResult.Imported>(txtRes)
+                assertEquals("雾港钟楼疑案", txtImported.bookItem.title)
+                assertEquals("陈默", txtImported.bookItem.author)
+                assertEquals(2, txtImported.bookItem.totalChapters)
+                assertEquals("zh-CN", txtImported.metadata.language)
+
+                // 2. Import PalmDOC LZ77-compressed .mobi novel
+                val mobiFile = tempDir.resolve("locked-observatory.mobi")
+                mobiFile.writeBytes(
+                    EbookFormatNormalizer.createSyntheticMobiBytes(
+                        title = "The Locked Observatory",
+                        author = "Arthur Pendelton",
+                        chapters =
+                            listOf(
+                                "Chapter 1: Starlight Alibi" to
+                                    "The telescope dome was sealed from the inside at midnight.",
+                                "Chapter 2: The Broken Lens" to
+                                    "A shard of crown glass lay beside the brass chronometer.",
+                            ),
+                        compressLz77 = true,
+                    ),
+                )
+                val mobiRes = service.importFile(mobiFile, PublicationFormatValidator.MIME_MOBI)
+                val mobiImported = assertIs<BookImportResult.Imported>(mobiRes)
+                assertEquals("The Locked Observatory", mobiImported.bookItem.title)
+                assertEquals("Arthur Pendelton", mobiImported.bookItem.author)
+                assertEquals(2, mobiImported.bookItem.totalChapters)
+                assertEquals(
+                    listOf("Chapter 1: Starlight Alibi", "Chapter 2: The Broken Lens"),
+                    mobiImported.metadata.spineItems.map { it.title },
+                )
+
+                // 3. Import .azw3 mystery novel
+                val azw3File = tempDir.resolve("crooked-mansion.azw3")
+                azw3File.writeBytes(
+                    EbookFormatNormalizer.createSyntheticMobiBytes(
+                        title = "冰沼馆密室讲义",
+                        author = "推理研究会",
+                        chapters =
+                            listOf(
+                                "第一幕 暴雪封山" to "通往外界的吊桥在暴风雪中被人为锯断。",
+                                "第二幕 塔楼足迹" to "雪地上只有一串朝向塔楼延伸的单向脚印。",
+                            ),
+                        compressLz77 = true,
+                    ),
+                )
+                val azw3Res = service.importFile(azw3File, PublicationFormatValidator.MIME_AZW3)
+                val azw3Imported = assertIs<BookImportResult.Imported>(azw3Res)
+                assertEquals("冰沼馆密室讲义", azw3Imported.bookItem.title)
+                assertEquals("推理研究会", azw3Imported.bookItem.author)
+                assertEquals(2, azw3Imported.bookItem.totalChapters)
+                assertEquals("zh-CN", azw3Imported.metadata.language)
+
+                assertEquals(3, db.listLibraryItems().size)
             }
         } finally {
             tempDir.deleteRecursively()

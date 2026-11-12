@@ -84,6 +84,49 @@ enum class CopilotSessionMode {
 }
 
 /**
+ * Selectable LLM model tier for the AI Butler / Copilot, decoupled from the KG extraction model.
+ */
+data class CopilotModelOption(
+    val modelId: String,
+    val shortName: String,
+    val creditCost: Int,
+) {
+    val badgeLabel: String
+        get() = "$shortName · $creditCost Cr"
+
+    companion object {
+        val AVAILABLE_MODELS =
+            listOf(
+                CopilotModelOption(
+                    modelId = "deepseek/deepseek-v4.1-flash-1017",
+                    shortName = "DeepSeek V4.1",
+                    creditCost = 1,
+                ),
+                CopilotModelOption(
+                    modelId = "qwen/qwen3.7-flash",
+                    shortName = "Qwen 3.7",
+                    creditCost = 2,
+                ),
+                CopilotModelOption(
+                    modelId = "z-ai/glm-5.3-flash",
+                    shortName = "GLM 5.3",
+                    creditCost = 2,
+                ),
+                CopilotModelOption(
+                    modelId = "google/gemini-3.8-flash",
+                    shortName = "Gemini 3.8",
+                    creditCost = 3,
+                ),
+                CopilotModelOption(
+                    modelId = "anthropic/claude-haiku-5.5",
+                    shortName = "Haiku 5.5",
+                    creditCost = 5,
+                ),
+            )
+    }
+}
+
+/**
  * Actionable topic option inside an AI Agent greeting/card message.
  */
 data class AgentQuickActionItem(
@@ -520,6 +563,9 @@ fun AiButlerCopilotDialog(
     val currentSession = sessions[activeSessionIndex.coerceIn(0, sessions.lastIndex)]
 
     var inputDraft by remember { mutableStateOf("") }
+    var selectedModel by remember {
+        mutableStateOf(CopilotModelOption.AVAILABLE_MODELS.first())
+    }
     var attachCurrentImage by remember(currentPageImageToken, initialMode) {
         mutableStateOf(
             currentPageImageToken != null && initialMode == CopilotSessionMode.BOOK_COPILOT,
@@ -567,6 +613,7 @@ fun AiButlerCopilotDialog(
         val editionKey = activeBook?.id ?: "urn:mixu:edition:active"
         val horizonOrd = currentChapterIndex.coerceAtLeast(0)
         val userIdVal = userSession.anonymousId.ifBlank { "guest-reader" }
+        val chosenModel = selectedModel
         Thread {
             val res =
                 apiClient.queryCopilot(
@@ -577,6 +624,7 @@ fun AiButlerCopilotDialog(
                     bookTitle = activeBookTitle,
                     chapterTitle = currentChapterTitle,
                     visibleExcerpt = currentVisibleText,
+                    modelId = chosenModel.modelId,
                 )
             if (!res.offlineFallback && res.answer.isNotBlank()) {
                 runCatching {
@@ -588,7 +636,8 @@ fun AiButlerCopilotDialog(
                                     if (msg.id == assistantMsgId) {
                                         msg.copy(
                                             text = res.answer,
-                                            actionBadge = "云端 AI 伴读 · 第 1~$safeChapterNum 节",
+                                            actionBadge =
+                                                "${chosenModel.shortName} (${res.creditCost} Cr) · 第 1~$safeChapterNum 节",
                                             animateStreaming = true,
                                         )
                                     } else {
@@ -832,6 +881,49 @@ fun AiButlerCopilotDialog(
                         contentAlignment = Alignment.Center,
                     ) {
                         VectorChevronDownIcon(tint = colors.onSurfaceVariant)
+                    }
+                }
+            }
+
+            // 1.5 Decoupled Copilot Model Tier Selector (1 Cr default DeepSeek vs Premium models)
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                for (modelOpt in CopilotModelOption.AVAILABLE_MODELS) {
+                    val isSelectedModel = modelOpt.modelId == selectedModel.modelId
+                    Surface(
+                        modifier = Modifier.clickable { selectedModel = modelOpt },
+                        shape = RoundedCornerShape(10.dp),
+                        color =
+                            if (isSelectedModel) {
+                                colors.primaryContainer
+                            } else {
+                                colors.surfaceVariant.copy(alpha = 0.45f)
+                            },
+                        border =
+                            BorderStroke(
+                                0.8.dp,
+                                if (isSelectedModel) colors.primary else colors.outlineVariant,
+                            ),
+                    ) {
+                        Text(
+                            text = modelOpt.badgeLabel,
+                            style = MixuTheme.typography.caption.copy(fontSize = 10.sp),
+                            fontWeight =
+                                if (isSelectedModel) FontWeight.Bold else FontWeight.Medium,
+                            color =
+                                if (isSelectedModel) {
+                                    colors.onPrimaryContainer
+                                } else {
+                                    colors.onSurfaceVariant
+                                },
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        )
                     }
                 }
             }
@@ -1319,50 +1411,72 @@ private fun executeAutoOrganizeCollections(
     }
 }
 
-private fun executeAutoAssignTags(
+internal fun executeAutoAssignTags(
     books: List<BookItem>,
     database: LocalLibraryDatabase,
+    modelBadge: String = "DeepSeek V4.1 · 1 Cr",
 ): String {
     var enrichedCount = 0
+    var unreadProtectedCount = 0
+    var completedUnlockedCount = 0
+    val safeTagSamples = linkedSetOf<String>()
+    val unlockedTrickSamples = linkedSetOf<String>()
+
     for (book in books) {
-        val nextTags = LinkedHashSet(book.tags)
-        if (book.author.isNotBlank() && !book.author.equals("Unknown", ignoreCase = true)) {
-            nextTags.add(book.author)
+        val inferred =
+            BookItem.spoilerSafeTagsFor(
+                id = book.id,
+                title = book.title,
+                author = book.author,
+                isCompleted = book.isCompleted,
+            )
+        val merged = LinkedHashSet<String>()
+        for (existing in book.tags) {
+            if (book.isCompleted || existing !in BookItem.SPOILER_GUARDED_TRICK_TAGS) {
+                merged.add(existing)
+            }
         }
-        val titleAndAuthor = "${book.title} ${book.author}"
-        if (titleAndAuthor.contains("密室") || titleAndAuthor.contains("F")) {
-            nextTags.add("密室杀人")
-            nextTags.add("新本格")
+        merged.addAll(inferred)
+        if (!book.isCompleted) {
+            merged.removeAll(BookItem.SPOILER_GUARDED_TRICK_TAGS)
+            unreadProtectedCount++
+        } else {
+            val tricks = merged.filter { it in BookItem.SPOILER_GUARDED_TRICK_TAGS }
+            if (tricks.isNotEmpty()) {
+                completedUnlockedCount++
+                unlockedTrickSamples.addAll(tricks)
+            }
         }
-        if (titleAndAuthor.contains("杀意") || titleAndAuthor.contains("三幕")) {
-            nextTags.add("叙述性诡计")
-            nextTags.add("本格推理")
+        for (t in merged) {
+            if (t !in BookItem.SPOILER_GUARDED_TRICK_TAGS && t != book.author) {
+                safeTagSamples.add(t)
+            }
         }
-        if (titleAndAuthor.contains("证人") || titleAndAuthor.contains("山庄")) {
-            nextTags.add("暴风雪山庄")
-        }
-        if (titleAndAuthor.contains("13.67") || titleAndAuthor.contains("陈浩基")) {
-            nextTags.add("社会派")
-            nextTags.add("香港推理")
-        }
-        if (titleAndAuthor.contains("Christie") || titleAndAuthor.contains("Roger")) {
-            nextTags.add("黄金古典")
-            nextTags.add("阿加莎")
-        }
-        if (nextTags.size == 1) {
-            nextTags.add("本格推理")
-        }
-        val finalTags = nextTags.toList()
+        val finalTags = merged.toList()
         if (finalTags != book.tags) {
             database.setBookTags(book.id, finalTags)
             enrichedCount++
         }
     }
+    val safePreview =
+        safeTagSamples
+            .take(8)
+            .joinToString(" ") { "`#$it`" }
+            .ifEmpty { "`#校园` `#恋爱` `#历史` `#科幻设定` `#奇幻架空` `#恐怖`" }
+    val trickPreview =
+        if (unlockedTrickSamples.isNotEmpty()) {
+            unlockedTrickSamples.joinToString(" ") { "`#$it`" }
+        } else {
+            "仅在完读 (`100%`) 后解锁 `#叙述性诡计` `#Meta元叙事` `#实体书机关`"
+        }
     return buildString {
-        appendLine("### 书籍 Tag 数组批量生成完成")
-        appendLine("- **更新书籍**：`$enrichedCount` 本（字段类型：`tags: List<String>`）")
-        appendLine("- **新增维度**：`#密室杀人` `#暴风雪山庄` `#叙述性诡计` `#新本格` `#黄金古典`")
-        append("- **云端同步**：已写入 `sync_outbox` 队列。")
+        appendLine("### 防剧透双层 Tag 批量生成完成 ($modelBadge)")
+        appendLine(
+            "- **更新书籍**：`$enrichedCount` 本（未读防剧透保护 `$unreadProtectedCount` 本 · 完读解锁诡计 `$completedUnlockedCount` 本）",
+        )
+        appendLine("- **表层题材与背景 Tag（未读可见）**：$safePreview")
+        appendLine("- **深层核心诡计 Tag（完读 100% 解锁）**：$trickPreview")
+        append("- **云端同步**：已写入本地 `SQLite` 与 `sync_outbox` 队列。")
     }
 }
 

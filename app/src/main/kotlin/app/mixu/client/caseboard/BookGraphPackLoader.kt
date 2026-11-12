@@ -228,18 +228,7 @@ class BookGraphPackLoader(
         val shortHash = sha.take(16)
         val editionId = asset.editionId ?: "urn:mixu:edition:$shortHash"
 
-        val boundedChapters = publication.chapters.take(MAX_CLOUD_CHAPTERS)
-        val perChapterBudget =
-            (MAX_TOTAL_CLOUD_CHARS / boundedChapters.size.coerceAtLeast(1))
-                .coerceIn(MIN_CLOUD_CHAPTER_CHARS, MAX_SINGLE_CLOUD_CHAPTER_CHARS)
-        val digests =
-            boundedChapters.mapIndexed { idx, ch ->
-                CloudChapterDigestDto(
-                    ordinal = idx,
-                    title = ch.spineItem.title,
-                    excerpt = sampleChapterForCloudExtraction(ch.fullText, perChapterBudget),
-                )
-            }
+        val digests = coalesceChaptersForCloudExtraction(publication.chapters)
 
         val cloudResult =
             apiClient.extractBookGraph(
@@ -315,9 +304,66 @@ class BookGraphPackLoader(
 
     companion object {
         const val MAX_CLOUD_CHAPTERS = 80
+        const val TARGET_CLOUD_WINDOWS = 60
         const val MAX_TOTAL_CLOUD_CHARS = 160_000
         const val MIN_CLOUD_CHAPTER_CHARS = 2_400
         const val MAX_SINGLE_CLOUD_CHAPTER_CHARS = 48_000
+
+        /**
+         * Converts EPUB chapters into [CloudChapterDigestDto] windows for cloud AI graph extraction.
+         * When a book has `<= MAX_CLOUD_CHAPTERS` spines, each chapter is mapped 1:1.
+         * When a book has `> MAX_CLOUD_CHAPTERS` spines (e.g., 301-spine《歪曲创世纪》), adjacent
+         * micro-spines are stride-coalesced into `<= TARGET_CLOUD_WINDOWS` windows while preserving
+         * original `0..N-1` spine ordinals so late-book reveals are never truncated.
+         *
+         * Time complexity: O(C) where C is chapter count.
+         * Space complexity: O(min(C, TARGET_CLOUD_WINDOWS)).
+         */
+        fun coalesceChaptersForCloudExtraction(
+            chapters: List<app.mixu.client.reader.EpubChapterContent>,
+            maxChapters: Int = MAX_CLOUD_CHAPTERS,
+            targetWindows: Int = TARGET_CLOUD_WINDOWS,
+        ): List<CloudChapterDigestDto> {
+            if (chapters.isEmpty()) return emptyList()
+            if (chapters.size <= maxChapters) {
+                val perChapterBudget =
+                    (MAX_TOTAL_CLOUD_CHARS / chapters.size.coerceAtLeast(1))
+                        .coerceIn(MIN_CLOUD_CHAPTER_CHARS, MAX_SINGLE_CLOUD_CHAPTER_CHARS)
+                return chapters.mapIndexed { idx, ch ->
+                    CloudChapterDigestDto(
+                        ordinal = idx,
+                        title = ch.spineItem.title,
+                        excerpt = sampleChapterForCloudExtraction(ch.fullText, perChapterBudget),
+                    )
+                }
+            }
+            val stride =
+                ((chapters.size + targetWindows - 1) / targetWindows.coerceAtLeast(1))
+                    .coerceAtLeast(1)
+            val indexedGroups = chapters.withIndex().chunked(stride)
+            val perWindowBudget =
+                (MAX_TOTAL_CLOUD_CHARS / indexedGroups.size.coerceAtLeast(1))
+                    .coerceIn(MIN_CLOUD_CHAPTER_CHARS, MAX_SINGLE_CLOUD_CHAPTER_CHARS)
+            return indexedGroups.map { group ->
+                val first = group.first()
+                val last = group.last()
+                val mergedTitle =
+                    if (group.size == 1) {
+                        first.value.spineItem.title
+                    } else {
+                        "${first.value.spineItem.title}..${last.value.spineItem.title}"
+                    }
+                val combinedText =
+                    group.joinToString("\n") { (ord, ch) ->
+                        "[ordinal=$ord] ${ch.fullText.trim()}"
+                    }
+                CloudChapterDigestDto(
+                    ordinal = last.index,
+                    title = mergedTitle,
+                    excerpt = sampleChapterForCloudExtraction(combinedText, perWindowBudget),
+                )
+            }
+        }
 
         /**
          * Preserves the full chapter text when within [maxChars] (up to 48,000 chars for

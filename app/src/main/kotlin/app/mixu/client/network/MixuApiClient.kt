@@ -2,8 +2,12 @@
 package app.mixu.client.network
 
 import app.mixu.client.billing.ClientCreditWallet
+import app.mixu.client.billing.ClientStorageStatus
 import app.mixu.client.billing.EditionMatchTier
 import app.mixu.client.billing.SharedPackMarketplaceOffer
+import app.mixu.client.billing.StorageLevel
+import app.mixu.client.billing.StorageQuotaState
+import app.mixu.client.billing.SubscriptionPlan
 import app.mixu.client.billing.TopUpPack
 import app.mixu.client.config.DistributionChannel
 import app.mixu.client.config.ReaderDisplayConfig
@@ -25,6 +29,8 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URI
+import java.net.URLEncoder
+import java.time.LocalDate
 
 /**
  * Immutable HTTP request value passed to [MixuHttpTransport].
@@ -251,6 +257,102 @@ data class CloudGraphExtractResult(
     val assertions: List<CloudExtractedAssertionDto>,
     val modelTier: String = CopilotQueryResult.DEFAULT_COPILOT_MODEL_TIER,
     val offlineFallback: Boolean = false,
+)
+
+/**
+ * Machine-readable API error envelope (`contracts/schemas/api/error.schema.json`).
+ */
+data class ApiErrorEnvelope(
+    val code: String,
+    val message: String,
+    val requestId: String? = null,
+) {
+    val isFileSizeLimitExceeded: Boolean
+        get() = code == CODE_FILE_SIZE_LIMIT_EXCEEDED
+
+    val isDailyDownloadQuotaExceeded: Boolean
+        get() = code == CODE_DAILY_DOWNLOAD_QUOTA_EXCEEDED
+
+    val isStorageQuotaExceeded: Boolean
+        get() = code == CODE_STORAGE_QUOTA_EXCEEDED
+
+    val isRateLimited: Boolean
+        get() = code == CODE_RATE_LIMITED
+
+    companion object {
+        const val CODE_FILE_SIZE_LIMIT_EXCEEDED = "FILE_SIZE_LIMIT_EXCEEDED"
+        const val CODE_DAILY_DOWNLOAD_QUOTA_EXCEEDED = "DAILY_DOWNLOAD_QUOTA_EXCEEDED"
+        const val CODE_STORAGE_QUOTA_EXCEEDED = "STORAGE_QUOTA_EXCEEDED"
+        const val CODE_RATE_LIMITED = "RATE_LIMITED"
+        const val CODE_INVALID_REQUEST = "INVALID_REQUEST"
+        const val CODE_FORBIDDEN = "FORBIDDEN"
+    }
+}
+
+/**
+ * Result of `POST /v1/storage/check-in` or `POST /v1/storage/check-in/makeup`.
+ */
+data class StorageCheckInResult(
+    val alreadyCheckedIn: Boolean,
+    val newlyLeveledUp: Boolean,
+    val quotaState: StorageQuotaState,
+    val offlineFallback: Boolean = false,
+    val error: ApiErrorEnvelope? = null,
+)
+
+/**
+ * Result of `POST /v1/storage/objects/{uploadId}/download-intent`.
+ */
+data class StorageDownloadIntentResult(
+    val uploadId: String,
+    val allowed: Boolean,
+    val downloadUrl: String? = null,
+    val expiresAt: String? = null,
+    val sizeBytes: Long = 0L,
+    val sha256: String? = null,
+    val dailyDownloadRemainingBytes: Long = 0L,
+    val monthlyDownloadRemainingBytes: Long = 0L,
+    val offlineFallback: Boolean = false,
+    val error: ApiErrorEnvelope? = null,
+) {
+    val isDailyDownloadQuotaExceeded: Boolean
+        get() = error?.isDailyDownloadQuotaExceeded == true
+
+    val isFileSizeLimitExceeded: Boolean
+        get() = error?.isFileSizeLimitExceeded == true
+}
+
+/**
+ * Result of `POST /v1/uploads/intent`.
+ */
+data class StorageUploadIntentResult(
+    val allowed: Boolean,
+    val uploadId: String? = null,
+    val uploadUrl: String? = null,
+    val expiresAt: String? = null,
+    val maxSizeBytes: Long = 0L,
+    val offlineFallback: Boolean = false,
+    val error: ApiErrorEnvelope? = null,
+) {
+    val isFileSizeLimitExceeded: Boolean
+        get() = error?.isFileSizeLimitExceeded == true
+
+    val isStorageQuotaExceeded: Boolean
+        get() = error?.isStorageQuotaExceeded == true
+}
+
+/**
+ * Result of `POST /v1/storage/download-boost/verify`.
+ */
+data class DownloadAdBoostResult(
+    val challengeOrAdId: String,
+    val grantedBoostBytes: Long,
+    val dailyDownloadAdBoostBytes: Long,
+    val dailyAdBoostsUsed: Int,
+    val dailyAdBoostsCap: Int,
+    val quotaState: StorageQuotaState,
+    val offlineFallback: Boolean = false,
+    val error: ApiErrorEnvelope? = null,
 )
 
 /**
@@ -850,6 +952,529 @@ class MixuApiClient(
                 offlineFallback = obj.booleanField("offline_fallback") ?: false,
             )
         }.getOrNull()
+    }
+
+    /**
+     * Fetches the reader's 5-level cloud storage progression, egress allowances, and
+     * 7-day grace period status (`GET /v1/storage/quota`, ADR-030).
+     * Falls back to [fallbackState] when offline.
+     *
+     * Time complexity: O(1). Space complexity: O(1).
+     */
+    fun fetchStorageQuota(
+        userId: String,
+        dayKey: String? = null,
+        monthKey: String? = null,
+        fallbackState: StorageQuotaState = StorageQuotaState(),
+    ): StorageQuotaState {
+        require(userId.isNotBlank()) { "userId must not be blank" }
+        val request =
+            MixuHttpRequest(
+                method = "GET",
+                url = buildStorageQuotaUrl(dayKey = dayKey, monthKey = monthKey),
+                headers = buildHeaders(userId = userId, hasBody = false),
+            )
+        val response = executeSafely(request) ?: return fallbackState
+        if (!response.isSuccess || response.body.isBlank()) {
+            return fallbackState
+        }
+        return runCatching {
+            val obj = json.parseToJsonElement(response.body).jsonObject
+            parseStorageQuotaSummary(obj, fallback = fallbackState)
+        }.getOrElse {
+            fallbackState
+        }
+    }
+
+    /**
+     * Records an idempotent daily check-in toward the 5-level storage progression
+     * (`POST /v1/storage/check-in`). Falls back locally via [StorageQuotaState.recordCheckIn]
+     * when offline.
+     *
+     * Time complexity: O(1). Space complexity: O(1).
+     */
+    fun checkInStorage(
+        userId: String,
+        dayKey: String? = null,
+        deviceId: String? = null,
+        currentState: StorageQuotaState = StorageQuotaState(),
+    ): StorageCheckInResult {
+        require(userId.isNotBlank()) { "userId must not be blank" }
+        val body =
+            buildJsonObject {
+                dayKey?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    put("day_key", JsonPrimitive(it))
+                }
+                deviceId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    put("device_id", JsonPrimitive(it))
+                }
+            }.toString()
+        val request =
+            MixuHttpRequest(
+                method = "POST",
+                url = "$normalizedBaseUrl/v1/storage/check-in",
+                headers = buildHeaders(userId = userId, hasBody = true),
+                body = body,
+            )
+        val response = executeSafely(request)
+        if (response != null) {
+            if (response.isSuccess && response.body.isNotBlank()) {
+                runCatching {
+                    val obj = json.parseToJsonElement(response.body).jsonObject
+                    val summaryObj = obj["quota_summary"]?.jsonObject ?: obj
+                    val parsedState = parseStorageQuotaSummary(summaryObj, fallback = currentState)
+                    return StorageCheckInResult(
+                        alreadyCheckedIn = obj.booleanField("already_checked_in") ?: false,
+                        newlyLeveledUp = obj.booleanField("newly_leveled_up") ?: false,
+                        quotaState = parsedState,
+                        offlineFallback = false,
+                    )
+                }
+            } else if (!response.isSuccess && response.statusCode in 400..499) {
+                return StorageCheckInResult(
+                    alreadyCheckedIn = currentState.checkedInToday,
+                    newlyLeveledUp = false,
+                    quotaState = currentState,
+                    offlineFallback = false,
+                    error = parseErrorEnvelope(response),
+                )
+            }
+        }
+
+        val effectiveDay =
+            dayKey?.trim()?.takeIf { it.isNotEmpty() } ?: LocalDate.now().toString()
+        val updated = currentState.recordCheckIn(effectiveDay)
+        return StorageCheckInResult(
+            alreadyCheckedIn = updated.checkinDays == currentState.checkinDays,
+            newlyLeveledUp = updated.storageLevel.level > currentState.storageLevel.level,
+            quotaState = updated,
+            offlineFallback = true,
+        )
+    }
+
+    /**
+     * Verifies a rewarded ad or E-Ink QR challenge to make up a missed storage check-in
+     * (`POST /v1/storage/check-in/makeup`). Falls back locally via
+     * [StorageQuotaState.makeupCheckInWithAd] when offline.
+     *
+     * Time complexity: O(1). Space complexity: O(1).
+     */
+    fun makeupStorageCheckIn(
+        userId: String,
+        targetDayKey: String,
+        challengeOrAdId: String,
+        signature: String,
+        nowDayKey: String? = null,
+        currentState: StorageQuotaState = StorageQuotaState(),
+    ): StorageCheckInResult {
+        require(userId.isNotBlank()) { "userId must not be blank" }
+        require(targetDayKey.isNotBlank()) { "targetDayKey must not be blank" }
+        require(challengeOrAdId.isNotBlank()) { "challengeOrAdId must not be blank" }
+        require(signature.isNotBlank()) { "signature must not be blank" }
+
+        val cleanTargetDay = targetDayKey.trim()
+        val body =
+            buildJsonObject {
+                put("target_day_key", JsonPrimitive(cleanTargetDay))
+                put("challenge_or_ad_id", JsonPrimitive(challengeOrAdId.trim()))
+                put("signature", JsonPrimitive(signature.trim()))
+            }.toString()
+        val request =
+            MixuHttpRequest(
+                method = "POST",
+                url = "$normalizedBaseUrl/v1/storage/check-in/makeup",
+                headers = buildHeaders(userId = userId, hasBody = true),
+                body = body,
+            )
+        val response = executeSafely(request)
+        if (response != null) {
+            if (response.isSuccess && response.body.isNotBlank()) {
+                runCatching {
+                    val obj = json.parseToJsonElement(response.body).jsonObject
+                    val summaryObj = obj["quota_summary"]?.jsonObject ?: obj
+                    val parsedState = parseStorageQuotaSummary(summaryObj, fallback = currentState)
+                    return StorageCheckInResult(
+                        alreadyCheckedIn = obj.booleanField("already_checked_in") ?: false,
+                        newlyLeveledUp = obj.booleanField("newly_leveled_up") ?: false,
+                        quotaState = parsedState,
+                        offlineFallback = false,
+                    )
+                }
+            } else if (!response.isSuccess && response.statusCode in 400..499) {
+                return StorageCheckInResult(
+                    alreadyCheckedIn = cleanTargetDay in currentState.recordedCheckinDayKeys,
+                    newlyLeveledUp = false,
+                    quotaState = currentState,
+                    offlineFallback = false,
+                    error = parseErrorEnvelope(response),
+                )
+            }
+        }
+
+        val effectiveNow =
+            nowDayKey?.trim()?.takeIf { it.isNotEmpty() } ?: LocalDate.now().toString()
+        val updated = currentState.makeupCheckInWithAd(cleanTargetDay, effectiveNow)
+        return StorageCheckInResult(
+            alreadyCheckedIn = cleanTargetDay in currentState.recordedCheckinDayKeys,
+            newlyLeveledUp = updated.storageLevel.level > currentState.storageLevel.level,
+            quotaState = updated,
+            offlineFallback = true,
+        )
+    }
+
+    /**
+     * Requests a presigned download URL for [uploadId] within daily and monthly egress quotas
+     * (`POST /v1/storage/objects/{uploadId}/download-intent`), parsing
+     * `DAILY_DOWNLOAD_QUOTA_EXCEEDED` and `FILE_SIZE_LIMIT_EXCEEDED` error envelopes.
+     *
+     * Time complexity: O(1). Space complexity: O(1).
+     */
+    fun requestDownloadIntent(
+        userId: String,
+        uploadId: String,
+        dayKey: String? = null,
+        monthKey: String? = null,
+        currentState: StorageQuotaState = StorageQuotaState(),
+    ): StorageDownloadIntentResult {
+        require(userId.isNotBlank()) { "userId must not be blank" }
+        require(uploadId.isNotBlank()) { "uploadId must not be blank" }
+
+        val encodedUploadId = URLEncoder.encode(uploadId.trim(), Charsets.UTF_8.name())
+        val body =
+            buildJsonObject {
+                dayKey?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    put("day_key", JsonPrimitive(it))
+                }
+                monthKey?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    put("month_key", JsonPrimitive(it))
+                }
+            }.toString()
+        val request =
+            MixuHttpRequest(
+                method = "POST",
+                url = "$normalizedBaseUrl/v1/storage/objects/$encodedUploadId/download-intent",
+                headers = buildHeaders(userId = userId, hasBody = true),
+                body = body,
+            )
+        val response = executeSafely(request)
+        if (response != null) {
+            if (response.isSuccess && response.body.isNotBlank()) {
+                runCatching {
+                    val obj = json.parseToJsonElement(response.body).jsonObject
+                    return StorageDownloadIntentResult(
+                        uploadId = obj.stringField("upload_id") ?: uploadId,
+                        allowed = true,
+                        downloadUrl = obj.stringField("download_url"),
+                        expiresAt = obj.stringField("expires_at"),
+                        sizeBytes = obj.longField("size_bytes") ?: 0L,
+                        sha256 = obj.stringField("sha256"),
+                        dailyDownloadRemainingBytes =
+                            obj.longField("daily_download_remaining_bytes")
+                                ?: currentState.remainingDailyDownloadBytes,
+                        monthlyDownloadRemainingBytes =
+                            obj.longField("monthly_download_remaining_bytes")
+                                ?: currentState.remainingMonthlyDownloadBytes,
+                        offlineFallback = false,
+                    )
+                }
+            } else if (!response.isSuccess) {
+                return StorageDownloadIntentResult(
+                    uploadId = uploadId,
+                    allowed = false,
+                    dailyDownloadRemainingBytes = currentState.remainingDailyDownloadBytes,
+                    monthlyDownloadRemainingBytes = currentState.remainingMonthlyDownloadBytes,
+                    offlineFallback = false,
+                    error = parseErrorEnvelope(response),
+                )
+            }
+        }
+
+        return StorageDownloadIntentResult(
+            uploadId = uploadId,
+            allowed = false,
+            dailyDownloadRemainingBytes = currentState.remainingDailyDownloadBytes,
+            monthlyDownloadRemainingBytes = currentState.remainingMonthlyDownloadBytes,
+            offlineFallback = true,
+        )
+    }
+
+    /**
+     * Requests a presigned direct upload URL (`POST /v1/uploads/intent`) and parses
+     * `FILE_SIZE_LIMIT_EXCEEDED` and `STORAGE_QUOTA_EXCEEDED` error envelopes.
+     *
+     * Time complexity: O(1). Space complexity: O(1).
+     */
+    fun requestUploadIntent(
+        userId: String,
+        filename: String,
+        contentType: String,
+        sizeBytes: Long,
+        sha256: String,
+        purpose: String = "bookshelf_backup",
+        currentState: StorageQuotaState = StorageQuotaState(),
+    ): StorageUploadIntentResult {
+        require(userId.isNotBlank()) { "userId must not be blank" }
+        require(filename.isNotBlank()) { "filename must not be blank" }
+        require(contentType.isNotBlank()) { "contentType must not be blank" }
+        require(sizeBytes > 0L) { "sizeBytes must be positive" }
+        require(sha256.isNotBlank()) { "sha256 must not be blank" }
+
+        val body =
+            buildJsonObject {
+                put("filename", JsonPrimitive(filename))
+                put("content_type", JsonPrimitive(contentType))
+                put("size_bytes", JsonPrimitive(sizeBytes))
+                put("sha256", JsonPrimitive(sha256))
+                put("purpose", JsonPrimitive(purpose))
+            }.toString()
+        val request =
+            MixuHttpRequest(
+                method = "POST",
+                url = "$normalizedBaseUrl/v1/uploads/intent",
+                headers = buildHeaders(userId = userId, hasBody = true),
+                body = body,
+            )
+        val response = executeSafely(request)
+        if (response != null) {
+            if (response.isSuccess && response.body.isNotBlank()) {
+                runCatching {
+                    val obj = json.parseToJsonElement(response.body).jsonObject
+                    return StorageUploadIntentResult(
+                        allowed = true,
+                        uploadId = obj.stringField("upload_id"),
+                        uploadUrl = obj.stringField("upload_url"),
+                        expiresAt = obj.stringField("expires_at"),
+                        maxSizeBytes =
+                            obj.longField("max_size_bytes") ?: currentState.maxFileSizeBytes,
+                        offlineFallback = false,
+                    )
+                }
+            } else if (!response.isSuccess) {
+                return StorageUploadIntentResult(
+                    allowed = false,
+                    maxSizeBytes = currentState.maxFileSizeBytes,
+                    offlineFallback = false,
+                    error = parseErrorEnvelope(response),
+                )
+            }
+        }
+
+        val offlineError =
+            when {
+                sizeBytes > currentState.maxFileSizeBytes ->
+                    ApiErrorEnvelope(
+                        code = ApiErrorEnvelope.CODE_FILE_SIZE_LIMIT_EXCEEDED,
+                        message = "File exceeds single-file limit",
+                    )
+                !currentState.canUploadFileBytes(sizeBytes) ->
+                    ApiErrorEnvelope(
+                        code = ApiErrorEnvelope.CODE_STORAGE_QUOTA_EXCEEDED,
+                        message = "Insufficient cloud storage quota",
+                    )
+                else -> null
+            }
+        return StorageUploadIntentResult(
+            allowed = false,
+            maxSizeBytes = currentState.maxFileSizeBytes,
+            offlineFallback = true,
+            error = offlineError,
+        )
+    }
+
+    /**
+     * Verifies a rewarded ad or E-Ink QR completion to grant a `+50 MB` daily download egress
+     * boost (`POST /v1/storage/download-boost/verify`). Falls back locally via
+     * [StorageQuotaState.applyDownloadAdBoost] when offline.
+     *
+     * Time complexity: O(1). Space complexity: O(1).
+     */
+    fun verifyDownloadAdBoost(
+        userId: String,
+        challengeOrAdId: String,
+        signature: String,
+        dayKey: String? = null,
+        currentState: StorageQuotaState = StorageQuotaState(),
+    ): DownloadAdBoostResult {
+        require(userId.isNotBlank()) { "userId must not be blank" }
+        require(challengeOrAdId.isNotBlank()) { "challengeOrAdId must not be blank" }
+        require(signature.isNotBlank()) { "signature must not be blank" }
+
+        val cleanChallengeId = challengeOrAdId.trim()
+        val body =
+            buildJsonObject {
+                put("challenge_or_ad_id", JsonPrimitive(cleanChallengeId))
+                put("signature", JsonPrimitive(signature.trim()))
+                dayKey?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    put("day_key", JsonPrimitive(it))
+                }
+            }.toString()
+        val request =
+            MixuHttpRequest(
+                method = "POST",
+                url = "$normalizedBaseUrl/v1/storage/download-boost/verify",
+                headers = buildHeaders(userId = userId, hasBody = true),
+                body = body,
+            )
+        val response = executeSafely(request)
+        if (response != null) {
+            if (response.isSuccess && response.body.isNotBlank()) {
+                runCatching {
+                    val obj = json.parseToJsonElement(response.body).jsonObject
+                    val summaryObj = obj["quota_summary"]?.jsonObject
+                    val updatedState =
+                        if (summaryObj != null) {
+                            parseStorageQuotaSummary(summaryObj, fallback = currentState)
+                        } else {
+                            currentState
+                        }
+                    return DownloadAdBoostResult(
+                        challengeOrAdId = obj.stringField("challenge_or_ad_id") ?: cleanChallengeId,
+                        grantedBoostBytes = obj.longField("granted_boost_bytes") ?: 0L,
+                        dailyDownloadAdBoostBytes =
+                            obj.longField("daily_download_ad_boost_bytes")
+                                ?: updatedState.dailyDownloadAdBoostBytes,
+                        dailyAdBoostsUsed =
+                            obj.intField("daily_ad_boosts_used") ?: updatedState.dailyAdBoostsUsed,
+                        dailyAdBoostsCap =
+                            obj.intField("daily_ad_boosts_cap") ?: updatedState.dailyAdBoostsCap,
+                        quotaState = updatedState,
+                        offlineFallback = false,
+                    )
+                }
+            } else if (!response.isSuccess && response.statusCode in 400..499) {
+                return DownloadAdBoostResult(
+                    challengeOrAdId = cleanChallengeId,
+                    grantedBoostBytes = 0L,
+                    dailyDownloadAdBoostBytes = currentState.dailyDownloadAdBoostBytes,
+                    dailyAdBoostsUsed = currentState.dailyAdBoostsUsed,
+                    dailyAdBoostsCap = currentState.dailyAdBoostsCap,
+                    quotaState = currentState,
+                    offlineFallback = false,
+                    error = parseErrorEnvelope(response),
+                )
+            }
+        }
+
+        val updated = currentState.applyDownloadAdBoost()
+        val granted =
+            (updated.dailyDownloadAdBoostBytes - currentState.dailyDownloadAdBoostBytes)
+                .coerceAtLeast(0L)
+        return DownloadAdBoostResult(
+            challengeOrAdId = cleanChallengeId,
+            grantedBoostBytes = granted,
+            dailyDownloadAdBoostBytes = updated.dailyDownloadAdBoostBytes,
+            dailyAdBoostsUsed = updated.dailyAdBoostsUsed,
+            dailyAdBoostsCap = updated.dailyAdBoostsCap,
+            quotaState = updated,
+            offlineFallback = true,
+        )
+    }
+
+    /**
+     * Parses a machine-readable [ApiErrorEnvelope] from a non-2xx [MixuHttpResponse] when present.
+     */
+    fun parseErrorEnvelope(response: MixuHttpResponse): ApiErrorEnvelope? {
+        if (response.body.isBlank()) return null
+        return runCatching {
+            val obj = json.parseToJsonElement(response.body).jsonObject
+            val code = obj.stringField("code") ?: return@runCatching null
+            ApiErrorEnvelope(
+                code = code,
+                message = obj.stringField("message").orEmpty(),
+                requestId = obj.stringField("request_id"),
+            )
+        }.getOrNull()
+    }
+
+    private fun buildStorageQuotaUrl(
+        dayKey: String?,
+        monthKey: String?,
+    ): String {
+        val params =
+            buildList {
+                dayKey?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    add("day_key=${URLEncoder.encode(it, Charsets.UTF_8.name())}")
+                }
+                monthKey?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    add("month_key=${URLEncoder.encode(it, Charsets.UTF_8.name())}")
+                }
+            }
+        return if (params.isEmpty()) {
+            "$normalizedBaseUrl/v1/storage/quota"
+        } else {
+            "$normalizedBaseUrl/v1/storage/quota?${params.joinToString("&")}"
+        }
+    }
+
+    private fun parseStorageQuotaSummary(
+        obj: JsonObject,
+        fallback: StorageQuotaState = StorageQuotaState(),
+    ): StorageQuotaState {
+        val level =
+            obj.intField("storage_level")?.let { StorageLevel.fromLevel(it) }
+                ?: fallback.storageLevel
+        val activePlan =
+            if (obj.containsKey("active_plan_id")) {
+                SubscriptionPlan.fromPlanId(obj.stringField("active_plan_id"))
+            } else {
+                fallback.activePlan
+            }
+        val status =
+            obj.stringField("subscription_status")?.let { raw ->
+                ClientStorageStatus.entries.firstOrNull { it.name == raw }
+            } ?: fallback.status
+
+        val subscriptionBonusBytes =
+            obj.longField("subscription_bonus_bytes")
+                ?: (activePlan?.bonusQuotaBytes ?: 0L)
+        val quotaLimitBytes = obj.longField("quota_limit_bytes")
+        val baseQuotaBytes =
+            obj.longField("base_quota_bytes")
+                ?: quotaLimitBytes?.let { (it - subscriptionBonusBytes).coerceAtLeast(0L) }
+                ?: level.baseQuotaBytes
+
+        return fallback.copy(
+            storageLevel = level,
+            usedBytes = obj.longField("used_bytes") ?: fallback.usedBytes,
+            baseQuotaBytes = baseQuotaBytes,
+            subscriptionBonusBytes = subscriptionBonusBytes,
+            maxFileSizeBytes =
+                obj.longField("max_file_size_bytes")
+                    ?: maxOf(level.maxFileSizeBytes, activePlan?.minMaxFileSizeBytes ?: 0L),
+            dailyDownloadQuotaBytes =
+                obj.longField("daily_download_quota_bytes")
+                    ?: (level.dailyDownloadQuotaBytes + (activePlan?.bonusDailyEgressBytes ?: 0L)),
+            dailyDownloadUsedBytes =
+                obj.longField("daily_download_used_bytes") ?: fallback.dailyDownloadUsedBytes,
+            dailyDownloadAdBoostBytes =
+                obj.longField("daily_download_ad_boost_bytes")
+                    ?: fallback.dailyDownloadAdBoostBytes,
+            dailyAdBoostsUsed =
+                obj.intField("daily_ad_boosts_used") ?: fallback.dailyAdBoostsUsed,
+            dailyAdBoostsCap =
+                obj.intField("daily_ad_boosts_cap") ?: fallback.dailyAdBoostsCap,
+            monthlyDownloadUsedBytes =
+                obj.longField("monthly_download_used_bytes") ?: fallback.monthlyDownloadUsedBytes,
+            monthlyDownloadCapBytes =
+                obj.longField("monthly_download_cap_bytes")
+                    ?: (
+                        level.monthlyDownloadCapBytes +
+                            (activePlan?.bonusMonthlyEgressBytes ?: 0L)
+                    ),
+            checkinDays = obj.intField("checkin_days") ?: fallback.checkinDays,
+            checkinStreak = obj.intField("checkin_streak") ?: fallback.checkinStreak,
+            checkedInToday = obj.booleanField("checked_in_today") ?: fallback.checkedInToday,
+            monthlyMakeupUsed = obj.intField("monthly_makeup_used") ?: fallback.monthlyMakeupUsed,
+            monthlyMakeupCap = obj.intField("monthly_makeup_cap") ?: fallback.monthlyMakeupCap,
+            readingMinutes = obj.intField("reading_minutes") ?: fallback.readingMinutes,
+            chaptersRead = obj.intField("chapters_read") ?: fallback.chaptersRead,
+            graphDownloads = obj.intField("graph_downloads") ?: fallback.graphDownloads,
+            aiQueries = obj.intField("ai_queries") ?: fallback.aiQueries,
+            completedGraphBuilds =
+                obj.intField("completed_graph_builds") ?: fallback.completedGraphBuilds,
+            status = status,
+            activePlan = activePlan,
+        )
     }
 
     private fun parseWalletJson(

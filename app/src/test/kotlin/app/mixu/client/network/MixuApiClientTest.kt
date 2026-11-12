@@ -319,7 +319,7 @@ class MixuApiClientTest {
                                           "first_reveal": 0
                                         }
                                       ],
-                                      "model_id": "deepseek/deepseek-v4.1-flash-1017",
+                                      "model_tier": "standard",
                                       "offline_fallback": false
                                     }
                                     """.trimIndent(),

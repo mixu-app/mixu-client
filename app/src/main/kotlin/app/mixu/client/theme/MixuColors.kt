@@ -28,6 +28,13 @@ data class MixuColors(
     val retracted: Color,
     val unresolved: Color,
     val isEInk: Boolean = false,
+    val readerPaperBackground: Color = background,
+    val readerPageText: Color = onBackground,
+    val readerHeaderFooterText: Color = onSurfaceVariant,
+    val readerBookmarkAccent: Color = primary,
+    val copilotFabPrimary: Color = Color(0xFF4F46E5),
+    val copilotAgentBubbleSurface: Color = surface,
+    val copilotUserBubbleSurface: Color = primaryContainer,
 ) {
     /**
      * Resolves the theme color associated with a narrative epistemic status.

@@ -42,11 +42,14 @@ fun MixuTheme(
     themeMode: MixuThemeMode = MixuThemeMode.LIGHT,
     eInkPolicy: EInkPolicy = EInkPolicy.STANDARD,
     typography: MixuTypography = createMixuTypography(),
+    customThemePack: MixuThemePack? = null,
     content: @Composable () -> Unit,
 ) {
     val resolvedColors =
         if (eInkPolicy.isActive || themeMode == MixuThemeMode.EINK) {
             EInkMixuColors
+        } else if (customThemePack != null) {
+            customThemePack.toMixuColors()
         } else {
             when (themeMode) {
                 MixuThemeMode.LIGHT -> LightMixuColors
@@ -59,8 +62,9 @@ fun MixuTheme(
             }
         }
 
+    val effectiveMode = customThemePack?.resolvedBaseMode() ?: themeMode
     val isDarkPalette =
-        (themeMode == MixuThemeMode.DARK || themeMode == MixuThemeMode.NORD_DARK) &&
+        (effectiveMode == MixuThemeMode.DARK || effectiveMode == MixuThemeMode.NORD_DARK) &&
             !resolvedColors.isEInk
 
     val materialColorScheme: ColorScheme =

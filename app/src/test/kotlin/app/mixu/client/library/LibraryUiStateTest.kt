@@ -355,4 +355,108 @@ class LibraryUiStateTest {
         assertEquals(300, windows.last().ordinal)
         assertTrue(windows.last().excerpt.contains("【封底】逃脱造物主"))
     }
+
+    @Test
+    fun customThemePack_parsesJsonOverridesAllFourSurfacesAndRoundTripsInConfig() {
+        val rawThemeJson =
+            """
+            {
+              "schema_version": 1,
+              "id": "tokyo-night-detective",
+              "name": "Tokyo Night 侦探暗夜",
+              "author": "Mixu Theme Studio",
+              "base_mode": "NORD_DARK",
+              "chrome": {
+                "background": "#1A1B26",
+                "surface": "#24283B",
+                "primary": "#7AA2F7",
+                "on_primary": "#15161E"
+              },
+              "reader": {
+                "paper_background": "#1F2335",
+                "page_text": "#C0CAF5",
+                "bookmark_accent": "#F7768E",
+                "font_family": "SERIF",
+                "font_size_sp": 18.0,
+                "line_height_multiplier": 1.75,
+                "paragraph_indent_em": 2.0,
+                "page_column_mode": "DOUBLE"
+              },
+              "case_board": {
+                "observed": "#9ECE6A",
+                "contradicted": "#F7768E",
+                "unresolved": "#E0AF68"
+              },
+              "copilot": {
+                "fab_primary": "#BB9AF7",
+                "agent_bubble_surface": "#292E42",
+                "user_bubble_surface": "#3B4261"
+              }
+            }
+            """.trimIndent()
+
+        val pack =
+            app.mixu.client.theme.MixuThemePack
+                .fromJsonOrNull(rawThemeJson)
+        kotlin.test.assertNotNull(pack)
+        assertEquals("tokyo-night-detective", pack.id)
+        assertEquals(app.mixu.client.theme.MixuThemeMode.NORD_DARK, pack.resolvedBaseMode())
+
+        val resolvedColors = pack.toMixuColors()
+        assertEquals(
+            androidx.compose.ui.graphics
+                .Color(0xFF1A1B26),
+            resolvedColors.background,
+        )
+        assertEquals(
+            androidx.compose.ui.graphics
+                .Color(0xFF1F2335),
+            resolvedColors.readerPaperBackground,
+        )
+        assertEquals(
+            androidx.compose.ui.graphics
+                .Color(0xFFF7768E),
+            resolvedColors.contradicted,
+        )
+        assertEquals(
+            androidx.compose.ui.graphics
+                .Color(0xFFBB9AF7),
+            resolvedColors.copilotFabPrimary,
+        )
+
+        val importedConfig =
+            app.mixu.client.config.ReaderDisplayConfig.DEFAULT
+                .importThemePackJson(rawThemeJson)
+        kotlin.test.assertNotNull(importedConfig)
+        assertEquals(app.mixu.client.theme.MixuThemeMode.NORD_DARK, importedConfig.themeMode)
+        assertEquals(18.0f, importedConfig.fontSizeSp)
+        assertEquals(1.75f, importedConfig.lineHeightMultiplier)
+        assertEquals(
+            app.mixu.client.config.PageColumnMode.DOUBLE,
+            importedConfig.pageColumnMode,
+        )
+
+        val roundTripped =
+            app.mixu.client.config.ReaderDisplayConfig
+                .fromMap(importedConfig.toMap())
+        assertEquals(
+            "tokyo-night-detective",
+            roundTripped.resolvedThemePack()?.id,
+        )
+    }
+
+    @Test
+    fun copilotModelOptions_exposeOnlyOpaqueTiersWithoutBackendVendorNames() {
+        val tiers = app.mixu.client.copilot.CopilotModelOption.AVAILABLE_MODELS
+        assertEquals(listOf("standard", "balanced", "reasoning", "pro"), tiers.map { it.modelTier })
+        assertEquals(1, tiers.first().creditCost)
+        for (option in tiers) {
+            val combined = "${option.modelTier} ${option.shortName}".lowercase()
+            assertFalse(combined.contains("deepseek"))
+            assertFalse(combined.contains("qwen"))
+            assertFalse(combined.contains("gemini"))
+            assertFalse(combined.contains("claude"))
+            assertFalse(combined.contains("glm"))
+        }
+    }
 }

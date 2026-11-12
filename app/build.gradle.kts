@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("mixu.android.application")
     id("mixu.compose")
@@ -15,15 +17,32 @@ android {
     }
 
     val keystorePath = System.getenv("MIXU_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
+    val keystoreBase64 = System.getenv("MIXU_KEYSTORE_BASE64")?.takeIf { it.isNotBlank() }
+    val resolvedKeystoreFile =
+        when {
+            keystorePath != null && file(keystorePath).exists() -> file(keystorePath)
+            keystoreBase64 != null ->
+                runCatching {
+                    val decoded =
+                        layout.buildDirectory
+                            .file("tmp/signing/release.keystore")
+                            .get()
+                            .asFile
+                    decoded.parentFile.mkdirs()
+                    decoded.writeBytes(Base64.getDecoder().decode(keystoreBase64.trim()))
+                    decoded
+                }.getOrNull()
+            else -> null
+        }
     val keystorePassword = System.getenv("MIXU_KEYSTORE_PASSWORD").orEmpty()
     val keyAlias = System.getenv("MIXU_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "mixu-release"
     val keyPassword =
         System.getenv("MIXU_KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: keystorePassword
 
     signingConfigs {
-        if (keystorePath != null && file(keystorePath).exists()) {
+        if (resolvedKeystoreFile != null && resolvedKeystoreFile.exists()) {
             create("release") {
-                storeFile = file(keystorePath)
+                storeFile = resolvedKeystoreFile
                 storePassword = keystorePassword
                 this.keyAlias = keyAlias
                 this.keyPassword = keyPassword

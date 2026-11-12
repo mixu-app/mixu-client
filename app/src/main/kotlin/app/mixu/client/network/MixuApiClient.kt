@@ -168,9 +168,15 @@ data class CopilotQueryResult(
     val editionId: String,
     val horizonOrdinal: Int,
     val answer: String,
+    val modelId: String = DEFAULT_COPILOT_MODEL_ID,
+    val creditCost: Int = 1,
     val statelessMode: Boolean,
     val offlineFallback: Boolean = false,
-)
+) {
+    companion object {
+        const val DEFAULT_COPILOT_MODEL_ID = "deepseek/deepseek-v4.1-flash-1017"
+    }
+}
 
 /**
  * Result of requesting an email OTP code (`POST /v1/auth/email/send-code`).
@@ -619,6 +625,7 @@ class MixuApiClient(
         bookTitle: String? = null,
         chapterTitle: String? = null,
         visibleExcerpt: String? = null,
+        modelId: String? = null,
     ): CopilotQueryResult {
         require(userId.isNotBlank()) { "userId must not be blank" }
         require(editionId.isNotBlank()) { "editionId must not be blank" }
@@ -627,6 +634,8 @@ class MixuApiClient(
         }
         require(query.isNotBlank()) { "query must not be blank" }
 
+        val requestedModel =
+            modelId?.takeIf { it.isNotBlank() } ?: CopilotQueryResult.DEFAULT_COPILOT_MODEL_ID
         val body =
             buildJsonObject {
                 put("user_id", JsonPrimitive(userId))
@@ -640,8 +649,9 @@ class MixuApiClient(
                     put("chapter_title", JsonPrimitive(it))
                 }
                 visibleExcerpt?.takeIf { it.isNotBlank() }?.let {
-                    put("visible_excerpt", JsonPrimitive(it.take(1_200)))
+                    put("visible_excerpt", JsonPrimitive(it.take(8_000)))
                 }
+                put("model_id", JsonPrimitive(requestedModel))
                 put("stateless_mode", JsonPrimitive(statelessSelfHostedMode))
             }.toString()
         val request =
@@ -659,6 +669,8 @@ class MixuApiClient(
                     editionId = obj.stringField("edition_id") ?: editionId,
                     horizonOrdinal = obj.intField("horizon_ordinal") ?: horizonOrdinal,
                     answer = obj.stringField("answer").orEmpty(),
+                    modelId = obj.stringField("model_id") ?: requestedModel,
+                    creditCost = obj.intField("credit_cost") ?: 1,
                     statelessMode =
                         obj.booleanField("stateless_mode") ?: statelessSelfHostedMode,
                     offlineFallback = obj.booleanField("offline_fallback") ?: false,
@@ -672,6 +684,8 @@ class MixuApiClient(
             answer =
                 "[Offline Spoiler-Safe Horizon <= $horizonOrdinal] " +
                     "Verified local graph context for $editionId: $query",
+            modelId = requestedModel,
+            creditCost = 1,
             statelessMode = statelessSelfHostedMode,
             offlineFallback = true,
         )
@@ -690,6 +704,7 @@ class MixuApiClient(
         bookTitle: String,
         bookAuthor: String,
         chapters: List<CloudChapterDigestDto>,
+        modelId: String? = null,
     ): CloudGraphExtractResult? {
         require(userId.isNotBlank()) { "userId must not be blank" }
         require(editionId.isNotBlank()) { "editionId must not be blank" }
@@ -699,15 +714,18 @@ class MixuApiClient(
                 put("edition_id", JsonPrimitive(editionId))
                 put("book_title", JsonPrimitive(bookTitle))
                 put("book_author", JsonPrimitive(bookAuthor))
+                modelId?.takeIf { it.isNotBlank() }?.let {
+                    put("model_id", JsonPrimitive(it))
+                }
                 put(
                     "chapters",
                     buildJsonArray {
-                        for (ch in chapters.take(16)) {
+                        for (ch in chapters.take(80)) {
                             add(
                                 buildJsonObject {
                                     put("ordinal", JsonPrimitive(ch.ordinal))
                                     put("title", JsonPrimitive(ch.title))
-                                    put("excerpt", JsonPrimitive(ch.excerpt.take(400)))
+                                    put("excerpt", JsonPrimitive(ch.excerpt.take(36_000)))
                                 },
                             )
                         }

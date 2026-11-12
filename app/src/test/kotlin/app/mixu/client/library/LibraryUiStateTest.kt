@@ -268,4 +268,91 @@ class LibraryUiStateTest {
         assertTrue(autoTags.contains("森博嗣"))
         assertTrue(autoTags.contains("密室杀人"))
     }
+
+    @Test
+    fun spoilerSafeTwoTierTagging_withholdsTricksUntilCompletedAndSupportsCrossGenreTags() {
+        // 1. Unread narrative-trick romance novel (《爱的成人式》): gets 恋爱/青春, hides 叙述性诡计
+        val unreadLoveTags =
+            BookItem.spoilerSafeTagsFor(
+                id = "urn:mixu:book:init-love",
+                title = "爱的成人式",
+                author = "干胡桃",
+                isCompleted = false,
+            )
+        assertTrue("恋爱" in unreadLoveTags)
+        assertTrue("青春" in unreadLoveTags)
+        assertFalse("叙述性诡计" in unreadLoveTags)
+
+        // Completed (100%) unlocks 叙述性诡计
+        val completedLoveTags =
+            BookItem.spoilerSafeTagsFor(
+                id = "urn:mixu:book:init-love",
+                title = "爱的成人式",
+                author = "干胡桃",
+                isCompleted = true,
+            )
+        assertTrue("恋爱" in completedLoveTags)
+        assertTrue("叙述性诡计" in completedLoveTags)
+
+        // 2. Campus / Historical / Sci-Fi / Fantasy / Horror cross-genre tags
+        val campusTags =
+            BookItem.spoilerSafeTagsFor("b1", "冰菓", "米泽穗信", isCompleted = false)
+        assertTrue("校园" in campusTags && "日常之谜" in campusTags)
+
+        val historyTags =
+            BookItem.spoilerSafeTagsFor("b2", "时间的女儿", "约瑟芬·铁伊", isCompleted = false)
+        assertTrue("历史" in historyTags)
+
+        val scifiTags =
+            BookItem.spoilerSafeTagsFor("b3", "死了七次的男人", "西泽保彦", isCompleted = false)
+        assertTrue("科幻设定" in scifiTags)
+        assertFalse("时间循环诡计" in scifiTags)
+        val scifiDoneTags =
+            BookItem.spoilerSafeTagsFor("b3", "死了七次的男人", "西泽保彦", isCompleted = true)
+        assertTrue("时间循环诡计" in scifiDoneTags)
+
+        val fantasyTags =
+            BookItem.spoilerSafeTagsFor("b4", "折断的龙骨", "米泽穗信", isCompleted = false)
+        assertTrue("奇幻架空" in fantasyTags)
+
+        val horrorTags =
+            BookItem.spoilerSafeTagsFor("b5", "如首无作祟之物", "三津田信三", isCompleted = false)
+        assertTrue("恐怖" in horrorTags && "民俗怪谈" in horrorTags)
+        assertFalse("叙述性诡计" in horrorTags)
+
+        // 3. Physical book trick (《幸福之书》) and Meta hypertext (《歪曲创世纪》)
+        val happinessUnread =
+            BookItem.spoilerSafeTagsFor("b6", "幸福之书", "泡坂妻夫", isCompleted = false)
+        assertFalse("实体书机关" in happinessUnread)
+        val happinessDone =
+            BookItem.spoilerSafeTagsFor("b6", "幸福之书", "泡坂妻夫", isCompleted = true)
+        assertTrue("实体书机关" in happinessDone && "Meta元叙事" in happinessDone)
+    }
+
+    @Test
+    fun hypertextSpineStrideCoalescing_preservesMaxOrdinal300() {
+        val spines301 =
+            (0..300).map { idx ->
+                app.mixu.client.reader.EpubChapterContent(
+                    spineItem =
+                        app.mixu.client.importer.EpubSpineItem(
+                            spineIndex = idx,
+                            idref = "p$idx",
+                            href = "text/part$idx.html",
+                            resolvedZipPath = "OEBPS/text/part$idx.html",
+                            mediaType = "application/xhtml+xml",
+                            title = "Page $idx",
+                        ),
+                    paragraphs = listOf("Page $idx content"),
+                    fullText = if (idx == 300) "【封底】逃脱造物主" else "第 $idx 页孤岛内容",
+                )
+            }
+        val windows =
+            app.mixu.client.caseboard.BookGraphPackLoader.coalesceChaptersForCloudExtraction(
+                chapters = spines301,
+            )
+        assertTrue(windows.size <= 61)
+        assertEquals(300, windows.last().ordinal)
+        assertTrue(windows.last().excerpt.contains("【封底】逃脱造物主"))
+    }
 }

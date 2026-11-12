@@ -97,29 +97,29 @@ data class CopilotModelOption(
     val creditCost: Int,
 ) {
     val badgeLabel: String
-        get() = "$shortName · $creditCost Cr"
+        get() = "$shortName · $creditCost 推理点"
 
     companion object {
         val AVAILABLE_MODELS =
             listOf(
                 CopilotModelOption(
                     modelTier = "standard",
-                    shortName = "标准伴读",
+                    shortName = "极速直答",
                     creditCost = 1,
                 ),
                 CopilotModelOption(
                     modelTier = "balanced",
-                    shortName = "均衡推演",
+                    shortName = "轻量思考",
                     creditCost = 2,
                 ),
                 CopilotModelOption(
                     modelTier = "reasoning",
-                    shortName = "长文精析",
+                    shortName = "深度推演",
                     creditCost = 3,
                 ),
                 CopilotModelOption(
                     modelTier = "pro",
-                    shortName = "旗舰侦探",
+                    shortName = "极限破壁",
                     creditCost = 5,
                 ),
             )
@@ -637,7 +637,7 @@ fun AiButlerCopilotDialog(
                                         msg.copy(
                                             text = res.answer,
                                             actionBadge =
-                                                "${chosenModel.shortName} (${res.creditCost} Cr) · 第 1~$safeChapterNum 节",
+                                                "${chosenModel.shortName} (${res.creditCost} 推理点) · 第 1~$safeChapterNum 节",
                                             animateStreaming = true,
                                         )
                                     } else {
@@ -1414,7 +1414,7 @@ private fun executeAutoOrganizeCollections(
 internal fun executeAutoAssignTags(
     books: List<BookItem>,
     database: LocalLibraryDatabase,
-    modelBadge: String = "DeepSeek V4.1 · 1 Cr",
+    modelBadge: String = "极速直答 · 1 推理点",
 ): String {
     var enrichedCount = 0
     var unreadProtectedCount = 0

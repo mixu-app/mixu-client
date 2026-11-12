@@ -357,6 +357,10 @@
     <string name="storage_status_grace_desc">7-Day Grace Period: Download &amp; reading active, new uploads paused</string>
     <string name="storage_status_toggle_active">Active</string>
     <string name="storage_status_toggle_grace">7-Day Grace</string>
+    <string name="subscription_plan_heading">Monthly Cloud Storage &amp; 推理点 Plans</string>
+    <string name="subscription_plan_free">Free Tier (100 MB)</string>
+    <string name="subscription_plan_plus">Plus ¥12/mo (+150 推理点 + 5GB)</string>
+    <string name="subscription_plan_pro">Pro ¥24/mo (+600 推理点 + 20GB)</string>
     <string name="marketplace_pill_label">✦ Graph Marketplace</string>
     <string name="marketplace_dialog_title">Shared GraphPack Marketplace (ADR-040)</string>
     <string name="marketplace_tier_l1_badge">L1 Exact SHA-256 Match</string>

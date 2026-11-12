@@ -73,12 +73,13 @@ sealed interface BookImportResult {
 /**
  * Validates publication format allowlists and magic headers per `publication-formats.md`.
  *
- * - EPUB (`application/epub+zip`) is enabled by default for M0/M1.
+ * - EPUB (`application/epub+zip`), TXT (`text/plain`), MOBI (`application/x-mobipocket-ebook`),
+ *   and AZW3 (`application/vnd.amazon.mobi8-ebook`) are enabled by default and normalized locally
+ *   into standards-compliant `.epub` archives on import.
  * - PDF is explicitly excluded from product scope (`ExcludedFormat("PDF")`).
- * - TXT, AZW3, and MOBI are deferred/uncommitted unless explicitly enabled in [enabledFormats].
  */
 class PublicationFormatValidator(
-    val enabledFormats: Set<String> = setOf(FORMAT_EPUB),
+    val enabledFormats: Set<String> = DEFAULT_ENABLED_FORMATS,
 ) {
     /**
      * Validates declared filename, MIME type, and leading header bytes before adapter dispatch.
@@ -99,12 +100,14 @@ class PublicationFormatValidator(
             return BookImportError.ExcludedFormat(FORMAT_PDF)
         }
 
-        // 2. Check for deferred or candidate formats by extension or MIME type
+        // 2. Check for non-EPUB formats by magic bytes, extension, or MIME type
         val detectedCandidate =
             when {
                 lowerName.endsWith(".txt") || lowerMime == MIME_PLAIN_TEXT -> FORMAT_TXT
                 lowerName.endsWith(".azw3") || lowerMime == MIME_AZW3 -> FORMAT_AZW3
-                lowerName.endsWith(".mobi") || lowerMime == MIME_MOBI -> FORMAT_MOBI
+                lowerName.endsWith(".mobi") ||
+                    lowerMime == MIME_MOBI ||
+                    EbookFormatNormalizer.hasBookMobiMagic(headerBytes) -> FORMAT_MOBI
                 else -> null
             }
         if (detectedCandidate != null && !enabledFormats.contains(detectedCandidate)) {
@@ -165,6 +168,14 @@ class PublicationFormatValidator(
         const val MIME_MOBI = "application/x-mobipocket-ebook"
         const val MIME_OCTET_STREAM = "application/octet-stream"
         const val MIME_ZIP = "application/zip"
+
+        val DEFAULT_ENABLED_FORMATS: Set<String> =
+            setOf(
+                FORMAT_EPUB,
+                FORMAT_TXT,
+                FORMAT_MOBI,
+                FORMAT_AZW3,
+            )
     }
 }
 
@@ -235,7 +246,7 @@ class BookImportService(
         try {
             val digest = MessageDigest.getInstance("SHA-256")
             var bytesCopied = 0L
-            val headerBuffer = ByteArray(8)
+            val headerBuffer = ByteArray(72)
             var headerCaptured = 0
 
             stagingFile.outputStream().use { out ->
@@ -308,6 +319,29 @@ class BookImportService(
             }
 
             onProgress(BookImportProgress.ParsingMetadata)
+            val nonEpubFormat =
+                EbookFormatNormalizer.detectNonEpubFormat(
+                    headerBytes = capturedHeader,
+                    fileName = fileName,
+                    declaredMimeType = declaredMimeType,
+                )
+            if (nonEpubFormat != null) {
+                when (
+                    val norm =
+                        EbookFormatNormalizer.normalizeInPlace(
+                            stagingFile = stagingFile,
+                            formatCode = nonEpubFormat,
+                            fileName = fileName,
+                        )
+                ) {
+                    is EbookNormalizeOutcome.Normalized -> Unit
+                    is EbookNormalizeOutcome.Failed -> {
+                        stagingFile.delete()
+                        logImportFailure(norm.error)
+                        return BookImportResult.Failed(norm.error)
+                    }
+                }
+            }
             val parseOutcome = EpubMetadataParser.parse(stagingFile)
             val metadata =
                 when (parseOutcome) {

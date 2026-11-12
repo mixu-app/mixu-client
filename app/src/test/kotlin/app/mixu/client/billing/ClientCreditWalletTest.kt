@@ -117,4 +117,32 @@ class ClientCreditWalletTest {
         assertTrue(matrix1[0][0])
         assertTrue(matrix1[3][3])
     }
+
+    @Test
+    fun `SubscriptionPlan Plus 12 CNY and Pro 24 CNY grant subCredits and storage quota`() {
+        assertEquals("推理点", ClientCreditWallet.CURRENCY_NAME_ZH)
+        assertEquals(20, ClientCreditWallet.DEFAULT_BUILD_COST_CREDITS)
+        assertEquals(30, ClientCreditWallet.REFINED_BUILD_COST_CREDITS)
+
+        val wallet = ClientCreditWallet(promoCredits = 60, subCredits = 0, paidCredits = 0)
+        val storage = StorageQuotaState()
+        assertEquals(100, storage.quotaMb)
+        assertEquals(SubscriptionPlan.FREE, storage.activePlan)
+
+        val plusWallet = wallet.activateSubscriptionPlan(SubscriptionPlan.PLUS_MONTHLY)
+        val plusStorage = storage.applySubscriptionPlan(SubscriptionPlan.PLUS_MONTHLY)
+        assertEquals(12, SubscriptionPlan.PLUS_MONTHLY.monthlyPriceCny)
+        assertEquals(150, plusWallet.subCredits)
+        assertEquals(210, plusWallet.totalCredits)
+        assertEquals(5_120, plusStorage.quotaMb)
+        assertEquals(SubscriptionPlan.PLUS_MONTHLY, plusStorage.activePlan)
+
+        val proWallet = plusWallet.activateSubscriptionPlan(SubscriptionPlan.PRO_MONTHLY)
+        val proStorage = plusStorage.applySubscriptionPlan(SubscriptionPlan.PRO_MONTHLY)
+        assertEquals(24, SubscriptionPlan.PRO_MONTHLY.monthlyPriceCny)
+        assertEquals(750, proWallet.subCredits)
+        assertEquals(810, proWallet.totalCredits)
+        assertEquals(20_480, proStorage.quotaMb)
+        assertEquals(SubscriptionPlan.PRO_MONTHLY, proStorage.activePlan)
+    }
 }

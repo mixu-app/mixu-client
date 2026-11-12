@@ -68,6 +68,7 @@ import app.mixu.client.auth.UserSession
 import app.mixu.client.billing.ClientCreditWallet
 import app.mixu.client.billing.ClientStorageStatus
 import app.mixu.client.billing.StorageQuotaState
+import app.mixu.client.billing.SubscriptionPlan
 import app.mixu.client.config.DistributionChannel
 import app.mixu.client.config.FontFamilyChoice
 import app.mixu.client.config.GraphPhysicsMode
@@ -356,6 +357,67 @@ fun SettingsPreviewScreen(
                                     storageState =
                                         storageState.copy(
                                             status = ClientStorageStatus.GRACE_PERIOD,
+                                        )
+                                },
+                            )
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    // Monthly Cloud Storage + 推理点 Subscription Plans (Free 100MB / Plus ¥12 / Pro ¥24)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = stringResource(R.string.subscription_plan_heading),
+                            style = typography.labelMedium,
+                            color = colors.onSurfaceVariant,
+                        )
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CompactSegmentPill(
+                                label = stringResource(R.string.subscription_plan_free),
+                                isSelected = storageState.activePlan == SubscriptionPlan.FREE,
+                                onClick = {
+                                    storageState =
+                                        storageState.applySubscriptionPlan(SubscriptionPlan.FREE)
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.subscription_plan_plus),
+                                isSelected =
+                                    storageState.activePlan == SubscriptionPlan.PLUS_MONTHLY,
+                                onClick = {
+                                    if (storageState.activePlan != SubscriptionPlan.PLUS_MONTHLY) {
+                                        wallet =
+                                            wallet.activateSubscriptionPlan(
+                                                SubscriptionPlan.PLUS_MONTHLY,
+                                            )
+                                    }
+                                    storageState =
+                                        storageState.applySubscriptionPlan(
+                                            SubscriptionPlan.PLUS_MONTHLY,
+                                        )
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.subscription_plan_pro),
+                                isSelected =
+                                    storageState.activePlan == SubscriptionPlan.PRO_MONTHLY,
+                                onClick = {
+                                    if (storageState.activePlan != SubscriptionPlan.PRO_MONTHLY) {
+                                        wallet =
+                                            wallet.activateSubscriptionPlan(
+                                                SubscriptionPlan.PRO_MONTHLY,
+                                            )
+                                    }
+                                    storageState =
+                                        storageState.applySubscriptionPlan(
+                                            SubscriptionPlan.PRO_MONTHLY,
                                         )
                                 },
                             )

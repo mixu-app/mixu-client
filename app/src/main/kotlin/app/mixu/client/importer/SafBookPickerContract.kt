@@ -13,18 +13,22 @@ import android.provider.OpenableColumns
  */
 object SafBookPickerContract {
     /**
-     * Creates an [Intent.ACTION_OPEN_DOCUMENT] configured for selecting openable EPUB publications.
+     * Creates an [Intent.ACTION_OPEN_DOCUMENT] configured for selecting openable `.epub`, `.txt`,
+     * `.mobi`, and `.azw3` publications.
      */
     fun createOpenDocumentIntent(
         allowedMimeTypes: Array<String> =
             arrayOf(
                 PublicationFormatValidator.MIME_EPUB,
+                PublicationFormatValidator.MIME_PLAIN_TEXT,
+                PublicationFormatValidator.MIME_MOBI,
+                PublicationFormatValidator.MIME_AZW3,
                 PublicationFormatValidator.MIME_OCTET_STREAM,
             ),
     ): Intent =
         Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = PublicationFormatValidator.MIME_EPUB
+            type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, allowedMimeTypes)
         }
 

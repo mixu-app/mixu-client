@@ -21,6 +21,39 @@ enum class EditionMatchTier {
 }
 
 /**
+ * Monthly subscription tiers combining cloud storage quota and monthly `sub_credits` (推理点).
+ */
+enum class SubscriptionPlan(
+    val planId: String,
+    val displayName: String,
+    val monthlyPriceCny: Int,
+    val monthlySubCredits: Int,
+    val quotaMb: Int,
+) {
+    FREE(
+        planId = "free",
+        displayName = "免费新人档",
+        monthlyPriceCny = 0,
+        monthlySubCredits = 0,
+        quotaMb = 100,
+    ),
+    PLUS_MONTHLY(
+        planId = "plus_monthly_12_cny",
+        displayName = "谜序 Plus 月卡",
+        monthlyPriceCny = 12,
+        monthlySubCredits = 150,
+        quotaMb = 5_120,
+    ),
+    PRO_MONTHLY(
+        planId = "pro_monthly_24_cny",
+        displayName = "谜序 Pro 藏书家月卡",
+        monthlyPriceCny = 24,
+        monthlySubCredits = 600,
+        quotaMb = 20_480,
+    ),
+}
+
+/**
  * Represents the reader's cloud storage quota and 7-day grace period policy state (ADR-030).
  */
 data class StorageQuotaState(
@@ -28,6 +61,7 @@ data class StorageQuotaState(
     val quotaMb: Int = DEFAULT_QUOTA_MB,
     val status: ClientStorageStatus = ClientStorageStatus.ACTIVE,
     val gracePeriodDaysRemaining: Int = DEFAULT_GRACE_DAYS,
+    val activePlan: SubscriptionPlan = SubscriptionPlan.FREE,
 ) {
     /**
      * New EPUB uploads are permitted only when storage status is [ClientStorageStatus.ACTIVE]
@@ -41,9 +75,21 @@ data class StorageQuotaState(
      */
     fun canDownloadExistingAssets(): Boolean = true
 
+    /**
+     * Applies the cloud storage quota for [plan] and restores [ClientStorageStatus.ACTIVE] state.
+     */
+    fun applySubscriptionPlan(plan: SubscriptionPlan): StorageQuotaState =
+        copy(
+            quotaMb = plan.quotaMb,
+            status = ClientStorageStatus.ACTIVE,
+            activePlan = plan,
+        )
+
     companion object {
         const val DEFAULT_USED_MB = 18
         const val DEFAULT_QUOTA_MB = 100
+        const val PLUS_QUOTA_MB = 5_120
+        const val PRO_QUOTA_MB = 20_480
         const val DEFAULT_GRACE_DAYS = 7
     }
 }
@@ -64,7 +110,8 @@ data class SharedPackMarketplaceOffer(
 ) {
     companion object {
         const val DEFAULT_DOWNLOAD_COST_CREDITS = 3
-        const val DEFAULT_BUILD_COST_CREDITS = 60
+        const val DEFAULT_BUILD_COST_CREDITS = 20
+        const val REFINED_BUILD_COST_CREDITS = 30
         const val DEFAULT_CREATOR_ROYALTY_CREDITS = 1
         const val DEFAULT_ENTITY_COUNT = 24
         const val DEFAULT_ASSERTION_COUNT = 68
@@ -172,6 +219,15 @@ data class ClientCreditWallet(
     }
 
     /**
+     * Grants the monthly `subCredits` allowance when activating [plan] (`+150 推理点` for Plus
+     * `¥12/月`, `+600 推理点` for Pro `¥24/月`).
+     */
+    fun activateSubscriptionPlan(plan: SubscriptionPlan): ClientCreditWallet =
+        copy(
+            subCredits = subCredits + plan.monthlySubCredits,
+        )
+
+    /**
      * Generates a deterministic E-Ink cross-device QR challenge URI so E-Ink devices can offload
      * rewarded video ads to a mobile phone without battery drain or ghosting (ADR-030 §5).
      */
@@ -237,11 +293,13 @@ data class ClientCreditWallet(
     }
 
     companion object {
+        const val CURRENCY_NAME_ZH = "推理点"
         const val DEFAULT_PROMO_CREDITS = 60
         const val DEFAULT_AD_REWARD_CREDITS = 3
         const val DEFAULT_DAILY_AD_CAP_CREDITS = 30
         const val DEFAULT_ROYALTY_CREDITS = 1
-        const val DEFAULT_BUILD_COST_CREDITS = 60
+        const val DEFAULT_BUILD_COST_CREDITS = 20
+        const val REFINED_BUILD_COST_CREDITS = 30
         const val ROYALTY_CAP_MULTIPLIER = 2
         const val DEFAULT_QR_SESSION_NONCE = "eink-qr-v1"
         const val DEFAULT_QR_MATRIX_SIZE = 21

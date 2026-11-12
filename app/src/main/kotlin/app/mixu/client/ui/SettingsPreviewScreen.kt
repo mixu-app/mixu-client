@@ -69,6 +69,7 @@ import app.mixu.client.billing.ClientCreditWallet
 import app.mixu.client.billing.ClientStorageStatus
 import app.mixu.client.billing.StorageQuotaState
 import app.mixu.client.billing.SubscriptionPlan
+import app.mixu.client.billing.TopUpPack
 import app.mixu.client.config.DistributionChannel
 import app.mixu.client.config.FontFamilyChoice
 import app.mixu.client.config.GraphPhysicsMode
@@ -419,6 +420,46 @@ fun SettingsPreviewScreen(
                                         storageState.applySubscriptionPlan(
                                             SubscriptionPlan.PRO_MONTHLY,
                                         )
+                                },
+                            )
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    // Direct Permanent 推理点 Top-Up Packs (¥6=80 / ¥18=300 / ¥45=900)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = stringResource(R.string.topup_pack_heading),
+                            style = typography.labelMedium,
+                            color = colors.onSurfaceVariant,
+                        )
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CompactSegmentPill(
+                                label = stringResource(R.string.topup_pack_6),
+                                isSelected = false,
+                                onClick = {
+                                    wallet = wallet.purchaseTopUpPack(TopUpPack.PACK_6_CNY)
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.topup_pack_18),
+                                isSelected = false,
+                                onClick = {
+                                    wallet = wallet.purchaseTopUpPack(TopUpPack.PACK_18_CNY)
+                                },
+                            )
+                            CompactSegmentPill(
+                                label = stringResource(R.string.topup_pack_45),
+                                isSelected = false,
+                                onClick = {
+                                    wallet = wallet.purchaseTopUpPack(TopUpPack.PACK_45_CNY)
                                 },
                             )
                         }

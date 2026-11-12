@@ -3,6 +3,7 @@ package app.mixu.client.network
 
 import app.mixu.client.billing.ClientCreditWallet
 import app.mixu.client.billing.EditionMatchTier
+import app.mixu.client.billing.TopUpPack
 import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -79,10 +80,10 @@ class MixuApiClientTest {
                                 body =
                                     """
                                     {
-                                      "promo_credits": 63,
+                                      "promo_credits": 65,
                                       "sub_credits": 0,
                                       "paid_credits": 0,
-                                      "daily_ad_credits_claimed": 3,
+                                      "daily_ad_credits_claimed": 5,
                                       "creator_royalty_earned": 0
                                     }
                                     """.trimIndent(),
@@ -105,8 +106,8 @@ class MixuApiClientTest {
                 signature = "sig-hmac-256",
                 currentWallet = initialWallet,
             )
-        assertEquals(63, verifiedWallet.promoCredits)
-        assertEquals(3, verifiedWallet.dailyAdCreditsClaimed)
+        assertEquals(65, verifiedWallet.promoCredits)
+        assertEquals(5, verifiedWallet.dailyAdCreditsClaimed)
 
         val offlineClient =
             MixuApiClient(
@@ -123,8 +124,8 @@ class MixuApiClientTest {
                 signature = "offline-sig",
                 currentWallet = initialWallet,
             )
-        assertEquals(63, offlineVerified.promoCredits)
-        assertEquals(3, offlineVerified.dailyAdCreditsClaimed)
+        assertEquals(65, offlineVerified.promoCredits)
+        assertEquals(5, offlineVerified.dailyAdCreditsClaimed)
     }
 
     @Test
@@ -227,12 +228,14 @@ class MixuApiClientTest {
     @Test
     fun `queryCopilot enforces non-negative horizonOrdinal and attaches stateless mode header`() {
         var capturedHeaders: Map<String, String> = emptyMap()
+        var capturedBody = ""
         val statelessClient =
             MixuApiClient(
                 baseUrl = "http://10.0.2.2:8080/",
                 statelessSelfHostedMode = true,
                 transport = { req ->
                     capturedHeaders = req.headers
+                    capturedBody = req.body.orEmpty()
                     MixuHttpResponse(
                         statusCode = 200,
                         body =
@@ -264,11 +267,30 @@ class MixuApiClientTest {
                 editionId = "urn:edition:blackwood-manor-v1",
                 horizonOrdinal = 2,
                 query = "Summarize clues so far",
+                conversationHistory =
+                    listOf(
+                        CopilotChatTurnDto("user", "Who entered the study first?"),
+                        CopilotChatTurnDto(
+                            "assistant",
+                            "Butler Jenkins unlocked the door at 22:00.",
+                        ),
+                    ),
             )
         assertEquals("true", capturedHeaders[MixuApiClient.HEADER_STATELESS_MODE])
+        assertTrue(capturedBody.contains("conversation_history"))
+        assertTrue(capturedBody.contains("Who entered the study first?"))
         assertTrue(result.statelessMode)
         assertFalse(result.offlineFallback)
         assertEquals(2, result.horizonOrdinal)
+
+        val offlineTopUp =
+            MixuApiClient(transport = { throw IOException("Offline") }).purchaseTopUpPack(
+                userId = "u1",
+                pack = TopUpPack.PACK_18_CNY,
+                idempotencyKey = "topup-offline-1",
+                currentWallet = ClientCreditWallet(promoCredits = 60),
+            )
+        assertEquals(300, offlineTopUp.paidCredits)
     }
 
     @Test

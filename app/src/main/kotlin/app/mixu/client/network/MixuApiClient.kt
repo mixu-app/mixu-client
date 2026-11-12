@@ -4,6 +4,7 @@ package app.mixu.client.network
 import app.mixu.client.billing.ClientCreditWallet
 import app.mixu.client.billing.EditionMatchTier
 import app.mixu.client.billing.SharedPackMarketplaceOffer
+import app.mixu.client.billing.TopUpPack
 import app.mixu.client.config.DistributionChannel
 import app.mixu.client.config.ReaderDisplayConfig
 import kotlinx.serialization.json.Json
@@ -160,6 +161,15 @@ data class SharedPackPurchaseResult(
     val chargedCredits: Int,
     val updatedWallet: ClientCreditWallet,
     val offlineFallback: Boolean = false,
+)
+
+/**
+ * Single conversation turn sent to `POST /v1/copilot/query` in `conversation_history` so
+ * same-chapter follow-ups and cross-tier switches maximize server KV prefix cache hits.
+ */
+data class CopilotChatTurnDto(
+    val role: String,
+    val content: String,
 )
 
 /**
@@ -385,6 +395,43 @@ class MixuApiClient(
             }
         }
         return currentWallet.claimRewardedAd()
+    }
+
+    /**
+     * Purchases a permanent `paid_credits` top-up pack (`POST /v1/billing/topup/purchase`).
+     * Falls back locally to [ClientCreditWallet.purchaseTopUpPack] when offline.
+     *
+     * Time complexity: O(1). Space complexity: O(1).
+     */
+    fun purchaseTopUpPack(
+        userId: String,
+        pack: TopUpPack,
+        idempotencyKey: String,
+        currentWallet: ClientCreditWallet,
+    ): ClientCreditWallet {
+        require(userId.isNotBlank()) { "userId must not be blank" }
+        require(idempotencyKey.isNotBlank()) { "idempotencyKey must not be blank" }
+        val body =
+            buildJsonObject {
+                put("pack_id", JsonPrimitive(pack.packId))
+                put("idempotency_key", JsonPrimitive(idempotencyKey))
+            }.toString()
+        val request =
+            MixuHttpRequest(
+                method = "POST",
+                url = "$normalizedBaseUrl/v1/billing/topup/purchase",
+                headers = buildHeaders(userId = userId, hasBody = true),
+                body = body,
+            )
+        val response = executeSafely(request)
+        if (response != null && response.isSuccess && response.body.isNotBlank()) {
+            runCatching {
+                val obj = json.parseToJsonElement(response.body).jsonObject
+                val walletObj = obj["wallet"]?.jsonObject ?: obj
+                return parseWalletJson(walletObj, fallbackPromo = currentWallet.promoCredits)
+            }
+        }
+        return currentWallet.purchaseTopUpPack(pack)
     }
 
     /**
@@ -630,6 +677,7 @@ class MixuApiClient(
         chapterTitle: String? = null,
         visibleExcerpt: String? = null,
         modelTier: String? = null,
+        conversationHistory: List<CopilotChatTurnDto> = emptyList(),
     ): CopilotQueryResult {
         require(userId.isNotBlank()) { "userId must not be blank" }
         require(editionId.isNotBlank()) { "editionId must not be blank" }
@@ -657,6 +705,23 @@ class MixuApiClient(
                 }
                 put("model_tier", JsonPrimitive(requestedTier))
                 put("stateless_mode", JsonPrimitive(statelessSelfHostedMode))
+                if (conversationHistory.isNotEmpty()) {
+                    put(
+                        "conversation_history",
+                        buildJsonArray {
+                            for (turn in conversationHistory.takeLast(MAX_COPILOT_HISTORY_TURNS)) {
+                                if (turn.content.isNotBlank()) {
+                                    add(
+                                        buildJsonObject {
+                                            put("role", JsonPrimitive(turn.role))
+                                            put("content", JsonPrimitive(turn.content.take(1_500)))
+                                        },
+                                    )
+                                }
+                            }
+                        },
+                    )
+                }
             }.toString()
         val request =
             MixuHttpRequest(
@@ -870,6 +935,7 @@ class MixuApiClient(
         const val DEFAULT_OFFLINE_CHALLENGE_TTL_SECONDS = 300L
         const val HEADER_USER_ID = "X-Mixu-User-Id"
         const val HEADER_STATELESS_MODE = "X-Mixu-Stateless-Mode"
+        private const val MAX_COPILOT_HISTORY_TURNS = 12
         private const val MINOR_UNITS_PER_CREDIT = 100L
         private const val HEADER_ACCEPT = "Accept"
         private const val HEADER_CONTENT_TYPE = "Content-Type"

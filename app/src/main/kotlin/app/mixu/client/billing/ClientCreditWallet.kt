@@ -54,6 +54,35 @@ enum class SubscriptionPlan(
 }
 
 /**
+ * Standalone permanent 推理点 top-up packs credited to `paidCredits` (never expire, consumed last).
+ */
+enum class TopUpPack(
+    val packId: String,
+    val displayName: String,
+    val priceCny: Int,
+    val credits: Int,
+) {
+    PACK_6_CNY(
+        packId = "pack_6_cny",
+        displayName = "应急推理包",
+        priceCny = 6,
+        credits = 80,
+    ),
+    PACK_18_CNY(
+        packId = "pack_18_cny",
+        displayName = "畅读推理包",
+        priceCny = 18,
+        credits = 300,
+    ),
+    PACK_45_CNY(
+        packId = "pack_45_cny",
+        displayName = "藏书家囤点包",
+        priceCny = 45,
+        credits = 900,
+    ),
+}
+
+/**
  * Represents the reader's cloud storage quota and 7-day grace period policy state (ADR-030).
  */
 data class StorageQuotaState(
@@ -228,6 +257,15 @@ data class ClientCreditWallet(
         )
 
     /**
+     * Credits a standalone permanent top-up [pack] into [paidCredits] (`¥6 = 80 推理点`,
+     * `¥18 = 300 推理点`, `¥45 = 900 推理点`).
+     */
+    fun purchaseTopUpPack(pack: TopUpPack): ClientCreditWallet =
+        copy(
+            paidCredits = paidCredits + pack.credits,
+        )
+
+    /**
      * Generates a deterministic E-Ink cross-device QR challenge URI so E-Ink devices can offload
      * rewarded video ads to a mobile phone without battery drain or ghosting (ADR-030 §5).
      */
@@ -295,7 +333,7 @@ data class ClientCreditWallet(
     companion object {
         const val CURRENCY_NAME_ZH = "推理点"
         const val DEFAULT_PROMO_CREDITS = 60
-        const val DEFAULT_AD_REWARD_CREDITS = 3
+        const val DEFAULT_AD_REWARD_CREDITS = 5
         const val DEFAULT_DAILY_AD_CAP_CREDITS = 30
         const val DEFAULT_ROYALTY_CREDITS = 1
         const val DEFAULT_BUILD_COST_CREDITS = 20

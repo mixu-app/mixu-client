@@ -4,6 +4,7 @@ package app.mixu.client.network
 import app.mixu.client.billing.ClientCreditWallet
 import app.mixu.client.billing.EditionMatchTier
 import app.mixu.client.billing.SharedPackMarketplaceOffer
+import app.mixu.client.config.DistributionChannel
 import app.mixu.client.config.ReaderDisplayConfig
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -877,12 +878,22 @@ class MixuApiClient(
         private const val PRODUCTION_READ_TIMEOUT_MS = 22_000
 
         /**
-         * Creates a production [MixuApiClient] targeting `https://api.mixuread.com`
-         * (or the user's configured self-hosted endpoint when enabled).
+         * Creates a production [MixuApiClient] targeting `https://api.mixuread.com`.
+         *
+         * Under [DistributionChannel.CN_APP_STORE] (the default App Store compliant channel),
+         * custom server URLs are strictly ignored and locked to [DEFAULT_PRODUCTION_BASE_URL].
+         * Under [DistributionChannel.GITHUB_FOSS_APK], the user's self-hosted endpoint is honored
+         * when enabled (ADR-037).
          */
-        fun createProductionClient(config: ReaderDisplayConfig? = null): MixuApiClient {
+        fun createProductionClient(
+            config: ReaderDisplayConfig? = null,
+            channel: DistributionChannel = DistributionChannel.CURRENT,
+        ): MixuApiClient {
             val resolvedBaseUrl =
-                if (config?.selfHostedApiEnabled == true && config.selfHostedApiUrl.isNotBlank()) {
+                if (channel.allowsCustomServerEndpoint &&
+                    config?.selfHostedApiEnabled == true &&
+                    config.selfHostedApiUrl.isNotBlank()
+                ) {
                     config.selfHostedApiUrl
                         .trim()
                         .removeSuffix("/v1")
@@ -893,7 +904,9 @@ class MixuApiClient(
             return MixuApiClient(
                 baseUrl = resolvedBaseUrl,
                 statelessSelfHostedMode =
-                    config?.selfHostedApiEnabled == true && config.selfHostedStatelessMode,
+                    channel.allowsCustomServerEndpoint &&
+                        config?.selfHostedApiEnabled == true &&
+                        config.selfHostedStatelessMode,
                 transport =
                     JdkHttpTransport(
                         connectTimeoutMs = PRODUCTION_CONNECT_TIMEOUT_MS,

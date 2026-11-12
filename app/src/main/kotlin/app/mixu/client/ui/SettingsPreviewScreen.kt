@@ -68,6 +68,7 @@ import app.mixu.client.auth.UserSession
 import app.mixu.client.billing.ClientCreditWallet
 import app.mixu.client.billing.ClientStorageStatus
 import app.mixu.client.billing.StorageQuotaState
+import app.mixu.client.config.DistributionChannel
 import app.mixu.client.config.FontFamilyChoice
 import app.mixu.client.config.GraphPhysicsMode
 import app.mixu.client.config.LookupProviderMode
@@ -892,43 +893,45 @@ fun SettingsPreviewScreen(
                         }
                     }
 
-                    SettingsDivider()
-
-                    SettingsSwitchRow(
-                        title = stringResource(R.string.self_hosted_enable_label),
-                        description = stringResource(R.string.self_hosted_enable_desc),
-                        checked = config.selfHostedApiEnabled,
-                        onCheckedChange = { enabled ->
-                            onConfigChange(config.copy(selfHostedApiEnabled = enabled))
-                        },
-                    )
-
-                    if (config.selfHostedApiEnabled) {
+                    if (DistributionChannel.CURRENT.allowsCustomServerEndpoint) {
                         SettingsDivider()
 
                         SettingsSwitchRow(
-                            title = stringResource(R.string.self_hosted_stateless_label),
-                            description = stringResource(R.string.self_hosted_stateless_desc),
-                            checked = config.selfHostedStatelessMode,
-                            onCheckedChange = { stateless ->
-                                onConfigChange(config.copy(selfHostedStatelessMode = stateless))
+                            title = stringResource(R.string.self_hosted_enable_label),
+                            description = stringResource(R.string.self_hosted_enable_desc),
+                            checked = config.selfHostedApiEnabled,
+                            onCheckedChange = { enabled ->
+                                onConfigChange(config.copy(selfHostedApiEnabled = enabled))
                             },
                         )
 
-                        OutlinedTextField(
-                            value = config.selfHostedApiUrl,
-                            onValueChange = { url ->
-                                onConfigChange(config.copy(selfHostedApiUrl = url))
-                            },
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            singleLine = true,
-                            label = {
-                                Text(
-                                    text = stringResource(R.string.self_hosted_url_label),
-                                    style = typography.caption,
-                                )
-                            },
-                        )
+                        if (config.selfHostedApiEnabled) {
+                            SettingsDivider()
+
+                            SettingsSwitchRow(
+                                title = stringResource(R.string.self_hosted_stateless_label),
+                                description = stringResource(R.string.self_hosted_stateless_desc),
+                                checked = config.selfHostedStatelessMode,
+                                onCheckedChange = { stateless ->
+                                    onConfigChange(config.copy(selfHostedStatelessMode = stateless))
+                                },
+                            )
+
+                            OutlinedTextField(
+                                value = config.selfHostedApiUrl,
+                                onValueChange = { url ->
+                                    onConfigChange(config.copy(selfHostedApiUrl = url))
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                singleLine = true,
+                                label = {
+                                    Text(
+                                        text = stringResource(R.string.self_hosted_url_label),
+                                        style = typography.caption,
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
 

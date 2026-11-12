@@ -84,6 +84,7 @@ import app.mixu.client.network.MixuApiClient
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.theme.MixuThemeMode
 import app.mixu.graph.EpistemicStatus
+import java.time.LocalDate
 import kotlin.math.roundToInt
 
 private const val REPO_URL_MIXU = "https://github.com/mixu-app/mixu"
@@ -92,6 +93,12 @@ private const val REPO_URL_ENGINE = "https://github.com/mixu-app/mixu-graph"
 private const val REPO_URL_RESEARCH = "https://github.com/mixu-app/mixu-research"
 private const val REPO_URL_ISSUES = "https://github.com/mixu-app/mixu-client/issues"
 private const val APP_VERSION_NAME = "v0.0.1 (KMP · Compose)"
+
+private enum class EInkQrRewardPurpose {
+    CREDIT_WALLET,
+    DOWNLOAD_BOOST,
+    CHECKIN_MAKEUP,
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -125,7 +132,8 @@ fun SettingsPreviewScreen(
     var isSendingOtp by remember { mutableStateOf(false) }
     var wallet by remember { mutableStateOf(ClientCreditWallet()) }
     var storageState by remember { mutableStateOf(StorageQuotaState()) }
-    var showEInkQrAdDialog by remember { mutableStateOf(false) }
+    var activeQrPurpose by remember { mutableStateOf<EInkQrRewardPurpose?>(null) }
+    val todayDayKey = remember { LocalDate.now().toString() }
     val isEInkActive = einkPolicy.isActive || config.eInkMode == EInkMode.FORCE_ON
 
     val flingBehavior =
@@ -294,7 +302,7 @@ fun SettingsPreviewScreen(
                             isSelected = false,
                             onClick = {
                                 if (isEInkActive) {
-                                    showEInkQrAdDialog = true
+                                    activeQrPurpose = EInkQrRewardPurpose.CREDIT_WALLET
                                 } else {
                                     wallet = wallet.claimRewardedAd()
                                 }
@@ -304,7 +312,7 @@ fun SettingsPreviewScreen(
 
                     SettingsDivider()
 
-                    // Cloud Storage Quota & 7-Day Grace Period (ADR-030)
+                    // 5-Level Cloud Storage Quota, Base+Subscription Meter & 7-Day Grace Period (ADR-030)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -314,16 +322,54 @@ fun SettingsPreviewScreen(
                             modifier = Modifier.weight(1f).padding(end = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .background(
+                                                color = colors.primaryContainer,
+                                                shape =
+                                                    RoundedCornerShape(
+                                                        if (einkPolicy.isActive) 0.dp else 6.dp,
+                                                    ),
+                                            ).padding(horizontal = 6.dp, vertical = 2.dp),
+                                ) {
+                                    Text(
+                                        text =
+                                            stringResource(
+                                                R.string.storage_level_badge,
+                                                storageState.storageLevel.level,
+                                            ),
+                                        style = typography.caption,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colors.onPrimaryContainer,
+                                    )
+                                }
+                                Text(
+                                    text =
+                                        stringResource(
+                                            R.string.storage_quota_label,
+                                            storageState.usedMb,
+                                            storageState.quotaMb,
+                                        ),
+                                    style = typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.onSurface,
+                                )
+                            }
                             Text(
                                 text =
                                     stringResource(
-                                        R.string.storage_quota_label,
-                                        storageState.usedMb,
-                                        storageState.quotaMb,
+                                        R.string.storage_space_breakdown,
+                                        storageState.baseQuotaMb,
+                                        storageState.subscriptionBonusMb,
+                                        storageState.maxFileSizeMb,
                                     ),
-                                style = typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = colors.onSurface,
+                                style = typography.caption,
+                                color = colors.onSurfaceVariant,
                             )
                             Text(
                                 text =
@@ -359,6 +405,142 @@ fun SettingsPreviewScreen(
                                         storageState.copy(
                                             status = ClientStorageStatus.GRACE_PERIOD,
                                         )
+                                },
+                            )
+                        }
+                    }
+
+                    SettingsDivider()
+
+                    // Daily & Monthly Download Egress Meter + Ad-Boosted Quota (+50 MB x6/day)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f).padding(end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text =
+                                    stringResource(
+                                        R.string.storage_egress_daily_label,
+                                        storageState.dailyDownloadUsedMb,
+                                        storageState.dailyDownloadQuotaMb,
+                                        storageState.dailyDownloadAdBoostMb,
+                                    ),
+                                style = typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.onSurface,
+                            )
+                            Text(
+                                text =
+                                    stringResource(
+                                        R.string.storage_egress_monthly_label,
+                                        storageState.monthlyDownloadUsedMb,
+                                        storageState.monthlyDownloadCapMb,
+                                        storageState.dailyAdBoostsUsed,
+                                        storageState.dailyAdBoostsCap,
+                                    ),
+                                style = typography.caption,
+                                color = colors.onSurfaceVariant,
+                            )
+                        }
+                        CompactSegmentPill(
+                            label =
+                                if (isEInkActive) {
+                                    stringResource(R.string.storage_egress_boost_eink_btn)
+                                } else {
+                                    stringResource(R.string.storage_egress_boost_btn)
+                                },
+                            isSelected = false,
+                            onClick = {
+                                if (isEInkActive) {
+                                    activeQrPurpose = EInkQrRewardPurpose.DOWNLOAD_BOOST
+                                } else {
+                                    storageState = storageState.applyDownloadAdBoost()
+                                }
+                            },
+                        )
+                    }
+
+                    SettingsDivider()
+
+                    // Check-In & Rewarded-Ad Makeup (<= 5/month, past 7 days)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f).padding(end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text =
+                                    stringResource(
+                                        R.string.storage_checkin_label,
+                                        storageState.checkinDays,
+                                        storageState.checkinStreak,
+                                    ),
+                                style = typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.onSurface,
+                            )
+                            Text(
+                                text =
+                                    stringResource(
+                                        R.string.storage_checkin_metrics_desc,
+                                        storageState.readingMinutes,
+                                        storageState.chaptersRead,
+                                        storageState.graphDownloads,
+                                        storageState.aiQueries,
+                                        storageState.completedGraphBuilds,
+                                        storageState.monthlyMakeupUsed,
+                                        storageState.monthlyMakeupCap,
+                                    ),
+                                style = typography.caption,
+                                color = colors.onSurfaceVariant,
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CompactSegmentPill(
+                                label =
+                                    if (storageState.checkedInToday) {
+                                        stringResource(R.string.storage_checked_in_btn)
+                                    } else {
+                                        stringResource(R.string.storage_checkin_btn)
+                                    },
+                                isSelected = storageState.checkedInToday,
+                                onClick = {
+                                    storageState = storageState.recordCheckIn(todayDayKey)
+                                },
+                            )
+                            CompactSegmentPill(
+                                label =
+                                    if (isEInkActive) {
+                                        stringResource(R.string.storage_makeup_eink_btn)
+                                    } else {
+                                        stringResource(R.string.storage_makeup_btn)
+                                    },
+                                isSelected = false,
+                                onClick = {
+                                    val targetMissedDay =
+                                        (1L..StorageQuotaState.MAX_MAKEUP_LOOKBACK_DAYS)
+                                            .map { LocalDate.now().minusDays(it).toString() }
+                                            .firstOrNull {
+                                                storageState.canMakeupCheckIn(it, todayDayKey)
+                                            }
+                                    if (isEInkActive) {
+                                        activeQrPurpose = EInkQrRewardPurpose.CHECKIN_MAKEUP
+                                    } else if (targetMissedDay != null) {
+                                        storageState =
+                                            storageState.makeupCheckInWithAd(
+                                                targetDayKey = targetMissedDay,
+                                                nowDayKey = todayDayKey,
+                                            )
+                                    }
                                 },
                             )
                         }
@@ -1416,20 +1598,39 @@ fun SettingsPreviewScreen(
         )
     }
 
-    if (showEInkQrAdDialog) {
+    val qrPurpose = activeQrPurpose
+    if (qrPurpose != null) {
+        val uid = signedInAccount ?: userSession.anonymousId
+        val nextMissedDay =
+            (1L..StorageQuotaState.MAX_MAKEUP_LOOKBACK_DAYS)
+                .map { LocalDate.now().minusDays(it).toString() }
+                .firstOrNull { storageState.canMakeupCheckIn(it, todayDayKey) }
         val qrPayload =
-            remember(userSession.anonymousId, signedInAccount) {
-                wallet.generateEInkQrChallengePayload(
-                    anonymousOrUserId = signedInAccount ?: userSession.anonymousId,
-                )
+            remember(uid, qrPurpose, nextMissedDay) {
+                when (qrPurpose) {
+                    EInkQrRewardPurpose.CREDIT_WALLET ->
+                        wallet.generateEInkQrChallengePayload(anonymousOrUserId = uid)
+                    EInkQrRewardPurpose.DOWNLOAD_BOOST ->
+                        "mixu://ad-reward/qr?uid=$uid&purpose=download-boost&boost_mb=50"
+                    EInkQrRewardPurpose.CHECKIN_MAKEUP ->
+                        "mixu://ad-reward/qr?uid=$uid&purpose=checkin-makeup&day=${nextMissedDay.orEmpty()}"
+                }
             }
         val qrMatrix = remember(qrPayload) { wallet.generateQrMatrix(qrPayload) }
 
         AlertDialog(
-            onDismissRequest = { showEInkQrAdDialog = false },
+            onDismissRequest = { activeQrPurpose = null },
             title = {
                 Text(
-                    text = stringResource(R.string.wallet_eink_qr_dialog_title),
+                    text =
+                        when (qrPurpose) {
+                            EInkQrRewardPurpose.CREDIT_WALLET ->
+                                stringResource(R.string.wallet_eink_qr_dialog_title)
+                            EInkQrRewardPurpose.DOWNLOAD_BOOST ->
+                                stringResource(R.string.storage_eink_boost_qr_title)
+                            EInkQrRewardPurpose.CHECKIN_MAKEUP ->
+                                stringResource(R.string.storage_eink_makeup_qr_title)
+                        },
                     style = typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
@@ -1475,28 +1676,68 @@ fun SettingsPreviewScreen(
                     )
                     Text(
                         text =
-                            stringResource(
-                                R.string.wallet_eink_qr_dialog_desc,
-                                wallet.dailyAdCreditsClaimed,
-                            ),
+                            when (qrPurpose) {
+                                EInkQrRewardPurpose.CREDIT_WALLET ->
+                                    stringResource(
+                                        R.string.wallet_eink_qr_dialog_desc,
+                                        wallet.dailyAdCreditsClaimed,
+                                    )
+                                EInkQrRewardPurpose.DOWNLOAD_BOOST ->
+                                    stringResource(
+                                        R.string.storage_eink_boost_qr_desc,
+                                        storageState.dailyAdBoostsUsed,
+                                        storageState.dailyAdBoostsCap,
+                                    )
+                                EInkQrRewardPurpose.CHECKIN_MAKEUP ->
+                                    stringResource(
+                                        R.string.storage_eink_makeup_qr_desc,
+                                        storageState.monthlyMakeupUsed,
+                                        storageState.monthlyMakeupCap,
+                                    )
+                            },
                         style = typography.caption,
                         color = colors.onSurface,
                     )
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showEInkQrAdDialog = false }) {
+                TextButton(onClick = { activeQrPurpose = null }) {
                     Text(stringResource(R.string.caseboard_hypothesis_cancel))
                 }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        wallet = wallet.claimRewardedAd()
-                        showEInkQrAdDialog = false
+                        when (qrPurpose) {
+                            EInkQrRewardPurpose.CREDIT_WALLET -> {
+                                wallet = wallet.claimRewardedAd()
+                            }
+                            EInkQrRewardPurpose.DOWNLOAD_BOOST -> {
+                                storageState = storageState.applyDownloadAdBoost()
+                            }
+                            EInkQrRewardPurpose.CHECKIN_MAKEUP -> {
+                                if (nextMissedDay != null) {
+                                    storageState =
+                                        storageState.makeupCheckInWithAd(
+                                            targetDayKey = nextMissedDay,
+                                            nowDayKey = todayDayKey,
+                                        )
+                                }
+                            }
+                        }
+                        activeQrPurpose = null
                     },
                 ) {
-                    Text(stringResource(R.string.wallet_eink_qr_confirm_btn))
+                    Text(
+                        when (qrPurpose) {
+                            EInkQrRewardPurpose.CREDIT_WALLET ->
+                                stringResource(R.string.wallet_eink_qr_confirm_btn)
+                            EInkQrRewardPurpose.DOWNLOAD_BOOST ->
+                                stringResource(R.string.storage_eink_boost_qr_confirm_btn)
+                            EInkQrRewardPurpose.CHECKIN_MAKEUP ->
+                                stringResource(R.string.storage_eink_makeup_qr_confirm_btn)
+                        },
+                    )
                 }
             },
         )

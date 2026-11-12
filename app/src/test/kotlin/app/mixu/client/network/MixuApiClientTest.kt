@@ -2,7 +2,11 @@
 package app.mixu.client.network
 
 import app.mixu.client.billing.ClientCreditWallet
+import app.mixu.client.billing.ClientStorageStatus
 import app.mixu.client.billing.EditionMatchTier
+import app.mixu.client.billing.StorageLevel
+import app.mixu.client.billing.StorageQuotaState
+import app.mixu.client.billing.SubscriptionPlan
 import app.mixu.client.billing.TopUpPack
 import java.io.IOException
 import kotlin.test.Test
@@ -378,5 +382,286 @@ class MixuApiClientTest {
         assertEquals(2, graphRes?.entities?.size)
         assertEquals(1, graphRes?.assertions?.size)
         assertFalse(graphRes?.offlineFallback ?: true)
+    }
+
+    @Test
+    fun `storage quota check-in and makeup handle online errors and offline fallback`() {
+        val onlineClient =
+            MixuApiClient(
+                transport = { req ->
+                    when {
+                        req.method == "GET" && req.url.contains("/v1/storage/quota") -> {
+                            assertTrue(req.url.contains("day_key=2026-11-12"))
+                            assertTrue(req.url.contains("month_key=2026-11"))
+                            MixuHttpResponse(
+                                statusCode = 200,
+                                body =
+                                    """
+                                    {
+                                      "user_id": "u1",
+                                      "quota_limit_bytes": 5578424320,
+                                      "used_bytes": 52428800,
+                                      "subscription_status": "ACTIVE",
+                                      "storage_level": 2,
+                                      "base_quota_bytes": 209715200,
+                                      "subscription_bonus_bytes": 5368709120,
+                                      "max_file_size_bytes": 314572800,
+                                      "daily_download_quota_bytes": 2252341248,
+                                      "daily_download_used_bytes": 10485760,
+                                      "daily_download_ad_boost_bytes": 52428800,
+                                      "daily_ad_boosts_used": 1,
+                                      "daily_ad_boosts_cap": 6,
+                                      "monthly_download_used_bytes": 104857600,
+                                      "monthly_download_cap_bytes": 22733127680,
+                                      "checkin_days": 5,
+                                      "checkin_streak": 3,
+                                      "checked_in_today": true,
+                                      "monthly_makeup_used": 1,
+                                      "monthly_makeup_cap": 5,
+                                      "reading_minutes": 95,
+                                      "chapters_read": 8,
+                                      "graph_downloads": 2,
+                                      "ai_queries": 4,
+                                      "completed_graph_builds": 0,
+                                      "active_plan_id": "plus_monthly_12_cny"
+                                    }
+                                    """.trimIndent(),
+                            )
+                        }
+                        req.method == "POST" && req.url.endsWith("/v1/storage/check-in") ->
+                            MixuHttpResponse(
+                                statusCode = 200,
+                                body =
+                                    """
+                                    {
+                                      "already_checked_in": false,
+                                      "newly_leveled_up": true,
+                                      "quota_summary": {
+                                        "user_id": "u1",
+                                        "quota_limit_bytes": 524288000,
+                                        "used_bytes": 20971520,
+                                        "subscription_status": "ACTIVE",
+                                        "storage_level": 3,
+                                        "base_quota_bytes": 524288000,
+                                        "subscription_bonus_bytes": 0,
+                                        "checkin_days": 14,
+                                        "checkin_streak": 14,
+                                        "checked_in_today": true,
+                                        "active_plan_id": null
+                                      }
+                                    }
+                                    """.trimIndent(),
+                            )
+                        req.method == "POST" && req.url.endsWith("/v1/storage/check-in/makeup") ->
+                            MixuHttpResponse(
+                                statusCode = 429,
+                                body =
+                                    """
+                                    {
+                                      "code": "RATE_LIMITED",
+                                      "message": "Monthly makeup cap exceeded",
+                                      "request_id": "req-makeup-429"
+                                    }
+                                    """.trimIndent(),
+                            )
+                        else -> MixuHttpResponse(statusCode = 404, body = "")
+                    }
+                },
+            )
+
+        val quota =
+            onlineClient.fetchStorageQuota(
+                userId = "u1",
+                dayKey = "2026-11-12",
+                monthKey = "2026-11",
+            )
+        assertEquals(StorageLevel.LV2, quota.storageLevel)
+        assertEquals(SubscriptionPlan.PLUS_MONTHLY, quota.activePlan)
+        assertEquals(50, quota.usedMb)
+        assertEquals(200 + 5_120, quota.quotaMb)
+        assertEquals(1, quota.dailyAdBoostsUsed)
+        assertEquals(5, quota.checkinDays)
+        assertTrue(quota.checkedInToday)
+
+        val checkIn =
+            onlineClient.checkInStorage(
+                userId = "u1",
+                dayKey = "2026-11-12",
+                deviceId = "boox-tab",
+            )
+        assertFalse(checkIn.alreadyCheckedIn)
+        assertTrue(checkIn.newlyLeveledUp)
+        assertFalse(checkIn.offlineFallback)
+        assertEquals(StorageLevel.LV3, checkIn.quotaState.storageLevel)
+        assertEquals(null, checkIn.quotaState.activePlan)
+
+        val rateLimitedMakeup =
+            onlineClient.makeupStorageCheckIn(
+                userId = "u1",
+                targetDayKey = "2026-11-10",
+                challengeOrAdId = "ad-1",
+                signature = "sig-1",
+            )
+        assertEquals(ApiErrorEnvelope.CODE_RATE_LIMITED, rateLimitedMakeup.error?.code)
+
+        val offlineClient = MixuApiClient(transport = { throw IOException("Offline") })
+        val fallbackQuota = offlineClient.fetchStorageQuota("u1", fallbackState = quota)
+        assertEquals(quota, fallbackQuota)
+
+        val offlineCheckIn =
+            offlineClient.checkInStorage(
+                userId = "u1",
+                dayKey = "2026-11-12",
+                currentState = StorageQuotaState(),
+            )
+        assertTrue(offlineCheckIn.offlineFallback)
+        assertEquals(1, offlineCheckIn.quotaState.checkinDays)
+
+        val offlineMakeup =
+            offlineClient.makeupStorageCheckIn(
+                userId = "u1",
+                targetDayKey = "2026-11-10",
+                challengeOrAdId = "ad-offline",
+                signature = "sig-offline",
+                nowDayKey = "2026-11-12",
+                currentState = offlineCheckIn.quotaState,
+            )
+        assertTrue(offlineMakeup.offlineFallback)
+        assertEquals(2, offlineMakeup.quotaState.checkinDays)
+        assertEquals(1, offlineMakeup.quotaState.monthlyMakeupUsed)
+    }
+
+    @Test
+    fun `download intent upload intent and ad boost handle error envelopes and offline mode`() {
+        val client =
+            MixuApiClient(
+                transport = { req ->
+                    when {
+                        req.url.contains("/download-intent") && req.url.contains("ok-upload") ->
+                            MixuHttpResponse(
+                                statusCode = 200,
+                                body =
+                                    """
+                                    {
+                                      "upload_id": "ok-upload",
+                                      "download_url": "https://cdn.example.invalid/presigned",
+                                      "expires_at": "2026-11-12T23:59:59Z",
+                                      "size_bytes": 5242880,
+                                      "sha256": "${"a".repeat(64)}",
+                                      "daily_download_remaining_bytes": 47185920,
+                                      "monthly_download_remaining_bytes": 623902720
+                                    }
+                                    """.trimIndent(),
+                            )
+                        req.url.contains("/download-intent") && req.url.contains("quota-hit") ->
+                            MixuHttpResponse(
+                                statusCode = 429,
+                                body =
+                                    """
+                                    {
+                                      "code": "DAILY_DOWNLOAD_QUOTA_EXCEEDED",
+                                      "message": "Daily egress limit exceeded",
+                                      "request_id": "req-dl-429"
+                                    }
+                                    """.trimIndent(),
+                            )
+                        req.url.endsWith("/v1/uploads/intent") ->
+                            MixuHttpResponse(
+                                statusCode = 400,
+                                body =
+                                    """
+                                    {
+                                      "code": "FILE_SIZE_LIMIT_EXCEEDED",
+                                      "message": "File exceeds max_file_size_bytes",
+                                      "request_id": "req-up-400"
+                                    }
+                                    """.trimIndent(),
+                            )
+                        req.url.endsWith("/v1/storage/download-boost/verify") ->
+                            MixuHttpResponse(
+                                statusCode = 200,
+                                body =
+                                    """
+                                    {
+                                      "challenge_or_ad_id": "boost-01",
+                                      "granted_boost_bytes": 52428800,
+                                      "daily_download_ad_boost_bytes": 52428800,
+                                      "daily_ad_boosts_used": 1,
+                                      "daily_ad_boosts_cap": 6,
+                                      "quota_summary": {
+                                        "user_id": "u1",
+                                        "quota_limit_bytes": 104857600,
+                                        "used_bytes": 18874368,
+                                        "subscription_status": "ACTIVE",
+                                        "storage_level": 1,
+                                        "daily_download_ad_boost_bytes": 52428800,
+                                        "daily_ad_boosts_used": 1,
+                                        "daily_ad_boosts_cap": 6
+                                      }
+                                    }
+                                    """.trimIndent(),
+                            )
+                        else -> MixuHttpResponse(statusCode = 404, body = "")
+                    }
+                },
+            )
+
+        val dlOk = client.requestDownloadIntent("u1", "ok-upload", dayKey = "2026-11-12")
+        assertTrue(dlOk.allowed)
+        assertEquals(5_242_880L, dlOk.sizeBytes)
+        assertFalse(dlOk.offlineFallback)
+
+        val dlBlocked = client.requestDownloadIntent("u1", "quota-hit")
+        assertFalse(dlBlocked.allowed)
+        assertTrue(dlBlocked.isDailyDownloadQuotaExceeded)
+        assertEquals("req-dl-429", dlBlocked.error?.requestId)
+
+        val upBlocked =
+            client.requestUploadIntent(
+                userId = "u1",
+                filename = "huge.epub",
+                contentType = "application/epub+zip",
+                sizeBytes = 50_000_000L,
+                sha256 = "b".repeat(64),
+            )
+        assertFalse(upBlocked.allowed)
+        assertTrue(upBlocked.isFileSizeLimitExceeded)
+        assertEquals(ClientStorageStatus.ACTIVE, StorageQuotaState().status)
+
+        val boostOk =
+            client.verifyDownloadAdBoost(
+                userId = "u1",
+                challengeOrAdId = "boost-01",
+                signature = "sig-hmac",
+                dayKey = "2026-11-12",
+            )
+        assertFalse(boostOk.offlineFallback)
+        assertEquals(52_428_800L, boostOk.grantedBoostBytes)
+        assertEquals(1, boostOk.dailyAdBoostsUsed)
+        assertEquals(50, boostOk.quotaState.dailyDownloadAdBoostMb)
+
+        val offlineClient = MixuApiClient(transport = { throw IOException("Offline") })
+        val offlineBoost =
+            offlineClient.verifyDownloadAdBoost(
+                userId = "u1",
+                challengeOrAdId = "boost-offline",
+                signature = "sig",
+                currentState = StorageQuotaState(),
+            )
+        assertTrue(offlineBoost.offlineFallback)
+        assertEquals(52_428_800L, offlineBoost.grantedBoostBytes)
+        assertEquals(1, offlineBoost.dailyAdBoostsUsed)
+
+        val offlineUpload =
+            offlineClient.requestUploadIntent(
+                userId = "u1",
+                filename = "oversize.epub",
+                contentType = "application/epub+zip",
+                sizeBytes = 20L * StorageQuotaState.BYTES_PER_MB,
+                sha256 = "c".repeat(64),
+                currentState = StorageQuotaState(),
+            )
+        assertTrue(offlineUpload.offlineFallback)
+        assertTrue(offlineUpload.isFileSizeLimitExceeded)
     }
 }

@@ -196,6 +196,9 @@ class MainActivity :
                     var aiButlerImageToken by remember {
                         mutableStateOf<ParsedReaderImageToken?>(null)
                     }
+                    var aiButlerPendingPrompt by remember {
+                        mutableStateOf<String?>(null)
+                    }
 
                     onHardwareKeyEvent = { event ->
                         if (currentDestination != MainScreenDestination.READER) {
@@ -621,6 +624,14 @@ class MainActivity :
                                                 aiButlerInitialMode =
                                                     CopilotSessionMode.BOOK_COPILOT
                                                 aiButlerImageToken = currentImgToken
+                                                aiButlerPendingPrompt = null
+                                                showAiButlerDialog = true
+                                            },
+                                            onAskCopilotTranslate = { prompt ->
+                                                aiButlerInitialMode =
+                                                    CopilotSessionMode.BOOK_COPILOT
+                                                aiButlerImageToken = null
+                                                aiButlerPendingPrompt = prompt
                                                 showAiButlerDialog = true
                                             },
                                             hardwareKeyTurnSignal = hardwareKeyTurnSignal,
@@ -757,6 +768,10 @@ class MainActivity :
 
                                     AiButlerCopilotDialog(
                                         initialMode = aiButlerInitialMode,
+                                        initialPrompt = aiButlerPendingPrompt,
+                                        onConsumeInitialPrompt = {
+                                            aiButlerPendingPrompt = null
+                                        },
                                         books = libraryBooks,
                                         activeBook = lastReadBook,
                                         currentChapterIndex = currentPage?.spineIndex ?: 0,
@@ -769,6 +784,7 @@ class MainActivity :
                                             libraryBooks = loadLibraryBooks()
                                         },
                                         onDismiss = {
+                                            aiButlerPendingPrompt = null
                                             showAiButlerDialog = false
                                         },
                                         apiClient =
@@ -796,6 +812,7 @@ class MainActivity :
                                                     CopilotSessionMode.GLOBAL_BUTLER
                                                 }
                                             aiButlerImageToken = null
+                                            aiButlerPendingPrompt = null
                                             showAiButlerDialog = true
                                         },
                                         modifier =

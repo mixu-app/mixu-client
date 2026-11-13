@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,6 +43,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -463,6 +465,8 @@ fun AiButlerCopilotDialog(
     onDismiss: () -> Unit,
     apiClient: MixuApiClient = remember { MixuApiClient.createProductionClient() },
     modifier: Modifier = Modifier,
+    initialPrompt: String? = null,
+    onConsumeInitialPrompt: () -> Unit = {},
 ) {
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
@@ -668,6 +672,71 @@ fun AiButlerCopilotDialog(
                 }
             }
         }.start()
+    }
+
+    val submitUserPrompt: (promptText: String, targetMode: CopilotSessionMode?) -> Unit =
+        { promptText, targetMode ->
+            val prompt = promptText.trim()
+            if (prompt.isNotEmpty()) {
+                val targetIndex =
+                    if (targetMode != null) {
+                        sessions
+                            .indexOfFirst { it.mode == targetMode }
+                            .takeIf { it >= 0 }
+                            ?: activeSessionIndex.coerceIn(0, sessions.lastIndex)
+                    } else {
+                        activeSessionIndex.coerceIn(0, sessions.lastIndex)
+                    }
+                activeSessionIndex = targetIndex
+                val targetSession = sessions[targetIndex]
+                val effectiveImgToken =
+                    if (attachCurrentImage && targetMode == null) {
+                        currentPageImageToken
+                            ?: activeBook?.coverPath?.let {
+                                ParsedReaderImageToken(it, "Cover")
+                            }
+                    } else {
+                        null
+                    }
+                val (reply, badge) =
+                    handleUserPrompt(
+                        prompt = prompt,
+                        mode = targetSession.mode,
+                        books = books,
+                        activeBookTitle = activeBookTitle,
+                        chapterNum = safeChapterNum,
+                        chapterTitle = currentChapterTitle,
+                        visibleText = currentVisibleText,
+                        attachedImage = effectiveImgToken,
+                        webSearchEnabled = webSearchEnabled,
+                        userSession = userSession,
+                        database = database,
+                        onLibraryMutated = onLibraryMutated,
+                    )
+                val (sIdx, msgId) = appendExchange(prompt, reply, badge, effectiveImgToken)
+                val lowerPrompt = prompt.lowercase()
+                val isLocalCommand =
+                    lowerPrompt.contains("收藏夹") ||
+                        lowerPrompt.contains("整理") ||
+                        lowerPrompt.contains("tag") ||
+                        lowerPrompt.contains("标签") ||
+                        lowerPrompt.contains("图库") ||
+                        lowerPrompt.contains("分析书库") ||
+                        lowerPrompt.contains("云端") ||
+                        lowerPrompt.contains("同步")
+                if (!isLocalCommand) {
+                    requestCloudCopilotEnrichment(sIdx, msgId, prompt)
+                }
+            }
+        }
+
+    LaunchedEffect(initialPrompt) {
+        val pending = initialPrompt?.trim()
+        if (!pending.isNullOrEmpty()) {
+            attachCurrentImage = false
+            submitUserPrompt(pending, CopilotSessionMode.BOOK_COPILOT)
+            onConsumeInitialPrompt()
+        }
     }
 
     val executeQuickAction: (String) -> Unit = { actionId ->
@@ -947,7 +1016,14 @@ fun AiButlerCopilotDialog(
             }
 
             // 2. Scrollable Chat Messages Area (Streaming Markdown + Action Cards)
+            val messagesListState = rememberLazyListState()
+            LaunchedEffect(currentSession.sessionId, currentSession.messages.size) {
+                if (currentSession.messages.isNotEmpty()) {
+                    messagesListState.animateScrollToItem(currentSession.messages.lastIndex)
+                }
+            }
             LazyColumn(
+                state = messagesListState,
                 modifier =
                     Modifier
                         .weight(1f)
@@ -1081,44 +1157,7 @@ fun AiButlerCopilotDialog(
             val sendAction = {
                 val prompt = inputDraft.trim()
                 if (prompt.isNotEmpty()) {
-                    val effectiveImgToken =
-                        if (attachCurrentImage) {
-                            currentPageImageToken
-                                ?: activeBook?.coverPath?.let {
-                                    ParsedReaderImageToken(it, "Cover")
-                                }
-                        } else {
-                            null
-                        }
-                    val (reply, badge) =
-                        handleUserPrompt(
-                            prompt = prompt,
-                            mode = currentSession.mode,
-                            books = books,
-                            activeBookTitle = activeBookTitle,
-                            chapterNum = safeChapterNum,
-                            chapterTitle = currentChapterTitle,
-                            visibleText = currentVisibleText,
-                            attachedImage = effectiveImgToken,
-                            webSearchEnabled = webSearchEnabled,
-                            userSession = userSession,
-                            database = database,
-                            onLibraryMutated = onLibraryMutated,
-                        )
-                    val (sIdx, msgId) = appendExchange(prompt, reply, badge, effectiveImgToken)
-                    val lowerPrompt = prompt.lowercase()
-                    val isLocalCommand =
-                        lowerPrompt.contains("收藏夹") ||
-                            lowerPrompt.contains("整理") ||
-                            lowerPrompt.contains("tag") ||
-                            lowerPrompt.contains("标签") ||
-                            lowerPrompt.contains("图库") ||
-                            lowerPrompt.contains("分析书库") ||
-                            lowerPrompt.contains("云端") ||
-                            lowerPrompt.contains("同步")
-                    if (!isLocalCommand) {
-                        requestCloudCopilotEnrichment(sIdx, msgId, prompt)
-                    }
+                    submitUserPrompt(prompt, null)
                     inputDraft = ""
                 }
             }
@@ -1609,12 +1648,18 @@ private fun handleUserPrompt(
 
     return if (mode == CopilotSessionMode.BOOK_COPILOT) {
         val snippet = visibleText.take(48).replace("\n", " ")
+        val promptPreview =
+            if (prompt.length > 100) {
+                prompt.take(100).trimEnd() + "…"
+            } else {
+                prompt
+            }
         val body =
             buildString {
                 appendLine("### 防剧透伴读 · 《$activeBookTitle》")
                 appendLine("- **锁定范围**：`第 1~$chapterNum 节` ($chapterTitle)")
                 append(
-                    "- **解答**：针对「$prompt」，基于当前页（「$snippet...」）及已读章节梳理，第 ${chapterNum + 1} 节后内容已屏蔽。",
+                    "- **解答**：针对「$promptPreview」，基于当前页（「$snippet...」）及已读章节梳理，第 ${chapterNum + 1} 节后内容已屏蔽。",
                 )
             }
         body to "防剧透伴读 · 第 1~$chapterNum 节"

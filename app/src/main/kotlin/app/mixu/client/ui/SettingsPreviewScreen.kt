@@ -92,7 +92,7 @@ private const val REPO_URL_CLIENT = "https://github.com/mixu-app/mixu-client"
 private const val REPO_URL_ENGINE = "https://github.com/mixu-app/mixu-graph"
 private const val REPO_URL_RESEARCH = "https://github.com/mixu-app/mixu-research"
 private const val REPO_URL_ISSUES = "https://github.com/mixu-app/mixu-client/issues"
-private const val APP_VERSION_NAME = "v0.0.1 (KMP · Compose)"
+private const val APP_VERSION_NAME = "v0.0.2 (KMP · Compose)"
 
 private enum class EInkQrRewardPurpose {
     CREDIT_WALLET,

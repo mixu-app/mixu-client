@@ -37,6 +37,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -97,6 +98,7 @@ import app.mixu.client.config.ReaderPreset
 import app.mixu.client.config.ReadingLayoutMode
 import app.mixu.client.copilot.AgentAvatarBadge
 import app.mixu.client.lookup.LookupAndTranslationEngine
+import app.mixu.client.lookup.PassageTranslationResult
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.theme.MixuThemeMode
 import java.io.File
@@ -342,6 +344,7 @@ fun ReaderScreen(
     isBookFavorite: Boolean = false,
     onToggleBookFavorite: (() -> Unit)? = null,
     onOpenAiButler: ((ParsedReaderImageToken?) -> Unit)? = null,
+    onAskCopilotTranslate: ((String) -> Unit)? = null,
     hardwareKeyTurnSignal: Int = 0,
     hardwareKeyTurnDirection: Int = 0,
 ) {
@@ -1643,6 +1646,20 @@ fun ReaderScreen(
                 onOpenFullDictionary = {
                     showLookupSheet = true
                 },
+                onAskCopilotTranslate = { passageToTranslate ->
+                    val prompt =
+                        LookupAndTranslationEngine.buildCopilotTranslationPrompt(
+                            passage = passageToTranslate,
+                            bookTitle = viewportState.bookTitle,
+                            chapterTitle = page.chapterTitle,
+                        )
+                    selectedPassage = null
+                    if (onAskCopilotTranslate != null) {
+                        onAskCopilotTranslate(prompt)
+                    } else {
+                        onOpenAiButler?.invoke(null)
+                    }
+                },
                 onDismiss = { selectedPassage = null },
                 modifier =
                     Modifier
@@ -1652,7 +1669,7 @@ fun ReaderScreen(
             )
         }
 
-        // 6. Offline + Online Dictionary Lookup & Passage Translation Sheet
+        // 6. Offline Dictionary Lookup & AI Copilot Contextual Translation Sheet
         if (showLookupSheet) {
             LookupAndTranslationDialog(
                 sampleParagraph = selectedPassage ?: currentVisibleSampleText,
@@ -1660,6 +1677,21 @@ fun ReaderScreen(
                 config = config,
                 onUpdateProviderMode = { mode ->
                     applyConfigChange(config.copy(lookupProviderMode = mode))
+                },
+                onAskCopilotTranslate = { passageToTranslate ->
+                    val prompt =
+                        LookupAndTranslationEngine.buildCopilotTranslationPrompt(
+                            passage = passageToTranslate,
+                            bookTitle = viewportState.bookTitle,
+                            chapterTitle = page.chapterTitle,
+                        )
+                    showLookupSheet = false
+                    selectedPassage = null
+                    if (onAskCopilotTranslate != null) {
+                        onAskCopilotTranslate(prompt)
+                    } else {
+                        onOpenAiButler?.invoke(null)
+                    }
                 },
                 onDismiss = { showLookupSheet = false },
             )
@@ -1949,6 +1981,7 @@ private fun TextSelectionActionOverlay(
     onHighlightChange: (Color?) -> Unit,
     onSaveNote: (String) -> Unit,
     onOpenFullDictionary: () -> Unit,
+    onAskCopilotTranslate: (String) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2209,35 +2242,13 @@ private fun TextSelectionActionOverlay(
                 }
 
                 SelectionToolTab.TRANSLATE -> {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = colors.surfaceVariant.copy(alpha = 0.5f),
-                        border = BorderStroke(1.dp, colors.outlineVariant),
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                text = translationResult.endpointSummary,
-                                style = MixuTheme.typography.caption,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.primary,
-                            )
-                            Text(
-                                text = translationResult.offlineTranslation,
-                                style = MixuTheme.typography.caption,
-                                color = colors.onSurface,
-                            )
-                            if (translationResult.onlineTranslation != null) {
-                                Text(
-                                    text = translationResult.onlineTranslation,
-                                    style = MixuTheme.typography.caption,
-                                    color = colors.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
+                    PassageTranslationAidCard(
+                        passage = passage,
+                        translationResult = translationResult,
+                        onAskCopilotTranslate = onAskCopilotTranslate,
+                        surfaceAlpha = 0.5f,
+                        contentPaddingDp = 8,
+                    )
                 }
 
                 SelectionToolTab.NOTE -> {
@@ -2291,6 +2302,7 @@ private fun LookupAndTranslationDialog(
     initialQuery: String = "alibi",
     config: ReaderDisplayConfig,
     onUpdateProviderMode: (LookupProviderMode) -> Unit,
+    onAskCopilotTranslate: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = MixuTheme.colors
@@ -2349,7 +2361,7 @@ private fun LookupAndTranslationDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 // Provider Mode Selector (Hybrid / Offline Local / Online API)
@@ -2455,36 +2467,14 @@ private fun LookupAndTranslationDialog(
                     }
                 }
 
-                // Current Paragraph Translation Comparison Card
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = colors.surfaceVariant.copy(alpha = 0.4f),
-                    border = BorderStroke(1.dp, colors.outlineVariant),
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(
-                            text = translationResult.endpointSummary,
-                            style = MixuTheme.typography.caption,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.primary,
-                        )
-                        Text(
-                            text = translationResult.offlineTranslation,
-                            style = MixuTheme.typography.caption,
-                            color = colors.onSurface,
-                        )
-                        if (translationResult.onlineTranslation != null) {
-                            Text(
-                                text = translationResult.onlineTranslation,
-                                style = MixuTheme.typography.caption,
-                                color = colors.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
+                // Current Paragraph Local Translation Aid + AI Copilot Contextual Translation
+                PassageTranslationAidCard(
+                    passage = sampleParagraph,
+                    translationResult = translationResult,
+                    onAskCopilotTranslate = onAskCopilotTranslate,
+                    surfaceAlpha = 0.4f,
+                    contentPaddingDp = 10,
+                )
 
                 // Offline Resource Packs Manager
                 Text(
@@ -2534,6 +2524,76 @@ private fun LookupAndTranslationDialog(
             }
         },
     )
+}
+
+@Composable
+private fun PassageTranslationAidCard(
+    passage: String,
+    translationResult: PassageTranslationResult,
+    onAskCopilotTranslate: (String) -> Unit,
+    surfaceAlpha: Float,
+    contentPaddingDp: Int,
+) {
+    val colors = MixuTheme.colors
+    val maxChars = LookupAndTranslationEngine.COPILOT_TRANSLATION_MAX_CHARS
+    val trimmedLength = passage.trim().length
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = colors.surfaceVariant.copy(alpha = surfaceAlpha),
+        border = BorderStroke(1.dp, colors.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(contentPaddingDp.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = translationResult.endpointSummary,
+                style = MixuTheme.typography.caption,
+                fontWeight = FontWeight.Bold,
+                color = colors.primary,
+            )
+            Text(
+                text = translationResult.offlineTranslation,
+                style = MixuTheme.typography.caption,
+                color = colors.onSurface,
+            )
+            Text(
+                text = stringResource(R.string.lookup_copilot_translate_hint, maxChars),
+                style = MixuTheme.typography.caption,
+                color = colors.onSurfaceVariant,
+            )
+            if (trimmedLength > maxChars) {
+                Text(
+                    text =
+                        stringResource(
+                            R.string.lookup_copilot_truncated_note,
+                            trimmedLength,
+                            maxChars,
+                        ),
+                    style = MixuTheme.typography.caption,
+                    color = colors.primary,
+                )
+            }
+            Button(
+                onClick = { onAskCopilotTranslate(passage) },
+                enabled = passage.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                colors =
+                    ButtonDefaults.buttonColors(
+                        containerColor = colors.primary,
+                        contentColor = colors.onPrimary,
+                    ),
+            ) {
+                Text(
+                    text = stringResource(R.string.lookup_copilot_translate_cta),
+                    style = MixuTheme.typography.caption,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
 }
 
 @Composable

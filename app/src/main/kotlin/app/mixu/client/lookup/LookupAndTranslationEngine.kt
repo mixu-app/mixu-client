@@ -53,15 +53,21 @@ data class PassageTranslationResult(
 )
 
 /**
- * Pure Kotlin KMP-compatible engine for offline local dictionary/translation packs
- * and online/self-hosted API lookup & literary translation.
+ * Pure Kotlin KMP-compatible engine for free, unlimited on-device offline dictionary/translation
+ * packs and bounded prompt generation for horizon-locked AI Copilot literary translation.
  *
  * Time Complexity:
  * - Offline headword lookup: $O(1)$ hash lookup + $O(k)$ suffix stemming ($k \le 4$).
- * - Passage token translation: $O(W)$ where $W$ is the word/clause count in the passage.
+ * - Passage prompt & local preview: $O(\min(N, \text{COPILOT\_TRANSLATION\_MAX\_CHARS}))$.
  * Space Complexity: $O(D)$ where $D$ is the in-memory lexicon size.
  */
 object LookupAndTranslationEngine {
+    /**
+     * Maximum character length per selection sent to AI Butler / Copilot for contextual
+     * literary translation, preventing bulk whole-book translation abuse.
+     */
+    const val COPILOT_TRANSLATION_MAX_CHARS = 800
+
     private data class LexiconEntry(
         val headword: String,
         val phonetic: String,
@@ -223,7 +229,46 @@ object LookupAndTranslationEngine {
     }
 
     /**
-     * Performs a dictionary lookup according to the configured [providerMode].
+     * Builds a horizon-bounded prompt asking AI Copilot for an accurate Chinese literary
+     * translation together with clue/context explanation, truncating [passage] cleanly at
+     * [COPILOT_TRANSLATION_MAX_CHARS] characters.
+     *
+     * Time Complexity: O(min(N, COPILOT_TRANSLATION_MAX_CHARS)).
+     * Space Complexity: O(min(N, COPILOT_TRANSLATION_MAX_CHARS)).
+     */
+    fun buildCopilotTranslationPrompt(
+        passage: String,
+        bookTitle: String? = null,
+        chapterTitle: String? = null,
+    ): String {
+        val trimmed = passage.trim()
+        val boundedPassage =
+            if (trimmed.length > COPILOT_TRANSLATION_MAX_CHARS) {
+                trimmed.take(COPILOT_TRANSLATION_MAX_CHARS).trimEnd() + "…"
+            } else {
+                trimmed
+            }
+        val contextScope =
+            listOfNotNull(
+                bookTitle?.trim()?.takeIf { it.isNotEmpty() }?.let { "《$it》" },
+                chapterTitle?.trim()?.takeIf { it.isNotEmpty() },
+            ).joinToString(" · ")
+        val header =
+            if (contextScope.isNotEmpty()) {
+                "请结合 $contextScope 当前阅读进度（防剧透安全边界内），为以下选段提供准确流畅的中文文学翻译，并简析其中专有名词、人物语气或潜在推理线索："
+            } else {
+                "请结合当前阅读进度（防剧透安全边界内），为以下选段提供准确流畅的中文文学翻译，并简析其中专有名词、人物语气或潜在推理线索："
+            }
+        return if (boundedPassage.isEmpty()) {
+            header
+        } else {
+            "$header\n\n「$boundedPassage」"
+        }
+    }
+
+    /**
+     * Performs a fast, free, unlimited on-device dictionary lookup according to [providerMode],
+     * routing any contextual disambiguation beyond local packs to self-hosted nodes or AI Copilot.
      */
     fun lookupWord(
         query: String,
@@ -233,72 +278,51 @@ object LookupAndTranslationEngine {
     ): DictionaryLookupResult {
         val normalized = stemWord(query)
         val entry = builtInLexicon[normalized]
-
-        val useOnline =
-            when (providerMode) {
-                LookupProviderMode.OFFLINE_LOCAL -> false
-                LookupProviderMode.ONLINE_API -> true
-                LookupProviderMode.HYBRID_AUTO -> entry == null || selfHostedEnabled
-            }
-
-        val endpointLabel =
-            if (selfHostedEnabled && selfHostedUrl.isNotBlank()) {
-                "自建无状态 API (${selfHostedUrl.trim()})"
+        val hasCustomServer =
+            providerMode != LookupProviderMode.OFFLINE_LOCAL &&
+                selfHostedEnabled &&
+                selfHostedUrl.isNotBlank()
+        val selfHostedLabel = "自建无状态 API (${selfHostedUrl.trim()})"
+        val localLabel =
+            if (providerMode == LookupProviderMode.OFFLINE_LOCAL) {
+                "本地离线词典包 (dict-en-zh-core · <1ms · 免费无限)"
             } else {
-                "云端语境增强引擎 (Online API)"
+                "本地离线词典 (<1ms · 免费无限) · 语境精解走 AI 伴读"
             }
 
         if (entry != null) {
-            return if (providerMode == LookupProviderMode.ONLINE_API) {
-                DictionaryLookupResult(
-                    query = query.trim(),
-                    headword = entry.headword,
-                    phonetic = entry.phonetic,
-                    partOfSpeech = entry.partOfSpeech,
-                    primaryDefinition = "${entry.definitionZh}\n【语境深度解析】${entry.onlineNuanceZh}",
-                    mysteryContextNote = entry.mysteryNoteZh,
-                    providerLabel = endpointLabel,
-                    isOfflineSource = false,
-                    latencyMs = 142,
-                )
-            } else {
-                val combinedDef =
-                    if (providerMode == LookupProviderMode.HYBRID_AUTO) {
-                        "${entry.definitionZh}\n【离线秒查 + 在线语境补充】${entry.onlineNuanceZh}"
-                    } else {
-                        entry.definitionZh
-                    }
-                DictionaryLookupResult(
-                    query = query.trim(),
-                    headword = entry.headword,
-                    phonetic = entry.phonetic,
-                    partOfSpeech = entry.partOfSpeech,
-                    primaryDefinition = combinedDef,
-                    mysteryContextNote = entry.mysteryNoteZh,
-                    providerLabel =
-                        if (providerMode == LookupProviderMode.OFFLINE_LOCAL) {
-                            "本地离线词典包 (dict-en-zh-core · <1ms)"
-                        } else {
-                            "混合模式：本地离线词典 (<1ms) + $endpointLabel"
-                        },
-                    isOfflineSource = !useOnline,
-                    latencyMs = 1,
-                )
-            }
+            val definitionText =
+                if (hasCustomServer || providerMode == LookupProviderMode.HYBRID_AUTO) {
+                    "${entry.definitionZh}\n【推理词库补充】${entry.onlineNuanceZh}"
+                } else {
+                    entry.definitionZh
+                }
+            return DictionaryLookupResult(
+                query = query.trim(),
+                headword = entry.headword,
+                phonetic = entry.phonetic,
+                partOfSpeech = entry.partOfSpeech,
+                primaryDefinition = definitionText,
+                mysteryContextNote = entry.mysteryNoteZh,
+                providerLabel = if (hasCustomServer) selfHostedLabel else localLabel,
+                isOfflineSource = !hasCustomServer,
+                latencyMs = 1,
+            )
         }
 
         // Fallback when word is outside core mystery lexicon
         val cleanQuery = query.trim().ifEmpty { "alibi" }
-        return if (providerMode == LookupProviderMode.OFFLINE_LOCAL) {
+        return if (hasCustomServer) {
             DictionaryLookupResult(
                 query = cleanQuery,
                 headword = cleanQuery,
                 phonetic = "/${cleanQuery.lowercase()}/",
-                partOfSpeech = "n. / v.",
-                primaryDefinition = "离线词典基础释义：『$cleanQuery』（文学/叙事语境词条，已从本地词库索引匹配）",
-                mysteryContextNote = "提示：切换为『混合自动』或『在线 API』可获取结合当前章节上下文的精准推理语境释义。",
-                providerLabel = "本地离线词典包 (dict-en-zh-core · <1ms)",
-                isOfflineSource = true,
+                partOfSpeech = "context expr.",
+                primaryDefinition =
+                    "自建无状态节点词条解析：『$cleanQuery』可由自定义节点（${selfHostedUrl.trim()}）结合当前章节语境消歧。",
+                mysteryContextNote = "也可使用右下角 AI 管家伴读（1 推理点/次）在防剧透边界内解析该词与上下文线索。",
+                providerLabel = selfHostedLabel,
+                isOfflineSource = false,
                 latencyMs = 1,
             )
         } else {
@@ -306,19 +330,21 @@ object LookupAndTranslationEngine {
                 query = cleanQuery,
                 headword = cleanQuery,
                 phonetic = "/${cleanQuery.lowercase()}/",
-                partOfSpeech = "context expr.",
-                primaryDefinition = "在线上下文精解：『$cleanQuery』在当前段落中作为叙事关键线索词，建议结合人物对话语气与时间线交叉比对。",
-                mysteryContextNote = "在线 API 已结合当前章节前文（零剧透边界内）完成语境消歧。",
-                providerLabel = endpointLabel,
-                isOfflineSource = false,
-                latencyMs = 165,
+                partOfSpeech = "n. / v.",
+                primaryDefinition =
+                    "离线词典基础匹配：『$cleanQuery』暂未命中内置核心推理词表（本地查词免费无限制）。",
+                mysteryContextNote =
+                    "如需结合当前章节语境解析生僻词或双关线索，请选中句段后点击「用 AI 管家语境译解（1 推理点）」。",
+                providerLabel = localLabel,
+                isOfflineSource = true,
+                latencyMs = 1,
             )
         }
     }
 
     /**
-     * Translates a selected passage or paragraph, providing both local offline NMT output
-     * and optional online literary translation for side-by-side comparison.
+     * Generates a free, unlimited local offline passage translation aid without any fake online
+     * translate API simulation. Deep contextual literary translation routes to AI Copilot.
      */
     fun translatePassage(
         passage: String,
@@ -328,30 +354,28 @@ object LookupAndTranslationEngine {
     ): PassageTranslationResult {
         val trimmed = passage.trim()
         val offlineText = buildOfflineTranslation(trimmed)
-        val onlineText =
-            if (providerMode == LookupProviderMode.OFFLINE_LOCAL) {
-                null
-            } else {
-                buildOnlineLiteraryTranslation(trimmed)
-            }
+        val hasCustomServer =
+            providerMode != LookupProviderMode.OFFLINE_LOCAL &&
+                selfHostedEnabled &&
+                selfHostedUrl.isNotBlank()
         val endpointSummary =
             when {
                 providerMode == LookupProviderMode.OFFLINE_LOCAL ->
-                    "仅离线本地模型 (ONNX Int8 · 零网络请求)"
-                selfHostedEnabled && selfHostedUrl.isNotBlank() ->
-                    "自建无状态服务 (${selfHostedUrl.trim()}) + 本地离线缓存"
+                    "仅离线本地直译 (ONNX Int8 · 免费无限 · 零网络请求)"
+                hasCustomServer ->
+                    "本地离线直译 (免费无限) · 深度语境可走 AI 伴读或自建节点 (${selfHostedUrl.trim()})"
                 else ->
-                    "本地离线秒译 (12ms) + 在线文学精译对比 (180ms)"
+                    "本地离线直译 (免费无限) · 文学精译与线索解析由 AI 伴读提供 (1 推理点/次 · 限 $COPILOT_TRANSLATION_MAX_CHARS 字)"
             }
 
         return PassageTranslationResult(
             sourceText = trimmed,
             offlineTranslation = offlineText,
-            onlineTranslation = onlineText,
+            onlineTranslation = null,
             activeProviderMode = providerMode,
             endpointSummary = endpointSummary,
             offlineLatencyMs = 12,
-            onlineLatencyMs = if (onlineText != null) 180 else null,
+            onlineLatencyMs = null,
         )
     }
 
@@ -366,26 +390,11 @@ object LookupAndTranslationEngine {
             source.any { it.code in 0x4E00..0x9FFF } ->
                 "【离线双语对照】\"${source.take(
                     96,
-                )}${if (source.length > 96) "…" else ""}\" → [Offline NMT: Narrative evidence & timeline verified at current reading horizon.]"
+                )}${if (source.length > 96) "…" else ""}\" → [Offline NMT: Local reading-horizon aid ready; use AI Copilot for literary nuance.]"
             else ->
                 "【离线轻量模型直译】${source.take(
                     110,
-                )}${if (source.length > 110) "…" else ""}（已由本地 ONNX Int8 离线翻译包完成本地转换，耗时 12ms，无需联网）"
-        }
-    }
-
-    private fun buildOnlineLiteraryTranslation(source: String): String {
-        if (source.isEmpty()) return ""
-        val lower = source.lowercase()
-        return when {
-            lower.contains("caroline") && lower.contains("mustache") ->
-                "【在线文学润色】可这些显然满足不了卡罗琳的好奇心。她一心想打听清楚这位新邻居的来历、生计与婚配状况……我打趣道：『亲爱的卡罗琳，他的老本行根本无需多猜——准是个退了休的理发师，瞧瞧他那撇考究的小胡子就知道了。』（注：此处谢泼德医生误判了波洛的身份）"
-            lower.contains("mrs. ferrars") ->
-                "【在线文学润色】费拉尔斯夫人死于九月十六日深夜至十七日凌晨之间——那天恰逢周四。十七日周五清晨八点整，我应召赶往宅邸，然而彼时她早已气绝多时。"
-            else ->
-                "【在线语境精译】已结合当前阅读进度（防剧透安全地平线内）完成文学语境消歧与专有名词对齐：『${source.take(
-                    96,
-                )}${if (source.length > 96) "…" else ""}』"
+                )}${if (source.length > 110) "…" else ""}（已由本地 ONNX Int8 离线翻译包完成本地转换，免费无限制；如需文学润色与线索精解请用 AI 伴读）"
         }
     }
 }

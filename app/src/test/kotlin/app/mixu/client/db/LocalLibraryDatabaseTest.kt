@@ -9,6 +9,7 @@ import app.mixu.client.logging.LogLevel
 import app.mixu.client.logging.LogSink
 import app.mixu.client.logging.StructuredLogger
 import app.mixu.client.theme.MixuThemeMode
+import app.mixu.client.theme.MixuThemePack
 import app.mixu.graph.Locator
 import app.mixu.graph.OverlayKind
 import app.mixu.graph.OverlayObjectType
@@ -27,6 +28,62 @@ class LocalLibraryDatabaseTest {
         "a1b2c3d4e5f60123456789abcdef0123456789abcdef0123456789abcdef0001"
     private val sampleSha2 =
         "b2c3d4e5f6a10123456789abcdef0123456789abcdef0123456789abcdef0002"
+
+    @Test
+    fun `cleared theme stays cleared after reopen and preserves other scopes`() {
+        val directory = Files.createTempDirectory("mixu-theme-clear-store").toFile()
+        try {
+            val file = directory.resolve(LocalLibraryDatabase.DATABASE_FILE_NAME)
+            val bookScope = "book:synthetic-theme"
+            val global =
+                ReaderDisplayConfig.DEFAULT.copy(
+                    themeMode = MixuThemeMode.DARK,
+                    fontSizeSp = 24f,
+                    marginPreset = MarginPreset.WIDE,
+                    customThemePackJson =
+                        MixuThemePack(
+                            id = "global-theme",
+                            name = "Global theme",
+                        ).toJson(),
+                )
+            val book =
+                global.copy(
+                    themeMode = MixuThemeMode.SEPIA,
+                    fontSizeSp = 20f,
+                    marginPreset = MarginPreset.COMPACT,
+                    customThemePackJson =
+                        MixuThemePack(
+                            id = "book-theme",
+                            name = "Book theme",
+                        ).toJson(),
+                )
+            val clearedGlobal = global.copy(customThemePackJson = null)
+            LocalLibraryDatabase.open(file).use { db ->
+                db.saveReaderSettings(global)
+                db.saveReaderSettings(book, scopeKey = bookScope)
+                db.saveReaderSettings(clearedGlobal)
+            }
+            LocalLibraryDatabase.open(file).use { reopened ->
+                assertEquals(clearedGlobal, reopened.loadReaderSettings())
+                assertNull(reopened.loadReaderSettings().customThemePackJson)
+                assertEquals(book, reopened.loadReaderSettings(bookScope))
+                reopened.saveReaderSettings(
+                    book.copy(customThemePackJson = "  "),
+                    scopeKey = bookScope,
+                )
+            }
+            LocalLibraryDatabase.open(file).use { reopened ->
+                assertEquals(clearedGlobal, reopened.loadReaderSettings())
+                assertEquals(
+                    book.copy(customThemePackJson = null),
+                    reopened.loadReaderSettings(bookScope),
+                )
+                assertNull(reopened.loadReaderSettings(bookScope).customThemePackJson)
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
 
     @Test
     fun `migration from v1 to synthetic v2 fails unless migration exists`() {

@@ -93,3 +93,31 @@ fun createMixuTypography(
         lineHeightMultiplier = lh,
     )
 }
+
+/** Compact UI hierarchy; publication typography is configured independently by the reader. */
+fun createMixuAppTypography(
+    fontFamily: FontFamily = FontFamily.SansSerif,
+    scaleMultiplier: Float = 1f,
+): MixuTypography {
+    val base = createMixuTypography(fontFamily = fontFamily, scaleMultiplier = scaleMultiplier)
+    return base.copy(
+        titleLarge =
+            base.titleLarge.copy(
+                fontSize = (18f * base.scaleMultiplier).sp,
+                lineHeight =
+                    (
+                        24f *
+                            base.scaleMultiplier
+                    ).sp,
+            ),
+        titleMedium =
+            base.titleMedium.copy(
+                fontSize = (14f * base.scaleMultiplier).sp,
+                lineHeight =
+                    (
+                        20f *
+                            base.scaleMultiplier
+                    ).sp,
+            ),
+    )
+}

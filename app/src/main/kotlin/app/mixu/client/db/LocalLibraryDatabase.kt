@@ -1286,6 +1286,13 @@ class LocalLibraryDatabase private constructor(
         val script =
             buildString {
                 appendLine("BEGIN IMMEDIATE;")
+                // An omitted optional pack means clear this scope's override, not retain it.
+                if (!entries.containsKey(ReaderDisplayConfig.KEY_CUSTOM_THEME_PACK_JSON)) {
+                    append("DELETE FROM reader_settings WHERE scope_key = ")
+                    append(sqlText(scopeKey))
+                    append(" AND setting_key = ")
+                    append(sqlText(ReaderDisplayConfig.KEY_CUSTOM_THEME_PACK_JSON)).appendLine(";")
+                }
                 for ((key, value) in entries) {
                     append("INSERT OR REPLACE INTO reader_settings(")
                     append("scope_key, setting_key, setting_value, updated_at) VALUES (")

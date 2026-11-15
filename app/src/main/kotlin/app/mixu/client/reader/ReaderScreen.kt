@@ -36,13 +36,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
@@ -71,6 +68,9 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -90,17 +90,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import app.mixu.client.R
-import app.mixu.client.config.LookupProviderMode
-import app.mixu.client.config.MarginPreset
 import app.mixu.client.config.PageColumnMode
 import app.mixu.client.config.ReaderDisplayConfig
-import app.mixu.client.config.ReaderPreset
 import app.mixu.client.config.ReadingLayoutMode
-import app.mixu.client.copilot.AgentAvatarBadge
+import app.mixu.client.lookup.DictionaryLookupResult
 import app.mixu.client.lookup.LookupAndTranslationEngine
-import app.mixu.client.lookup.PassageTranslationResult
 import app.mixu.client.theme.MixuTheme
-import app.mixu.client.theme.MixuThemeMode
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -166,7 +161,7 @@ internal fun parseReaderImageTokenOrNull(text: String): ParsedReaderImageToken? 
             trimmed.length - EpubBookPublication.IMAGE_TOKEN_SUFFIX.length,
         )
     val filePath = payload.substringBefore('|').trim()
-    val caption = payload.substringAfter('|', "Cover").trim().ifEmpty { "Cover" }
+    val caption = readerImageDescription(payload.substringAfter('|', ""))
     return if (filePath.isNotEmpty()) ParsedReaderImageToken(filePath, caption) else null
 }
 
@@ -351,9 +346,9 @@ fun ReaderScreen(
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
     val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
-    val cornerRadius = if (eInkPolicy.isActive) 2.dp else 12.dp
-    val buttonRadius = if (eInkPolicy.isActive) 2.dp else 8.dp
+    val buttonRadius = MixuTheme.appearance.pillCornerRadius
 
+    val explainSelectionLabel = stringResource(R.string.selection_explain_request)
     val page = viewportState.currentPage
     val config = viewportState.displayConfig
     val totalPercent =
@@ -363,6 +358,8 @@ fun ReaderScreen(
 
     var showTocSheet by remember { mutableStateOf(false) }
     var showLookupSheet by remember { mutableStateOf(false) }
+    var showReaderPreferences by remember { mutableStateOf(false) }
+    var showReaderOverflow by remember { mutableStateOf(false) }
     var showMenuOverlay by remember(config.immersiveReaderMode) {
         mutableStateOf(!config.immersiveReaderMode)
     }
@@ -456,14 +453,14 @@ fun ReaderScreen(
             config.lineHeightMultiplier,
             config.letterSpacingSp,
             config.justifyText,
-            colors.onBackground,
+            colors.readerPageText,
         ) {
             TextStyle(
                 fontFamily = config.fontFamilyChoice.toComposeFontFamily(),
                 fontSize = config.effectiveFontSizeSp().sp,
                 lineHeight = config.effectiveLineHeightSp().sp,
                 letterSpacing = config.letterSpacingSp.sp,
-                color = colors.onBackground,
+                color = colors.readerPageText,
                 textAlign = if (config.justifyText) TextAlign.Justify else TextAlign.Start,
                 lineBreak = LineBreak.Paragraph,
             )
@@ -526,7 +523,7 @@ fun ReaderScreen(
         modifier =
             modifier
                 .fillMaxSize()
-                .background(colors.background),
+                .background(colors.readerPaperBackground),
     ) {
         // Main Reading Surface (Header + Viewport + Minimal Status Footer)
         Column(
@@ -917,10 +914,8 @@ fun ReaderScreen(
                             Text(
                                 text = page.chapterTitle,
                                 style =
-                                    MixuTheme.typography.titleLarge.copy(
-                                        fontWeight = FontWeight.Bold,
-                                    ),
-                                color = colors.onBackground,
+                                    baseTextStyle.copy(fontWeight = FontWeight.Bold),
+                                color = colors.readerPageText,
                                 modifier = Modifier.padding(bottom = 8.dp),
                             )
                         }
@@ -1083,498 +1078,171 @@ fun ReaderScreen(
             }
         }
 
-        // 4. Floating Reader Menu Overlay (toggled by tapping center 40% of screen)
+        // Reading chrome reveals only navigation; appearance is a deliberate secondary action.
         if (showMenuOverlay) {
-            // Top Floating Bar
             Surface(
-                modifier =
-                    Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(cornerRadius),
-                color = colors.surface.copy(alpha = if (eInkPolicy.isActive) 1f else 0.97f),
+                modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+                color = colors.surface,
                 border = BorderStroke(strokeWidth, colors.outlineVariant),
-                shadowElevation = if (eInkPolicy.isActive) 0.dp else 6.dp,
             ) {
                 Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     TextButton(
                         onClick = onNavigateBack,
-                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 44.dp),
-                    ) {
-                        Text(
-                            text = "← " + stringResource(R.string.nav_library),
-                            color = colors.primary,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                        horizontalAlignment = Alignment.Start,
-                    ) {
-                        Text(
-                            text = page.chapterTitle,
-                            style =
-                                MixuTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                            color = colors.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = viewportState.bookTitle,
-                            style = MixuTheme.typography.caption,
-                            color = colors.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (onToggleBookFavorite != null) {
-                            OutlinedButton(
-                                onClick = onToggleBookFavorite,
-                                modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 40.dp),
-                                shape = RoundedCornerShape(buttonRadius),
-                                border = BorderStroke(strokeWidth, colors.outlineVariant),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            ) {
-                                Text(
-                                    text = if (isBookFavorite) "★" else "☆",
-                                    style = MixuTheme.typography.bodyMedium,
-                                    color =
-                                        if (isBookFavorite) {
-                                            colors.primary
-                                        } else {
-                                            colors.onSurface
-                                        },
-                                    fontWeight = FontWeight.Bold,
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                    ) { Text("返回") }
+                    Text(
+                        viewportState.bookTitle,
+                        modifier = Modifier.weight(1f),
+                        style = MixuTheme.typography.titleMedium,
+                        color = colors.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    TextButton(
+                        onClick = { showTocSheet = !showTocSheet },
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                    ) { Text("目录") }
+                    TextButton(
+                        onClick = onAddBookmark,
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                    ) { Text("书签") }
+                    TextButton(
+                        onClick = onOpenCaseBoard,
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                    ) { Text("伴读") }
+                    Box {
+                        TextButton(
+                            onClick = { showReaderOverflow = true },
+                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                        ) { Text("更多") }
+                        DropdownMenu(
+                            expanded = showReaderOverflow,
+                            onDismissRequest = { showReaderOverflow = false },
+                            containerColor = colors.surface,
+                            shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
+                            tonalElevation = 0.dp,
+                            shadowElevation = if (eInkPolicy.isActive) 0.dp else 4.dp,
+                            border = BorderStroke(strokeWidth, colors.outlineVariant),
+                        ) {
+                            if (onToggleBookFavorite != null) {
+                                DropdownMenuItem(
+                                    text = { Text(if (isBookFavorite) "取消收藏" else "收藏图书") },
+                                    onClick = {
+                                        showReaderOverflow = false
+                                        onToggleBookFavorite()
+                                    },
                                 )
                             }
-                        }
-                        OutlinedButton(
-                            onClick = { showLookupSheet = true },
-                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 40.dp),
-                            shape = RoundedCornerShape(buttonRadius),
-                            border = BorderStroke(strokeWidth, colors.outlineVariant),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.reader_lookup_button),
-                                style = MixuTheme.typography.caption,
-                                color = colors.primary,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = { showTocSheet = !showTocSheet },
-                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 40.dp),
-                            shape = RoundedCornerShape(buttonRadius),
-                            border = BorderStroke(strokeWidth, colors.outlineVariant),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.reader_toc_button),
-                                style = MixuTheme.typography.caption,
-                                color = colors.onSurface,
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = onAddBookmark,
-                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 40.dp),
-                            shape = RoundedCornerShape(buttonRadius),
-                            border = BorderStroke(strokeWidth, colors.outlineVariant),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.reader_bookmark_add),
-                                style = MixuTheme.typography.caption,
-                                color = colors.onSurface,
-                            )
-                        }
-                        if (onOpenAiButler != null) {
-                            OutlinedButton(
-                                onClick = { onOpenAiButler(currentVisibleImageToken) },
-                                modifier = Modifier.sizeIn(minWidth = 42.dp, minHeight = 40.dp),
-                                shape = RoundedCornerShape(buttonRadius),
-                                border = BorderStroke(strokeWidth, colors.primary),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            ) {
-                                AgentAvatarBadge(sizeDp = 24)
+                            DropdownMenuItem(text = { Text("查词") }, onClick = {
+                                showReaderOverflow = false
+                                selectedWord = ""
+                                showLookupSheet = true
+                            })
+                            if (onOpenAiButler != null) {
+                                DropdownMenuItem(text = { Text("AI 伴读") }, onClick = {
+                                    showReaderOverflow = false
+                                    onOpenAiButler(currentVisibleImageToken)
+                                })
                             }
-                        }
-                        Button(
-                            onClick = onOpenCaseBoard,
-                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 40.dp),
-                            shape = RoundedCornerShape(buttonRadius),
-                            colors =
-                                ButtonDefaults.buttonColors(
-                                    containerColor = colors.primary,
-                                    contentColor = colors.onPrimary,
-                                ),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.reader_open_case_board),
-                                style = MixuTheme.typography.caption,
-                                fontWeight = FontWeight.Bold,
-                            )
                         }
                     }
                 }
             }
-
-            // Bottom Floating Configuration & Navigation Sheet
             Surface(
                 modifier =
                     Modifier
                         .align(Alignment.BottomCenter)
+                        .widthIn(max = 560.dp)
                         .fillMaxWidth()
-                        .widthIn(max = 860.dp)
                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(cornerRadius),
-                color = colors.surface.copy(alpha = if (eInkPolicy.isActive) 1f else 0.97f),
+                color = colors.surface,
+                shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                 border = BorderStroke(strokeWidth, colors.outlineVariant),
-                shadowElevation = if (eInkPolicy.isActive) 0.dp else 8.dp,
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Row 1: Page turn & Font size steppers
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                    TextButton(
+                        onClick = { handlePrevious() },
+                        enabled = canGoPrev,
+                        modifier =
+                            Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics {
+                                contentDescription = "上一页"
+                            },
                     ) {
-                        OutlinedButton(
-                            onClick = { handlePrevious() },
-                            enabled = canGoPrev,
-                            modifier = Modifier.sizeIn(minWidth = 84.dp, minHeight = 40.dp),
-                            shape = RoundedCornerShape(buttonRadius),
-                            border = BorderStroke(strokeWidth, colors.outlineVariant),
-                        ) {
-                            Text("◀ " + stringResource(R.string.reader_prev_page))
-                        }
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    val nextSize = (config.fontSizeSp - 2f).coerceAtLeast(12f)
-                                    onAdjustFontSize(nextSize)
-                                },
-                                modifier = Modifier.sizeIn(minWidth = 42.dp, minHeight = 38.dp),
-                                shape = RoundedCornerShape(buttonRadius),
-                                border = BorderStroke(strokeWidth, colors.outlineVariant),
-                                contentPadding = PaddingValues(0.dp),
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.reader_font_smaller),
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-
-                            Text(
-                                text = "${config.effectiveFontSizeSp().roundToInt()} sp",
-                                style =
-                                    MixuTheme.typography.caption.copy(
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                    ),
-                                color = colors.onSurface,
-                            )
-
-                            OutlinedButton(
-                                onClick = {
-                                    val nextSize = (config.fontSizeSp + 2f).coerceAtMost(42f)
-                                    onAdjustFontSize(nextSize)
-                                },
-                                modifier = Modifier.sizeIn(minWidth = 42.dp, minHeight = 38.dp),
-                                shape = RoundedCornerShape(buttonRadius),
-                                border = BorderStroke(strokeWidth, colors.outlineVariant),
-                                contentPadding = PaddingValues(0.dp),
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.reader_font_larger),
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                        }
-
-                        OutlinedButton(
-                            onClick = { handleNext() },
-                            enabled = canGoNext,
-                            modifier = Modifier.sizeIn(minWidth = 84.dp, minHeight = 40.dp),
-                            shape = RoundedCornerShape(buttonRadius),
-                            border = BorderStroke(strokeWidth, colors.outlineVariant),
-                        ) {
-                            Text(stringResource(R.string.reader_next_page) + " ▶")
-                        }
-                    }
-
-                    // Row 2: One-Tap Configuration Presets (Kindle / Readest / Koodo / Night / E-Ink)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        QuickConfigPill(
-                            label = stringResource(R.string.preset_kindle),
-                            selected = config.activePreset == ReaderPreset.KINDLE_CLASSIC,
-                            onClick = {
-                                applyConfigChange(config.applyPreset(ReaderPreset.KINDLE_CLASSIC))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        QuickConfigPill(
-                            label = stringResource(R.string.preset_readest),
-                            selected = config.activePreset == ReaderPreset.READEST_MODERN,
-                            onClick = {
-                                applyConfigChange(config.applyPreset(ReaderPreset.READEST_MODERN))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        QuickConfigPill(
-                            label = stringResource(R.string.preset_koodo),
-                            selected = config.activePreset == ReaderPreset.KOODO_EYECARE,
-                            onClick = {
-                                applyConfigChange(config.applyPreset(ReaderPreset.KOODO_EYECARE))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        QuickConfigPill(
-                            label = stringResource(R.string.preset_night),
-                            selected = config.activePreset == ReaderPreset.NIGHT_DETECTIVE,
-                            onClick = {
-                                applyConfigChange(config.applyPreset(ReaderPreset.NIGHT_DETECTIVE))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        QuickConfigPill(
-                            label = stringResource(R.string.preset_eink),
-                            selected = config.activePreset == ReaderPreset.EINK_CRISP,
-                            onClick = {
-                                applyConfigChange(config.applyPreset(ReaderPreset.EINK_CRISP))
-                            },
-                            modifier = Modifier.weight(1f),
+                        Text(
+                            "‹",
+                            maxLines = 1,
+                            modifier = Modifier.clearAndSetSemantics {},
                         )
                     }
-
-                    // Row 3: Quick Theme Palettes (6 Palettes)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    TextButton(
+                        onClick = { showReaderPreferences = true },
+                        modifier =
+                            Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics {
+                                contentDescription = "阅读设置"
+                            },
                     ) {
-                        QuickConfigPill(
-                            label = stringResource(R.string.theme_light),
-                            selected = config.themeMode == MixuThemeMode.LIGHT,
-                            onClick = {
-                                applyConfigChange(config.copy(themeMode = MixuThemeMode.LIGHT))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        QuickConfigPill(
-                            label = stringResource(R.string.theme_sepia),
-                            selected = config.themeMode == MixuThemeMode.SEPIA,
-                            onClick = {
-                                applyConfigChange(config.copy(themeMode = MixuThemeMode.SEPIA))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        QuickConfigPill(
-                            label = stringResource(R.string.theme_mint),
-                            selected = config.themeMode == MixuThemeMode.MINT,
-                            onClick = {
-                                applyConfigChange(config.copy(themeMode = MixuThemeMode.MINT))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        QuickConfigPill(
-                            label = stringResource(R.string.theme_dark),
-                            selected = config.themeMode == MixuThemeMode.DARK,
-                            onClick = {
-                                applyConfigChange(config.copy(themeMode = MixuThemeMode.DARK))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        QuickConfigPill(
-                            label = stringResource(R.string.theme_nord),
-                            selected = config.themeMode == MixuThemeMode.NORD_DARK,
-                            onClick = {
-                                applyConfigChange(config.copy(themeMode = MixuThemeMode.NORD_DARK))
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        QuickConfigPill(
-                            label = stringResource(R.string.theme_eink),
-                            selected = config.themeMode == MixuThemeMode.EINK,
-                            onClick = {
-                                applyConfigChange(config.copy(themeMode = MixuThemeMode.EINK))
-                            },
-                            modifier = Modifier.weight(1f),
+                        Text(
+                            "Aa",
+                            maxLines = 1,
+                            modifier = Modifier.clearAndSetSemantics {},
                         )
                     }
-
-                    // Row 4: Column Spread (Auto / 1-Col / 2-Col), Layout Mode, Indent & Margins
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    TextButton(
+                        onClick = { handleNext() },
+                        enabled = canGoNext,
+                        modifier =
+                            Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).semantics {
+                                contentDescription = "下一页"
+                            },
                     ) {
-                        QuickConfigPill(
-                            label =
-                                when (config.pageColumnMode) {
-                                    PageColumnMode.AUTO -> stringResource(R.string.column_mode_auto)
-                                    PageColumnMode.SINGLE ->
-                                        stringResource(
-                                            R.string.column_mode_single,
-                                        )
-                                    PageColumnMode.DOUBLE ->
-                                        stringResource(
-                                            R.string.column_mode_double,
-                                        )
-                                },
-                            selected = config.pageColumnMode == PageColumnMode.DOUBLE,
-                            onClick = {
-                                val nextCol =
-                                    when (config.pageColumnMode) {
-                                        PageColumnMode.AUTO -> PageColumnMode.DOUBLE
-                                        PageColumnMode.DOUBLE -> PageColumnMode.SINGLE
-                                        PageColumnMode.SINGLE -> PageColumnMode.AUTO
-                                    }
-                                applyConfigChange(config.copy(pageColumnMode = nextCol))
-                            },
-                            modifier = Modifier.weight(1.1f),
-                        )
-                        QuickConfigPill(
-                            label = stringResource(R.string.reader_layout_paged),
-                            selected = config.readingLayoutMode == ReadingLayoutMode.PAGED,
-                            onClick = {
-                                applyConfigChange(
-                                    config.copy(readingLayoutMode = ReadingLayoutMode.PAGED),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        QuickConfigPill(
-                            label = stringResource(R.string.reader_layout_continuous),
-                            selected = config.readingLayoutMode == ReadingLayoutMode.CONTINUOUS,
-                            onClick = {
-                                applyConfigChange(
-                                    config.copy(
-                                        readingLayoutMode = ReadingLayoutMode.CONTINUOUS,
-                                    ),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        QuickConfigPill(
-                            label =
-                                if (config.paragraphIndentEm > 0f) {
-                                    stringResource(R.string.reader_indent_2em)
-                                } else {
-                                    stringResource(R.string.reader_indent_none)
-                                },
-                            selected = config.paragraphIndentEm > 0f,
-                            onClick = {
-                                val nextIndent =
-                                    if (config.paragraphIndentEm > 0f) 0f else 2.0f
-                                applyConfigChange(
-                                    config.copy(paragraphIndentEm = nextIndent),
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                        QuickConfigPill(
-                            label =
-                                when (config.marginPreset) {
-                                    MarginPreset.COMPACT -> stringResource(R.string.margin_compact)
-                                    MarginPreset.NORMAL -> stringResource(R.string.margin_normal)
-                                    MarginPreset.WIDE -> stringResource(R.string.margin_wide)
-                                },
-                            selected = false,
-                            onClick = {
-                                val nextMargin =
-                                    when (config.marginPreset) {
-                                        MarginPreset.COMPACT -> MarginPreset.NORMAL
-                                        MarginPreset.NORMAL -> MarginPreset.WIDE
-                                        MarginPreset.WIDE -> MarginPreset.COMPACT
-                                    }
-                                applyConfigChange(config.copy(marginPreset = nextMargin))
-                            },
-                            modifier = Modifier.weight(1f),
+                        Text(
+                            "›",
+                            maxLines = 1,
+                            modifier = Modifier.clearAndSetSemantics {},
                         )
                     }
                 }
             }
         }
+        if (showReaderPreferences) {
+            ReaderPreferencesDialog(
+                config = config,
+                onConfigChange = applyConfigChange,
+                onDismiss = { showReaderPreferences = false },
+            )
+        }
 
-        // 5. Table of Contents Drawer
+        // Contents is a native modal: Back dismisses it without leaving the publication.
         if (showTocSheet) {
-            Card(
-                modifier =
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 64.dp, end = 16.dp, bottom = 64.dp)
-                        .widthIn(min = 260.dp, max = 380.dp)
-                        .heightIn(max = 520.dp),
-                border = BorderStroke(strokeWidth, colors.outline),
-                colors = CardDefaults.cardColors(containerColor = colors.surface),
-                shape = RoundedCornerShape(cornerRadius),
-                elevation =
-                    CardDefaults.cardElevation(
-                        defaultElevation = if (eInkPolicy.isActive) 0.dp else 8.dp,
-                    ),
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.reader_toc_button),
-                            style =
-                                MixuTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                            color = colors.onSurface,
-                        )
-                        Text(
-                            text = "✕",
-                            style = MixuTheme.typography.bodyMedium,
-                            color = colors.onSurfaceVariant,
-                            modifier =
-                                Modifier
-                                    .clickable { showTocSheet = false }
-                                    .padding(4.dp),
-                        )
-                    }
-                    HorizontalDivider(color = colors.outlineVariant)
-                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+            AlertDialog(
+                onDismissRequest = { showTocSheet = false },
+                containerColor = colors.surface,
+                titleContentColor = colors.onSurface,
+                textContentColor = colors.onSurface,
+                shape = RoundedCornerShape(MixuTheme.appearance.cardCornerRadius),
+                tonalElevation = 0.dp,
+                title = { Text("目录") },
+                text = {
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
                         items(viewportState.chapters) { chapter ->
                             val isCurrent = chapter.spineIndex == page.spineIndex
                             Row(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .sizeIn(minHeight = 44.dp)
+                                        .sizeIn(minHeight = 48.dp)
                                         .clickable {
                                             showTocSheet = false
                                             showMenuOverlay = false
@@ -1613,8 +1281,16 @@ fun ReaderScreen(
                             HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.5f))
                         }
                     }
-                }
-            }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { showTocSheet = false },
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                    ) {
+                        Text("关闭")
+                    }
+                },
+            )
         }
 
         // 5B. Floating Long-Press Text Selection, Highlight, Lookup, Translate & Note Overlay
@@ -1660,6 +1336,18 @@ fun ReaderScreen(
                         onOpenAiButler?.invoke(null)
                     }
                 },
+                onAskCopilotExplain = {
+                    val excerpt =
+                        activeSelectedPassage.take(
+                            LookupAndTranslationEngine.COPILOT_TRANSLATION_MAX_CHARS,
+                        )
+                    selectedPassage = null
+                    if (onAskCopilotTranslate != null) {
+                        onAskCopilotTranslate("$explainSelectionLabel\n「$excerpt」")
+                    } else {
+                        onOpenAiButler?.invoke(null)
+                    }
+                },
                 onDismiss = { selectedPassage = null },
                 modifier =
                     Modifier
@@ -1672,27 +1360,8 @@ fun ReaderScreen(
         // 6. Offline Dictionary Lookup & AI Copilot Contextual Translation Sheet
         if (showLookupSheet) {
             LookupAndTranslationDialog(
-                sampleParagraph = selectedPassage ?: currentVisibleSampleText,
                 initialQuery = selectedWord,
                 config = config,
-                onUpdateProviderMode = { mode ->
-                    applyConfigChange(config.copy(lookupProviderMode = mode))
-                },
-                onAskCopilotTranslate = { passageToTranslate ->
-                    val prompt =
-                        LookupAndTranslationEngine.buildCopilotTranslationPrompt(
-                            passage = passageToTranslate,
-                            bookTitle = viewportState.bookTitle,
-                            chapterTitle = page.chapterTitle,
-                        )
-                    showLookupSheet = false
-                    selectedPassage = null
-                    if (onAskCopilotTranslate != null) {
-                        onAskCopilotTranslate(prompt)
-                    } else {
-                        onOpenAiButler?.invoke(null)
-                    }
-                },
                 onDismiss = { showLookupSheet = false },
             )
         }
@@ -1964,11 +1633,7 @@ private fun SelectableReaderParagraph(
     }
 }
 
-private enum class SelectionToolTab {
-    LOOKUP,
-    TRANSLATE,
-    NOTE,
-}
+private enum class SelectionToolTab { LOOKUP, NOTE }
 
 @Composable
 private fun TextSelectionActionOverlay(
@@ -1982,659 +1647,260 @@ private fun TextSelectionActionOverlay(
     onSaveNote: (String) -> Unit,
     onOpenFullDictionary: () -> Unit,
     onAskCopilotTranslate: (String) -> Unit,
+    onAskCopilotExplain: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = MixuTheme.colors
-    val eInkPolicy = MixuTheme.einkPolicy
+    val isEInkPopup = MixuTheme.einkPolicy.isActive || colors.isEInk
     val context = LocalContext.current
-    var activeTab by remember { mutableStateOf(SelectionToolTab.LOOKUP) }
+    var activeTool by remember(passage) { mutableStateOf<SelectionToolTab?>(null) }
+    var showOverflow by remember { mutableStateOf(false) }
+    var showHighlightPalette by remember { mutableStateOf(false) }
     var noteDraft by remember(passage, currentNote) { mutableStateOf(currentNote) }
-    var copiedFeedback by remember(passage) { mutableStateOf(false) }
-
-    val candidateTokens = remember(passage) { extractCandidateTokens(passage) }
-
-    val lookupResult =
-        remember(
-            selectedWord,
-            config.lookupProviderMode,
-            config.selfHostedApiEnabled,
-            config.selfHostedApiUrl,
-        ) {
-            LookupAndTranslationEngine.lookupWord(
-                query = selectedWord,
-                providerMode = config.lookupProviderMode,
-                selfHostedEnabled = config.selfHostedApiEnabled,
-                selfHostedUrl = config.selfHostedApiUrl,
-            )
-        }
-
-    val translationResult =
-        remember(
-            passage,
-            config.lookupProviderMode,
-            config.selfHostedApiEnabled,
-            config.selfHostedApiUrl,
-        ) {
-            LookupAndTranslationEngine.translatePassage(
-                passage = passage,
-                providerMode = config.lookupProviderMode,
-                selfHostedEnabled = config.selfHostedApiEnabled,
-                selfHostedUrl = config.selfHostedApiUrl,
-            )
-        }
-
-    val highlightSwatches =
-        listOf(
-            Color(0xFFF59E0B),
-            Color(0xFF10B981),
-            Color(0xFF3B82F6),
-            Color(0xFFEC4899),
-        )
-
     Surface(
         modifier = modifier.widthIn(max = 760.dp),
-        shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 14.dp),
-        color = colors.surface.copy(alpha = if (eInkPolicy.isActive) 1f else 0.98f),
-        border = BorderStroke(if (eInkPolicy.isActive) 2.dp else 1.dp, colors.outline),
-        shadowElevation = if (eInkPolicy.isActive) 0.dp else 10.dp,
+        shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
+        color = colors.surface,
+        shadowElevation = if (MixuTheme.einkPolicy.isActive) 0.dp else 4.dp,
+        border = BorderStroke(1.dp, colors.outlineVariant),
     ) {
         Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier
+                .padding(
+                    horizontal = 4.dp,
+                ).heightIn(max = 320.dp)
+                .verticalScroll(rememberScrollState()),
         ) {
-            // Row 1: Title + Highlight Color Swatches + Copy + Dismiss
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.selection_action_highlight),
-                        style = MixuTheme.typography.caption,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.onSurface,
-                    )
-                    for (swatch in highlightSwatches) {
-                        val isChosen = currentHighlightColor == swatch
-                        Box(
-                            modifier =
-                                Modifier
-                                    .size(22.dp)
-                                    .clip(CircleShape)
-                                    .background(swatch, CircleShape)
-                                    .border(
-                                        width = if (isChosen) 2.5.dp else 1.dp,
-                                        color =
-                                            if (isChosen) {
-                                                colors.onSurface
-                                            } else {
-                                                colors.outlineVariant
-                                            },
-                                        shape = CircleShape,
-                                    ).clickable {
-                                        onHighlightChange(if (isChosen) null else swatch)
-                                    },
-                        )
-                    }
-                    if (currentHighlightColor != null) {
-                        QuickConfigPill(
-                            label = stringResource(R.string.selection_action_clear_highlight),
-                            selected = false,
-                            onClick = { onHighlightChange(null) },
-                        )
-                    }
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    QuickConfigPill(
-                        label =
-                            if (copiedFeedback) {
-                                stringResource(R.string.selection_action_copied)
-                            } else {
-                                stringResource(R.string.selection_action_copy)
-                            },
-                        selected = copiedFeedback,
-                        onClick = {
-                            runCatching {
-                                val cm =
-                                    context.getSystemService(
-                                        ClipboardManager::class.java,
-                                    )
-                                cm?.setPrimaryClip(ClipData.newPlainText("Mixu", passage))
-                            }
-                            copiedFeedback = true
-                        },
-                    )
-                    Text(
-                        text = "✕",
-                        style = MixuTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.onSurfaceVariant,
-                        modifier =
-                            Modifier
-                                .clickable(onClick = onDismiss)
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
-                }
-            }
-
-            // Row 2: Selected Text Preview (wrapped in SelectionContainer for native handles)
-            SelectionContainer {
-                Text(
-                    text = "“$passage”",
-                    style = MixuTheme.typography.caption,
-                    color = colors.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            // Row 3: Action Mode Switcher (Dictionary | Translate | Note | Full Dict)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                QuickConfigPill(
-                    label = "📖 " + stringResource(R.string.selection_action_lookup),
-                    selected = activeTab == SelectionToolTab.LOOKUP,
-                    onClick = { activeTab = SelectionToolTab.LOOKUP },
-                    modifier = Modifier.weight(1f),
-                )
-                QuickConfigPill(
-                    label = "🌐 " + stringResource(R.string.selection_action_translate),
-                    selected = activeTab == SelectionToolTab.TRANSLATE,
-                    onClick = { activeTab = SelectionToolTab.TRANSLATE },
-                    modifier = Modifier.weight(1f),
-                )
-                QuickConfigPill(
-                    label = "📝 " + stringResource(R.string.selection_action_note),
-                    selected = activeTab == SelectionToolTab.NOTE,
-                    onClick = { activeTab = SelectionToolTab.NOTE },
-                    modifier = Modifier.weight(1f),
-                )
-                QuickConfigPill(
-                    label = stringResource(R.string.reader_lookup_button) + " ↗",
-                    selected = false,
-                    onClick = onOpenFullDictionary,
-                )
-            }
-
-            // Row 4: Active Tool Content
-            when (activeTab) {
-                SelectionToolTab.LOOKUP -> {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.selection_word_tokens_label),
-                                style = MixuTheme.typography.caption,
-                                color = colors.onSurfaceVariant,
-                            )
-                            for (token in candidateTokens) {
-                                QuickConfigPill(
-                                    label = token,
-                                    selected = selectedWord.equals(token, ignoreCase = true),
-                                    onClick = { onSelectWord(token) },
-                                )
-                            }
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = colors.surfaceVariant.copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, colors.outlineVariant),
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth().padding(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Text(
-                                        text =
-                                            "${lookupResult.headword}  ${lookupResult.phonetic}  " +
-                                                lookupResult.partOfSpeech,
-                                        style = MixuTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = colors.primary,
-                                    )
-                                    Text(
-                                        text =
-                                            "${lookupResult.providerLabel} · ${lookupResult.latencyMs}ms",
-                                        style = MixuTheme.typography.caption,
-                                        color = colors.onSurfaceVariant,
-                                    )
-                                }
-                                Text(
-                                    text = lookupResult.primaryDefinition,
-                                    style = MixuTheme.typography.caption,
-                                    color = colors.onSurface,
-                                )
-                                if (lookupResult.mysteryContextNote != null) {
-                                    Text(
-                                        text = "🔍 " + lookupResult.mysteryContextNote,
-                                        style = MixuTheme.typography.caption,
-                                        color = colors.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                SelectionToolTab.TRANSLATE -> {
-                    PassageTranslationAidCard(
-                        passage = passage,
-                        translationResult = translationResult,
-                        onAskCopilotTranslate = onAskCopilotTranslate,
-                        surfaceAlpha = 0.5f,
-                        contentPaddingDp = 8,
-                    )
-                }
-
-                SelectionToolTab.NOTE -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                TextButton(
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    onClick = {
+                        val clipboard = context.getSystemService(ClipboardManager::class.java)
+                        clipboard?.setPrimaryClip(ClipData.newPlainText("", passage))
+                        onDismiss()
+                    },
+                ) { Text("复制") }
+                Box {
+                    TextButton(
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        onClick = { showHighlightPalette = true },
+                    ) { Text("高亮") }
+                    DropdownMenu(
+                        expanded = showHighlightPalette,
+                        containerColor = colors.surface,
+                        shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
+                        tonalElevation = 0.dp,
+                        shadowElevation = if (isEInkPopup) 0.dp else 4.dp,
+                        border =
+                            BorderStroke(
+                                if (isEInkPopup) 2.dp else 1.dp,
+                                colors.outlineVariant,
+                            ),
+                        onDismissRequest = { showHighlightPalette = false },
                     ) {
+                        listOf(
+                            "黄色" to Color(0xFFF59E0B),
+                            "绿色" to Color(0xFF10B981),
+                            "蓝色" to Color(0xFF3B82F6),
+                            "粉色" to Color(0xFFEC4899),
+                        ).forEach { (name, color) ->
+                            DropdownMenuItem(text = { Text(name) }, leadingIcon = {
+                                val swatchColor =
+                                    if (MixuTheme.einkPolicy.isActive || colors.isEInk) {
+                                        colors.onSurface
+                                    } else {
+                                        color
+                                    }
+                                Box(Modifier.size(20.dp).background(swatchColor, CircleShape))
+                            }, onClick = {
+                                showHighlightPalette = false
+                                onHighlightChange(color)
+                                onDismiss()
+                            })
+                        }
+                        DropdownMenuItem(
+                            text = { Text("清除高亮") },
+                            enabled = currentHighlightColor != null,
+                            onClick = {
+                                showHighlightPalette = false
+                                onHighlightChange(null)
+                                onDismiss()
+                            },
+                        )
+                    }
+                }
+                TextButton(
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    onClick = { activeTool = SelectionToolTab.NOTE },
+                ) { Text("批注") }
+                TextButton(
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    onClick = { activeTool = SelectionToolTab.LOOKUP },
+                ) { Text("查词") }
+                Box {
+                    TextButton(
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        onClick = { showOverflow = true },
+                    ) { Text("更多") }
+                    DropdownMenu(
+                        expanded = showOverflow,
+                        containerColor = colors.surface,
+                        shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
+                        tonalElevation = 0.dp,
+                        shadowElevation = if (isEInkPopup) 0.dp else 4.dp,
+                        border =
+                            BorderStroke(
+                                if (isEInkPopup) 2.dp else 1.dp,
+                                colors.outlineVariant,
+                            ),
+                        onDismissRequest = { showOverflow = false },
+                    ) {
+                        DropdownMenuItem(text = { Text("翻译") }, onClick = {
+                            showOverflow = false
+                            onAskCopilotTranslate(passage)
+                        })
+                        DropdownMenuItem(text = { Text("AI 解释") }, onClick = {
+                            showOverflow = false
+                            onAskCopilotExplain()
+                        })
+                    }
+                }
+                TextButton(
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    onClick = onDismiss,
+                ) { Text("关闭") }
+            }
+            when (activeTool) {
+                SelectionToolTab.NOTE ->
+                    Column(Modifier.padding(12.dp)) {
                         OutlinedTextField(
                             value = noteDraft,
                             onValueChange = { noteDraft = it },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            placeholder = {
-                                Text(
-                                    text = stringResource(R.string.selection_note_hint),
-                                    style = MixuTheme.typography.caption,
-                                )
-                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("批注") },
+                            minLines = 2,
+                            maxLines = 4,
                         )
-                        Button(
+                        TextButton(
+                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
                             onClick = {
                                 onSaveNote(noteDraft)
-                                if (currentHighlightColor == null && noteDraft.isNotBlank()) {
-                                    onHighlightChange(Color(0xFFF59E0B))
-                                }
+                                onDismiss()
                             },
-                            shape = RoundedCornerShape(8.dp),
-                            colors =
-                                ButtonDefaults.buttonColors(
-                                    containerColor = colors.primary,
-                                    contentColor = colors.onPrimary,
-                                ),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.selection_note_save),
-                                style = MixuTheme.typography.caption,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
+                        ) { Text("保存") }
                     }
-                }
+                SelectionToolTab.LOOKUP ->
+                    Column(
+                        Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = selectedWord,
+                            onValueChange = onSelectWord,
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("查询词语") },
+                            singleLine = true,
+                        )
+                        DictionaryDefinition(
+                            LookupAndTranslationEngine.lookupWord(
+                                selectedWord,
+                                config.lookupProviderMode,
+                                config.selfHostedApiEnabled,
+                                config.selfHostedApiUrl,
+                            ),
+                        )
+                        TextButton(
+                            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            onClick = onOpenFullDictionary,
+                        ) { Text("打开词典") }
+                    }
+                null -> Unit
             }
         }
+    }
+}
+
+@Composable
+private fun DictionaryDefinition(result: DictionaryLookupResult) {
+    if (result.query.isBlank()) return
+    val colors = MixuTheme.colors
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(result.headword, style = MixuTheme.typography.titleMedium, color = colors.onSurface)
+        if (result.found) {
+            val pronunciation =
+                listOf(result.phonetic, result.partOfSpeech)
+                    .filter {
+                        it.isNotBlank()
+                    }.joinToString("  ")
+            if (pronunciation.isNotBlank()) {
+                Text(
+                    pronunciation,
+                    style = MixuTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                )
+            }
+        }
+        Text(
+            result.primaryDefinition,
+            style = MixuTheme.typography.bodyMedium,
+            color = colors.onSurface,
+        )
     }
 }
 
 @Composable
 private fun LookupAndTranslationDialog(
-    sampleParagraph: String,
-    initialQuery: String = "alibi",
+    initialQuery: String,
     config: ReaderDisplayConfig,
-    onUpdateProviderMode: (LookupProviderMode) -> Unit,
-    onAskCopilotTranslate: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = MixuTheme.colors
-    var wordQuery by remember(initialQuery) { mutableStateOf(initialQuery) }
-    var downloadedPackIds by remember {
-        mutableStateOf(
-            LookupAndTranslationEngine
-                .defaultResourcePacks()
-                .filter { it.isDownloaded }
-                .map { it.packId }
-                .toSet(),
-        )
-    }
-
-    val lookupResult =
-        remember(
-            wordQuery,
-            config.lookupProviderMode,
-            config.selfHostedApiEnabled,
-            config.selfHostedApiUrl,
-        ) {
+    var query by remember(initialQuery) { mutableStateOf(initialQuery) }
+    val result =
+        remember(query, config.lookupProviderMode) {
             LookupAndTranslationEngine.lookupWord(
-                query = wordQuery,
-                providerMode = config.lookupProviderMode,
-                selfHostedEnabled = config.selfHostedApiEnabled,
-                selfHostedUrl = config.selfHostedApiUrl,
+                query,
+                config.lookupProviderMode,
+                config.selfHostedApiEnabled,
+                config.selfHostedApiUrl,
             )
         }
-
-    val translationResult =
-        remember(
-            sampleParagraph,
-            config.lookupProviderMode,
-            config.selfHostedApiEnabled,
-            config.selfHostedApiUrl,
-        ) {
-            LookupAndTranslationEngine.translatePassage(
-                passage = sampleParagraph,
-                providerMode = config.lookupProviderMode,
-                selfHostedEnabled = config.selfHostedApiEnabled,
-                selfHostedUrl = config.selfHostedApiUrl,
-            )
-        }
-
-    val quickWords =
-        listOf("alibi", "mustache", "inquest", "veronal", "coroner", "密室", "アリバイ")
-
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = stringResource(R.string.lookup_dialog_title),
-                style = MixuTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-        },
+        containerColor = colors.surface,
+        titleContentColor = colors.onSurface,
+        textContentColor = colors.onSurface,
+        shape = RoundedCornerShape(MixuTheme.appearance.cardCornerRadius),
+        tonalElevation = 0.dp,
+        title = { Text("查词") },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // Provider Mode Selector (Hybrid / Offline Local / Online API)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    QuickConfigPill(
-                        label = stringResource(R.string.lookup_mode_hybrid),
-                        selected = config.lookupProviderMode == LookupProviderMode.HYBRID_AUTO,
-                        onClick = { onUpdateProviderMode(LookupProviderMode.HYBRID_AUTO) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    QuickConfigPill(
-                        label = stringResource(R.string.lookup_mode_offline),
-                        selected = config.lookupProviderMode == LookupProviderMode.OFFLINE_LOCAL,
-                        onClick = { onUpdateProviderMode(LookupProviderMode.OFFLINE_LOCAL) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    QuickConfigPill(
-                        label = stringResource(R.string.lookup_mode_online),
-                        selected = config.lookupProviderMode == LookupProviderMode.ONLINE_API,
-                        onClick = { onUpdateProviderMode(LookupProviderMode.ONLINE_API) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-
-                // Quick Vocabulary Chips
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    for (token in quickWords) {
-                        QuickConfigPill(
-                            label = token,
-                            selected = wordQuery.equals(token, ignoreCase = true),
-                            onClick = { wordQuery = token },
-                        )
-                    }
-                }
-
                 OutlinedTextField(
-                    value = wordQuery,
-                    onValueChange = { wordQuery = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("查询词语") },
                     singleLine = true,
-                    label = {
-                        Text(
-                            text = stringResource(R.string.lookup_input_label),
-                            style = MixuTheme.typography.caption,
-                        )
-                    },
                 )
-
-                // Dictionary Result Card
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = colors.surfaceVariant.copy(alpha = 0.55f),
-                    border = BorderStroke(1.dp, colors.outlineVariant),
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(
-                                text =
-                                    "${lookupResult.headword}  ${lookupResult.phonetic}  " +
-                                        lookupResult.partOfSpeech,
-                                style = MixuTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.primary,
-                            )
-                            Text(
-                                text = "${lookupResult.latencyMs} ms",
-                                style =
-                                    MixuTheme.typography.caption.copy(
-                                        fontFamily = FontFamily.Monospace,
-                                    ),
-                                color = colors.onSurfaceVariant,
-                            )
-                        }
-                        Text(
-                            text = lookupResult.primaryDefinition,
-                            style = MixuTheme.typography.caption,
-                            color = colors.onSurface,
-                        )
-                        if (lookupResult.mysteryContextNote != null) {
-                            Text(
-                                text = "🔍 " + lookupResult.mysteryContextNote,
-                                style = MixuTheme.typography.caption,
-                                color = colors.onSurfaceVariant,
-                            )
-                        }
-                        Text(
-                            text = lookupResult.providerLabel,
-                            style = MixuTheme.typography.caption,
-                            color = colors.primary,
-                        )
-                    }
-                }
-
-                // Current Paragraph Local Translation Aid + AI Copilot Contextual Translation
-                PassageTranslationAidCard(
-                    passage = sampleParagraph,
-                    translationResult = translationResult,
-                    onAskCopilotTranslate = onAskCopilotTranslate,
-                    surfaceAlpha = 0.4f,
-                    contentPaddingDp = 10,
-                )
-
-                // Offline Resource Packs Manager
-                Text(
-                    text = stringResource(R.string.lookup_packs_header),
-                    style = MixuTheme.typography.caption,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.onSurface,
-                )
-                for (pack in LookupAndTranslationEngine.defaultResourcePacks()) {
-                    val isInstalled = downloadedPackIds.contains(pack.packId)
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    downloadedPackIds =
-                                        if (isInstalled) {
-                                            downloadedPackIds - pack.packId
-                                        } else {
-                                            downloadedPackIds + pack.packId
-                                        }
-                                }.padding(vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "${pack.title} (${pack.sizeMb}MB)",
-                            style = MixuTheme.typography.caption,
-                            color = colors.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = if (isInstalled) "✓ 已离线就绪" else "↓ 下载资源",
-                            style = MixuTheme.typography.caption,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isInstalled) colors.primary else colors.onSurfaceVariant,
-                        )
-                    }
-                }
+                DictionaryDefinition(result)
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.settings_reset))
-            }
-        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
     )
-}
-
-@Composable
-private fun PassageTranslationAidCard(
-    passage: String,
-    translationResult: PassageTranslationResult,
-    onAskCopilotTranslate: (String) -> Unit,
-    surfaceAlpha: Float,
-    contentPaddingDp: Int,
-) {
-    val colors = MixuTheme.colors
-    val maxChars = LookupAndTranslationEngine.COPILOT_TRANSLATION_MAX_CHARS
-    val trimmedLength = passage.trim().length
-
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = colors.surfaceVariant.copy(alpha = surfaceAlpha),
-        border = BorderStroke(1.dp, colors.outlineVariant),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(contentPaddingDp.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = translationResult.endpointSummary,
-                style = MixuTheme.typography.caption,
-                fontWeight = FontWeight.Bold,
-                color = colors.primary,
-            )
-            Text(
-                text = translationResult.offlineTranslation,
-                style = MixuTheme.typography.caption,
-                color = colors.onSurface,
-            )
-            Text(
-                text = stringResource(R.string.lookup_copilot_translate_hint, maxChars),
-                style = MixuTheme.typography.caption,
-                color = colors.onSurfaceVariant,
-            )
-            if (trimmedLength > maxChars) {
-                Text(
-                    text =
-                        stringResource(
-                            R.string.lookup_copilot_truncated_note,
-                            trimmedLength,
-                            maxChars,
-                        ),
-                    style = MixuTheme.typography.caption,
-                    color = colors.primary,
-                )
-            }
-            Button(
-                onClick = { onAskCopilotTranslate(passage) },
-                enabled = passage.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
-                colors =
-                    ButtonDefaults.buttonColors(
-                        containerColor = colors.primary,
-                        contentColor = colors.onPrimary,
-                    ),
-            ) {
-                Text(
-                    text = stringResource(R.string.lookup_copilot_translate_cta),
-                    style = MixuTheme.typography.caption,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun QuickConfigPill(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MixuTheme.colors
-    val eInkPolicy = MixuTheme.einkPolicy
-    val shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp)
-    val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
-
-    Surface(
-        modifier =
-            modifier
-                .height(34.dp)
-                .clickable(onClick = onClick),
-        shape = shape,
-        color = if (selected) colors.primaryContainer else colors.surfaceVariant.copy(alpha = 0.6f),
-        border =
-            BorderStroke(
-                strokeWidth,
-                if (selected) colors.primary else colors.outlineVariant,
-            ),
-    ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = 6.dp),
-        ) {
-            Text(
-                text = label,
-                style = MixuTheme.typography.caption,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                color = if (selected) colors.onPrimaryContainer else colors.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
 }
 
 @Composable
@@ -2654,12 +1920,6 @@ private fun ReaderEmbeddedImageCard(
                 reqWidth = 1440,
                 reqHeight = 1920,
             )
-        }
-    val showCaption =
-        remember(token.caption) {
-            token.caption.isNotBlank() &&
-                !token.caption.equals("Cover", ignoreCase = true) &&
-                !token.caption.matches(Regex("^(cover|img|image|_?\\d+)$", RegexOption.IGNORE_CASE))
         }
 
     Column(
@@ -2706,22 +1966,11 @@ private fun ReaderEmbeddedImageCard(
                 )
             } else {
                 Text(
-                    text = token.caption,
+                    text = "图片暂时无法显示",
                     style = MixuTheme.typography.bodyMedium,
                     color = colors.onSurfaceVariant,
                 )
             }
-        }
-
-        if (showCaption) {
-            Text(
-                text = token.caption,
-                style = MixuTheme.typography.caption,
-                color = colors.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 6.dp),
-            )
         }
     }
 }
@@ -2732,7 +1981,6 @@ private fun ReaderImageInspectionDialog(
     onDismiss: () -> Unit,
 ) {
     val colors = MixuTheme.colors
-    val eInkPolicy = MixuTheme.einkPolicy
     val bitmap =
         remember(token.filePath) {
             ReaderImageBitmapCache.load(
@@ -2745,23 +1993,16 @@ private fun ReaderImageInspectionDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.surface,
-        title = {
-            Text(
-                text = token.caption,
-                style = MixuTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = colors.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
+        textContentColor = colors.onSurface,
+        shape = RoundedCornerShape(MixuTheme.appearance.cardCornerRadius),
+        tonalElevation = 0.dp,
         text = {
             Surface(
                 modifier =
                     Modifier
                         .fillMaxWidth()
                         .height(420.dp),
-                shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
+                shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                 color = colors.background,
                 border = BorderStroke(1.dp, colors.outlineVariant),
             ) {
@@ -2782,7 +2023,7 @@ private fun ReaderImageInspectionDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.settings_reset))
+                Text("关闭")
             }
         },
     )

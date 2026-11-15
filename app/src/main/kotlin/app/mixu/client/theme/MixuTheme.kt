@@ -5,6 +5,7 @@ package app.mixu.client.theme
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -14,10 +15,16 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import app.mixu.client.eink.EInkPolicy
 
 val LocalMixuColors = staticCompositionLocalOf { LightMixuColors }
-val LocalMixuTypography = staticCompositionLocalOf { createMixuTypography() }
+val LocalMixuTypography = staticCompositionLocalOf { createMixuAppTypography() }
+val LocalMixuChromeAppearance = staticCompositionLocalOf { MixuChromeAppearance() }
 val LocalMixuEInkPolicy = staticCompositionLocalOf { EInkPolicy.STANDARD }
 
 object MixuTheme {
+    val appearance: MixuChromeAppearance
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalMixuChromeAppearance.current
+
     val colors: MixuColors
         @Composable
         @ReadOnlyComposable
@@ -41,7 +48,7 @@ object MixuTheme {
 fun MixuTheme(
     themeMode: MixuThemeMode = MixuThemeMode.LIGHT,
     eInkPolicy: EInkPolicy = EInkPolicy.STANDARD,
-    typography: MixuTypography = createMixuTypography(),
+    typography: MixuTypography = createMixuAppTypography(),
     customThemePack: MixuThemePack? = null,
     content: @Composable () -> Unit,
 ) {
@@ -100,20 +107,40 @@ fun MixuTheme(
             )
         }
 
-    val resolvedEInkPolicy =
-        if (themeMode == MixuThemeMode.EINK && !eInkPolicy.isActive) {
-            EInkPolicy.EINK_ACTIVE
-        } else {
-            eInkPolicy
-        }
+    val resolvedEInkPolicy = resolveMixuEInkPolicy(themeMode, eInkPolicy, customThemePack)
 
+    val appearance =
+        resolveMixuChromeAppearance(
+            pack = customThemePack,
+            isEInk = resolvedColors.isEInk || resolvedEInkPolicy.isActive,
+            fallbackTypography = typography,
+        )
     CompositionLocalProvider(
         LocalMixuColors provides resolvedColors,
-        LocalMixuTypography provides typography,
+        LocalMixuTypography provides appearance.typography,
+        LocalMixuChromeAppearance provides appearance,
         LocalMixuEInkPolicy provides resolvedEInkPolicy,
     ) {
         MaterialTheme(
             colorScheme = materialColorScheme,
+            typography =
+                Typography(
+                    displayLarge = appearance.typography.display,
+                    displayMedium = appearance.typography.display,
+                    displaySmall = appearance.typography.display,
+                    headlineLarge = appearance.typography.display,
+                    headlineMedium = appearance.typography.titleLarge,
+                    headlineSmall = appearance.typography.titleLarge,
+                    titleSmall = appearance.typography.titleMedium,
+                    bodySmall = appearance.typography.caption,
+                    titleLarge = appearance.typography.titleLarge,
+                    titleMedium = appearance.typography.titleMedium,
+                    bodyLarge = appearance.typography.bodyLarge,
+                    bodyMedium = appearance.typography.bodyMedium,
+                    labelLarge = appearance.typography.labelLarge,
+                    labelMedium = appearance.typography.labelMedium,
+                    labelSmall = appearance.typography.caption,
+                ),
             content = content,
         )
     }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -148,6 +150,7 @@ fun CaseBoardScreen(
     isBuildingAiGraph: Boolean = false,
     initialGraphMode: GraphDimensionMode = GraphDimensionMode.FORCE_2D,
     modifier: Modifier = Modifier,
+    embedded: Boolean = false,
 ) {
     var state by remember(controller) { mutableStateOf(controller.state) }
 
@@ -237,6 +240,7 @@ fun CaseBoardScreen(
         isBuildingAiGraph = isBuildingAiGraph,
         initialGraphMode = initialGraphMode,
         modifier = modifier,
+        embedded = embedded,
     )
 }
 
@@ -272,6 +276,7 @@ fun CaseBoardScreen(
     onAddAssertion: (String, String, String, EpistemicStatus) -> Unit = { _, _, _, _ -> },
     onCycleAssertionStatus: (String) -> Unit = {},
     onDeleteAssertion: (String) -> Unit = {},
+    embedded: Boolean = false,
 ) {
     val eInkPolicy = MixuTheme.einkPolicy
     val colors = MixuTheme.colors
@@ -312,50 +317,85 @@ fun CaseBoardScreen(
     Scaffold(
         topBar = {
             Column(modifier = Modifier.fillMaxWidth().background(colors.surface)) {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(
-                                text = stringResource(R.string.caseboard_title),
-                                style =
-                                    MixuTheme.typography.titleMedium.copy(
+                if (!embedded) {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.caseboard_title),
+                                    style =
+                                        MixuTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                    color = colors.onSurface,
+                                )
+                                Text(
+                                    text = uiState.bookTitle,
+                                    style = MixuTheme.typography.caption,
+                                    color = colors.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        },
+                        navigationIcon = {
+                            TextButton(onClick = onNavigateBack) {
+                                Text(
+                                    text = "← " + stringResource(R.string.nav_history_back),
+                                    color = colors.primary,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        },
+                        actions = {
+                            if (onBuildAiGraph != null) {
+                                OutlinedButton(
+                                    onClick = {
+                                        if (!isBuildingAiGraph) {
+                                            onBuildAiGraph()
+                                        }
+                                    },
+                                    modifier =
+                                        Modifier
+                                            .padding(end = 6.dp)
+                                            .sizeIn(minWidth = 44.dp, minHeight = 32.dp),
+                                    shape =
+                                        RoundedCornerShape(
+                                            if (eInkPolicy.isActive) 2.dp else 8.dp,
+                                        ),
+                                    border =
+                                        BorderStroke(
+                                            if (eInkPolicy.isActive) 1.5.dp else 1.dp,
+                                            colors.primary,
+                                        ),
+                                    contentPadding =
+                                        PaddingValues(
+                                            horizontal = 8.dp,
+                                            vertical = 2.dp,
+                                        ),
+                                ) {
+                                    Text(
+                                        text =
+                                            if (isBuildingAiGraph) {
+                                                "⏳ AI 构建中…"
+                                            } else {
+                                                "✦ AI 构建图谱"
+                                            },
+                                        style = MixuTheme.typography.caption,
                                         fontWeight = FontWeight.Bold,
-                                    ),
-                                color = colors.onSurface,
-                            )
-                            Text(
-                                text = uiState.bookTitle,
-                                style = MixuTheme.typography.caption,
-                                color = colors.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    },
-                    navigationIcon = {
-                        TextButton(onClick = onNavigateBack) {
-                            Text(
-                                text = "← " + stringResource(R.string.nav_history_back),
-                                color = colors.primary,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    },
-                    actions = {
-                        if (onBuildAiGraph != null) {
+                                        color = colors.primary,
+                                    )
+                                }
+                            }
                             OutlinedButton(
-                                onClick = {
-                                    if (!isBuildingAiGraph) {
-                                        onBuildAiGraph()
-                                    }
-                                },
+                                onClick = { showMarketplaceDialog = true },
                                 modifier =
                                     Modifier
                                         .padding(end = 6.dp)
                                         .sizeIn(minWidth = 44.dp, minHeight = 32.dp),
                                 shape =
                                     RoundedCornerShape(
-                                        if (eInkPolicy.isActive) 2.dp else 8.dp,
+                                        MixuTheme.appearance.controlCornerRadius,
                                     ),
                                 border =
                                     BorderStroke(
@@ -365,72 +405,59 @@ fun CaseBoardScreen(
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             ) {
                                 Text(
-                                    text =
-                                        if (isBuildingAiGraph) {
-                                            "⏳ AI 构建中…"
-                                        } else {
-                                            "✦ AI 构建图谱"
-                                        },
+                                    text = stringResource(R.string.marketplace_pill_label),
                                     style = MixuTheme.typography.caption,
                                     fontWeight = FontWeight.Bold,
                                     color = colors.primary,
                                 )
                             }
-                        }
-                        OutlinedButton(
-                            onClick = { showMarketplaceDialog = true },
-                            modifier =
-                                Modifier
-                                    .padding(end = 6.dp)
-                                    .sizeIn(minWidth = 44.dp, minHeight = 32.dp),
-                            shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
-                            border =
-                                BorderStroke(
-                                    if (eInkPolicy.isActive) 1.5.dp else 1.dp,
-                                    colors.primary,
-                                ),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.marketplace_pill_label),
-                                style = MixuTheme.typography.caption,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.primary,
-                            )
-                        }
-                        if (eInkPolicy.isActive) {
-                            Box(
-                                modifier =
-                                    Modifier
-                                        .padding(end = 8.dp)
-                                        .border(
-                                            BorderStroke(1.5.dp, colors.onSurface),
-                                            RoundedCornerShape(2.dp),
-                                        ).padding(horizontal = 6.dp, vertical = 2.dp),
-                            ) {
+                            if (eInkPolicy.isActive) {
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .padding(end = 8.dp)
+                                            .border(
+                                                BorderStroke(1.5.dp, colors.onSurface),
+                                                RoundedCornerShape(2.dp),
+                                            ).padding(horizontal = 6.dp, vertical = 2.dp),
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.eink_active_badge),
+                                        style =
+                                            MixuTheme.typography.caption.copy(
+                                                fontFamily = FontFamily.Monospace,
+                                            ),
+                                        color = colors.onSurface,
+                                    )
+                                }
+                            }
+                            TextButton(onClick = onNavigateToSettings) {
                                 Text(
-                                    text = stringResource(R.string.eink_active_badge),
-                                    style =
-                                        MixuTheme.typography.caption.copy(
-                                            fontFamily = FontFamily.Monospace,
-                                        ),
+                                    text = stringResource(R.string.nav_settings),
                                     color = colors.onSurface,
                                 )
                             }
+                        },
+                        colors =
+                            TopAppBarDefaults.topAppBarColors(
+                                containerColor = colors.surface,
+                                titleContentColor = colors.onSurface,
+                            ),
+                    )
+                } else {
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (onBuildAiGraph != null) {
+                            TextButton(onClick = onBuildAiGraph, enabled = !isBuildingAiGraph) {
+                                Text(if (isBuildingAiGraph) "构建中…" else "✦ 构建图谱")
+                            }
                         }
-                        TextButton(onClick = onNavigateToSettings) {
-                            Text(
-                                text = stringResource(R.string.nav_settings),
-                                color = colors.onSurface,
-                            )
-                        }
-                    },
-                    colors =
-                        TopAppBarDefaults.topAppBarColors(
-                            containerColor = colors.surface,
-                            titleContentColor = colors.onSurface,
-                        ),
-                )
+                        TextButton(onClick = { showMarketplaceDialog = true }) { Text("图谱集市") }
+                        TextButton(onClick = onNavigateToSettings) { Text("设置") }
+                    }
+                }
 
                 // Navigation surface tabs
                 PrimaryTabRow(
@@ -443,7 +470,9 @@ fun CaseBoardScreen(
                         onClick = { onTabChange(CaseBoardTab.GRAPH) },
                         text = {
                             val entityCount = uiState.revealedGraphView?.entities?.size ?: 0
-                            Text("${stringResource(R.string.caseboard_tab_graph)} ($entityCount)")
+                            val label =
+                                if (embedded) "图谱" else stringResource(R.string.caseboard_tab_graph)
+                            Text("$label ($entityCount)", maxLines = 1)
                         },
                     )
                     Tab(
@@ -451,24 +480,37 @@ fun CaseBoardScreen(
                         onClick = { onTabChange(CaseBoardTab.CLAIMS) },
                         text = {
                             val count = uiState.revealedGraphView?.assertions?.size ?: 0
-                            Text("${stringResource(R.string.caseboard_tab_claims)} ($count)")
+                            val label =
+                                if (embedded) {
+                                    "证言"
+                                } else {
+                                    stringResource(
+                                        R.string.caseboard_tab_claims,
+                                    )
+                                }
+                            Text("$label ($count)", maxLines = 1)
                         },
                     )
                     Tab(
                         selected = uiState.activeTab == CaseBoardTab.HYPOTHESES,
                         onClick = { onTabChange(CaseBoardTab.HYPOTHESES) },
                         text = {
-                            Text(
-                                "${stringResource(
-                                    R.string.caseboard_tab_hypotheses,
-                                )} (${uiState.hypotheses.size})",
-                            )
+                            val label =
+                                if (embedded) {
+                                    "假说"
+                                } else {
+                                    stringResource(
+                                        R.string.caseboard_tab_hypotheses,
+                                    )
+                                }
+                            Text("$label (${uiState.hypotheses.size})", maxLines = 1)
                         },
                     )
                 }
 
                 // Compact Historical Reveal Scrubber (P-SPOILER-05)
                 HistoricalRevealScrubber(
+                    compact = embedded,
                     readingPosition = uiState.readingPosition,
                     knowledgeHorizon = uiState.knowledgeHorizon,
                     graphViewPosition = uiState.graphViewPosition,
@@ -485,6 +527,7 @@ fun CaseBoardScreen(
                     modifier =
                         Modifier
                             .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
                             .padding(horizontal = 12.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -492,7 +535,7 @@ fun CaseBoardScreen(
                     OutlinedButton(
                         onClick = { onOpenAddEntityDialog(true) },
                         modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 30.dp),
-                        shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                        shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                     ) {
                         Text(
@@ -505,7 +548,7 @@ fun CaseBoardScreen(
                     OutlinedButton(
                         onClick = { onOpenAddAssertionDialog(true) },
                         modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 30.dp),
-                        shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                        shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                     ) {
                         Text(
@@ -739,7 +782,7 @@ private fun SharedGraphPackMarketplaceDialog(
                                         if (eInkPolicy.isActive) 1.5.dp else 1.dp,
                                         colors.primary,
                                     ),
-                                    RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                                    RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                                 ).clickable { onCycleMatchTier() }
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                     ) {
@@ -860,12 +903,46 @@ private fun HistoricalRevealScrubber(
     isRewound: Boolean,
     onScrub: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
     val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
-    val cornerRadius = if (eInkPolicy.isActive) 2.dp else 8.dp
+    val cornerRadius = MixuTheme.appearance.controlCornerRadius
     var showDescription by remember { mutableStateOf(false) }
+
+    if (compact) {
+        Column(modifier = modifier) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    onClick = { onScrub((graphViewPosition - 1).coerceAtLeast(0)) },
+                    enabled = graphViewPosition > 0,
+                ) { Text("◀") }
+                Text(
+                    "揭示 $graphViewPosition / 已知 $knowledgeHorizon",
+                    modifier = Modifier.weight(1f),
+                    style = MixuTheme.typography.caption,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = colors.onSurfaceVariant,
+                )
+                TextButton(
+                    onClick = { onScrub((graphViewPosition + 1).coerceAtMost(knowledgeHorizon)) },
+                    enabled = graphViewPosition < knowledgeHorizon,
+                ) { Text("▶") }
+            }
+            if (knowledgeHorizon > 0) {
+                Slider(
+                    value = graphViewPosition.toFloat(),
+                    onValueChange = { onScrub(it.roundToInt()) },
+                    valueRange = 0f..knowledgeHorizon.toFloat(),
+                    steps = if (knowledgeHorizon > 1) knowledgeHorizon - 1 else 0,
+                    modifier = Modifier.fillMaxWidth().height(24.dp),
+                )
+            }
+        }
+        return
+    }
 
     Card(
         modifier = modifier,
@@ -1832,7 +1909,7 @@ private fun GraphModeToolbar(
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
     val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
-    val cornerRadius = if (eInkPolicy.isActive) 2.dp else 10.dp
+    val cornerRadius = MixuTheme.appearance.controlCornerRadius
 
     val physicsLabel =
         when (physicsMode) {
@@ -1853,6 +1930,7 @@ private fun GraphModeToolbar(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1877,6 +1955,7 @@ private fun GraphModeToolbar(
 
             // Canonical Mixu Narrative Dimensions: Characters / Locations / Clues & Objects
             Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1921,6 +2000,7 @@ private fun GraphModeToolbar(
             }
 
             Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1963,7 +2043,7 @@ private fun GraphPillButton(
 ) {
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
-    val shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp)
+    val shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius)
     val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
     val contentColor = if (selected) colors.onPrimaryContainer else colors.onSurface
 
@@ -2018,7 +2098,7 @@ private fun DiscreteViewportControls(
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
     val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
-    val cornerRadius = if (eInkPolicy.isActive) 2.dp else 10.dp
+    val cornerRadius = MixuTheme.appearance.controlCornerRadius
 
     Card(
         border = BorderStroke(strokeWidth, colors.outlineVariant),
@@ -2040,7 +2120,7 @@ private fun DiscreteViewportControls(
                 OutlinedButton(
                     onClick = { onStepZoom(false) },
                     modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 36.dp),
-                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                    shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                     contentPadding = PaddingValues(0.dp),
                 ) {
                     Text("－", fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -2061,7 +2141,7 @@ private fun DiscreteViewportControls(
                 OutlinedButton(
                     onClick = { onStepZoom(true) },
                     modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 36.dp),
-                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                    shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                     contentPadding = PaddingValues(0.dp),
                 ) {
                     Text("＋", fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -2074,7 +2154,7 @@ private fun DiscreteViewportControls(
                 OutlinedButton(
                     onClick = { onStepPan(-60f, 0f) },
                     modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 36.dp),
-                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                    shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                     contentPadding = PaddingValues(0.dp),
                 ) {
                     Text("◀", fontSize = 11.sp)
@@ -2082,7 +2162,7 @@ private fun DiscreteViewportControls(
                 OutlinedButton(
                     onClick = onReset,
                     modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 36.dp),
-                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                    shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                     contentPadding = PaddingValues(0.dp),
                 ) {
                     Text("●", fontSize = 11.sp)
@@ -2090,7 +2170,7 @@ private fun DiscreteViewportControls(
                 OutlinedButton(
                     onClick = { onStepPan(60f, 0f) },
                     modifier = Modifier.sizeIn(minWidth = 40.dp, minHeight = 36.dp),
-                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                    shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                     contentPadding = PaddingValues(0.dp),
                 ) {
                     Text("▶", fontSize = 11.sp)
@@ -2125,7 +2205,7 @@ private fun EntityDossierInspectionSheet(
     Card(
         border = BorderStroke(strokeWidth, colors.primary),
         colors = CardDefaults.cardColors(containerColor = colors.surface),
-        shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 12.dp),
+        shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
         modifier = modifier.heightIn(max = 310.dp),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -2154,7 +2234,7 @@ private fun EntityDossierInspectionSheet(
                         OutlinedButton(
                             onClick = onEditEntity,
                             modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 34.dp),
-                            shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                            shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                         ) {
                             Text("✎ 编辑", style = MixuTheme.typography.caption)
@@ -2164,7 +2244,7 @@ private fun EntityDossierInspectionSheet(
                         OutlinedButton(
                             onClick = onAddRelation,
                             modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 34.dp),
-                            shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                            shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                         ) {
                             Text("+ 关系", style = MixuTheme.typography.caption)
@@ -2174,7 +2254,7 @@ private fun EntityDossierInspectionSheet(
                         OutlinedButton(
                             onClick = onDeleteEntity,
                             modifier = Modifier.sizeIn(minWidth = 44.dp, minHeight = 34.dp),
-                            shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                            shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                         ) {
                             Text(
@@ -2187,7 +2267,7 @@ private fun EntityDossierInspectionSheet(
                     OutlinedButton(
                         onClick = onClose,
                         modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 34.dp),
-                        shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 6.dp),
+                        shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                     ) {
                         Text(
@@ -2394,7 +2474,7 @@ private fun ActiveClaimsList(
             items(assertions) { assertion ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
+                    shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                     border = BorderStroke(1.dp, colors.outlineVariant),
                     colors = CardDefaults.cardColors(containerColor = colors.surface),
                 ) {
@@ -2444,7 +2524,7 @@ private fun HypothesesSurface(
     Column(modifier = modifier) {
         // Disclaimer Banner
         Card(
-            shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
+            shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
             border = BorderStroke(strokeWidth, colors.outlineVariant),
             colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant),
             modifier = Modifier.fillMaxWidth(),
@@ -2485,7 +2565,7 @@ private fun HypothesesSurface(
             Button(
                 onClick = onAddClick,
                 modifier = Modifier.sizeIn(minWidth = 56.dp, minHeight = 44.dp),
-                shape = RoundedCornerShape(if (eInkPolicy.isActive) 2.dp else 8.dp),
+                shape = RoundedCornerShape(MixuTheme.appearance.controlCornerRadius),
                 colors = ButtonDefaults.buttonColors(containerColor = colors.primary),
             ) {
                 Text(

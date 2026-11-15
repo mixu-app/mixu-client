@@ -5,45 +5,48 @@ import app.mixu.client.config.LookupProviderMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class LookupAndTranslationEngineTest {
     @Test
-    fun `lookupWord keeps offline lookup free and routes unknown context cleanly`() {
-        val offlineResult =
-            LookupAndTranslationEngine.lookupWord(
-                query = "alibis,",
-                providerMode = LookupProviderMode.OFFLINE_LOCAL,
-            )
-        assertEquals("alibi", offlineResult.headword)
-        assertTrue(offlineResult.isOfflineSource)
-        assertEquals(1, offlineResult.latencyMs)
-        assertTrue(offlineResult.primaryDefinition.contains("不在场证明"))
-        assertNotNull(offlineResult.mysteryContextNote)
+    fun `lookup returns genuine local entry without unsolicited narrative commentary`() {
+        for (mode in LookupProviderMode.entries) {
+            val result =
+                LookupAndTranslationEngine.lookupWord(
+                    query = "alibis,",
+                    providerMode = mode,
+                    selfHostedEnabled = true,
+                    selfHostedUrl = "https://dictionary.invalid",
+                )
+            assertTrue(result.found)
+            assertTrue(result.isOfflineSource)
+            assertEquals("alibi", result.headword)
+            assertEquals("不在场证明；托辞，辩解", result.primaryDefinition)
+            assertNull(result.mysteryContextNote)
+        }
+    }
 
-        val hybridFallback =
-            LookupAndTranslationEngine.lookupWord(
-                query = "unlistedterm",
-                providerMode = LookupProviderMode.HYBRID_AUTO,
-            )
-        assertEquals("unlistedterm", hybridFallback.headword)
-        assertTrue(hybridFallback.isOfflineSource)
-        assertTrue(hybridFallback.primaryDefinition.contains("免费无限制"))
-        assertTrue(hybridFallback.mysteryContextNote.orEmpty().contains("AI 管家"))
-
-        val selfHostedResult =
-            LookupAndTranslationEngine.lookupWord(
-                query = "mustache",
-                providerMode = LookupProviderMode.ONLINE_API,
-                selfHostedEnabled = true,
-                selfHostedUrl = "https://api.reader-node.example.com",
-            )
-        assertEquals("mustache", selfHostedResult.headword)
-        assertFalse(selfHostedResult.isOfflineSource)
-        assertTrue(selfHostedResult.providerLabel.contains("https://api.reader-node.example.com"))
-        assertTrue(selfHostedResult.primaryDefinition.contains("推理词库补充"))
+    @Test
+    fun `unknown proper name and blank query do not invent dictionary fields or remote results`() {
+        for (query in listOf("Velmora", "")) {
+            for (mode in LookupProviderMode.entries) {
+                val result =
+                    LookupAndTranslationEngine.lookupWord(
+                        query,
+                        mode,
+                        selfHostedEnabled = true,
+                        selfHostedUrl = "https://dictionary.invalid",
+                    )
+                assertFalse(result.found)
+                assertEquals(query, result.headword)
+                assertEquals("", result.phonetic)
+                assertEquals("", result.partOfSpeech)
+                assertEquals("未找到词条", result.primaryDefinition)
+                assertNull(result.mysteryContextNote)
+                assertTrue(result.isOfflineSource)
+            }
+        }
     }
 
     @Test

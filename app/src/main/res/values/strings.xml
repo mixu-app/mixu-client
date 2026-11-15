@@ -397,4 +397,5 @@
     <string name="marketplace_publish_btn">Publish GraphPack (0 Credits · +1 Royalty/Download)</string>
     <string name="marketplace_published_badge">✓ Published to Shared Catalog · Royalties: +%1$d Credits (Cap 120)</string>
     <string name="marketplace_simulate_royalty_btn">Simulate Reader Download (+1 Royalty)</string>
+    <string name="selection_explain_request">解释选文</string>
 </resources>

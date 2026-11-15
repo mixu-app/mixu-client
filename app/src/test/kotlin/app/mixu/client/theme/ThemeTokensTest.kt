@@ -2,6 +2,7 @@
 package app.mixu.client.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.sp
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -13,8 +14,15 @@ class ThemeTokensTest {
     fun lightThemeHasSufficientContrastAndDistinctEpistemicColors() {
         val light = LightMixuColors
         assertFalse(light.isEInk)
-        assertEquals(Color(0xFFFAF8F5), light.background)
-        assertEquals(Color(0xFF1C1B19), light.onBackground)
+        assertEquals(Color(0xFFEFEBE1), light.background)
+        assertEquals(Color(0xFF221F1B), light.onBackground)
+
+        assertEquals(Color(0xFF2B4C7E), light.primary)
+        assertEquals(Color(0xFFFAF6ED), light.readerPaperBackground)
+        val readingContrast =
+            (light.readerPaperBackground.luminance() + 0.05f) /
+                (light.readerPageText.luminance() + 0.05f)
+        assertTrue(readingContrast >= 4.5f)
 
         // Epistemic statuses must have distinct color markers
         val epistemicColors =

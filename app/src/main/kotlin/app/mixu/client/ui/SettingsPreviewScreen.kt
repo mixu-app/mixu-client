@@ -57,6 +57,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -92,7 +93,6 @@ private const val REPO_URL_CLIENT = "https://github.com/mixu-app/mixu-client"
 private const val REPO_URL_ENGINE = "https://github.com/mixu-app/mixu-graph"
 private const val REPO_URL_RESEARCH = "https://github.com/mixu-app/mixu-research"
 private const val REPO_URL_ISSUES = "https://github.com/mixu-app/mixu-client/issues"
-private const val APP_VERSION_NAME = "v0.0.2 (KMP · Compose)"
 
 private enum class EInkQrRewardPurpose {
     CREDIT_WALLET,
@@ -117,7 +117,15 @@ fun SettingsPreviewScreen(
     val colors = MixuTheme.colors
     val typography = MixuTheme.typography
     val einkPolicy = MixuTheme.einkPolicy
+    var selectedSection by remember { mutableStateOf<String?>(null) }
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val installedVersionName =
+        remember(context) {
+            runCatching {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+        }
     val scrollState = rememberScrollState()
 
     var showEpistemicLegend by remember { mutableStateOf(false) }
@@ -148,18 +156,27 @@ fun SettingsPreviewScreen(
             ScrollableDefaults.flingBehavior()
         }
 
+    if (selectedSection == null) {
+        MixuMoreHub(
+            authenticated = userSession.isAuthenticated,
+            onSelectSection = { selectedSection = it },
+            modifier = modifier,
+        )
+        return
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    if (onNavigateBack != null) {
+                    if (selectedSection != null) {
                         TextButton(
-                            onClick = onNavigateBack,
+                            onClick = { selectedSection = null },
                             modifier = Modifier.padding(start = 4.dp),
                         ) {
                             Text(
-                                text = "← " + stringResource(R.string.library_switch_to_library),
+                                text = "← 更多",
                                 style = typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 color = colors.primary,
@@ -170,9 +187,7 @@ fun SettingsPreviewScreen(
                 title = {
                     Text(
                         text =
-                            stringResource(R.string.nav_more) +
-                                " · " +
-                                stringResource(R.string.nav_settings),
+                            stringResource(R.string.nav_more),
                         style = typography.titleLarge,
                         color = colors.onSurface,
                         fontWeight = FontWeight.Bold,
@@ -217,7 +232,11 @@ fun SettingsPreviewScreen(
                 // =========================================================================
                 // Group 0: Account, Sign-In & Cloud Sync (账号、登录与云端同步)
                 // =========================================================================
-                SettingsGroupCard(title = stringResource(R.string.account_heading)) {
+                SettingsGroupCard(
+                    title = stringResource(R.string.account_heading),
+                    visible =
+                        selectedSection == "account",
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -651,7 +670,11 @@ fun SettingsPreviewScreen(
                 // =========================================================================
                 // Group 1: Appearance & Reading (外观与排版)
                 // =========================================================================
-                SettingsGroupCard(title = stringResource(R.string.settings_group_appearance)) {
+                SettingsGroupCard(
+                    title = stringResource(R.string.settings_group_appearance),
+                    visible =
+                        selectedSection == "reader",
+                ) {
                     // 1. Curated Presets Row
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
@@ -980,7 +1003,11 @@ fun SettingsPreviewScreen(
                 // =========================================================================
                 // Group 2: Reading Interaction & Device (阅读交互与设备)
                 // =========================================================================
-                SettingsGroupCard(title = stringResource(R.string.settings_group_interaction)) {
+                SettingsGroupCard(
+                    title = stringResource(R.string.settings_group_interaction),
+                    visible =
+                        selectedSection == "reader",
+                ) {
                     SettingsSwitchRow(
                         title = stringResource(R.string.reader_immersive_label),
                         description = stringResource(R.string.reader_immersive_desc),
@@ -1136,7 +1163,11 @@ fun SettingsPreviewScreen(
                 // =========================================================================
                 // Group 3: Dictionary, Translation & Custom Server (查词翻译与自建服务)
                 // =========================================================================
-                SettingsGroupCard(title = stringResource(R.string.settings_group_services)) {
+                SettingsGroupCard(
+                    title = stringResource(R.string.settings_group_services),
+                    visible =
+                        selectedSection == "services",
+                ) {
                     SettingsInlineRow(label = stringResource(R.string.reader_lookup_button)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             CompactSegmentPill(
@@ -1223,7 +1254,11 @@ fun SettingsPreviewScreen(
                 // =========================================================================
                 // Group 4: Help & Quick Guide (使用帮助与指南)
                 // =========================================================================
-                SettingsGroupCard(title = stringResource(R.string.settings_group_help)) {
+                SettingsGroupCard(
+                    title = stringResource(R.string.settings_group_help),
+                    visible =
+                        selectedSection == "help",
+                ) {
                     HelpGuideItem(
                         title = stringResource(R.string.help_guide_reader_title),
                         description = stringResource(R.string.help_guide_reader_desc),
@@ -1322,7 +1357,11 @@ fun SettingsPreviewScreen(
                 // =========================================================================
                 // Group 5: About Mixu & Source Code Repositories (关于 谜序 Mixu)
                 // =========================================================================
-                SettingsGroupCard(title = stringResource(R.string.settings_group_about)) {
+                SettingsGroupCard(
+                    title = stringResource(R.string.settings_group_about),
+                    visible =
+                        selectedSection == "help",
+                ) {
                     // Brand Identity Header
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -1339,7 +1378,7 @@ fun SettingsPreviewScreen(
                                 color = colors.onSurface,
                             )
                             Text(
-                                text = APP_VERSION_NAME,
+                                text = installedVersionName?.let { "版本 $it" } ?: "版本信息不可用",
                                 style = typography.caption,
                                 color = colors.onSurfaceVariant,
                             )
@@ -1747,9 +1786,11 @@ fun SettingsPreviewScreen(
 @Composable
 private fun SettingsGroupCard(
     title: String,
+    visible: Boolean = true,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
+    if (!visible) return
     val colors = MixuTheme.colors
     val typography = MixuTheme.typography
     val einkPolicy = MixuTheme.einkPolicy
@@ -1767,7 +1808,7 @@ private fun SettingsGroupCard(
         )
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(if (einkPolicy.isActive) 0.dp else 12.dp),
+            shape = RoundedCornerShape(MixuTheme.appearance.cardCornerRadius),
             colors = CardDefaults.cardColors(containerColor = colors.surface),
             border =
                 BorderStroke(

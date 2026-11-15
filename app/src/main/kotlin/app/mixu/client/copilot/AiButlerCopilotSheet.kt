@@ -238,8 +238,8 @@ fun MixuAiButlerFab(
                                     colors =
                                         listOf(
                                             colors.copilotFabPrimary,
-                                            Color(0xFF7C3AED),
-                                            Color(0xFF2563EB),
+                                            colors.copilotFabPrimary,
+                                            colors.copilotFabPrimary,
                                         ),
                                 )
                             },
@@ -333,7 +333,7 @@ fun AgentAvatarBadge(sizeDp: Int = 28) {
                         SolidColor(colors.onSurface)
                     } else {
                         Brush.linearGradient(
-                            listOf(Color(0xFF4F46E5), Color(0xFF7C3AED)),
+                            listOf(colors.copilotFabPrimary, colors.copilotFabPrimary),
                         )
                     },
                 ),
@@ -467,11 +467,12 @@ fun AiButlerCopilotDialog(
     modifier: Modifier = Modifier,
     initialPrompt: String? = null,
     onConsumeInitialPrompt: () -> Unit = {},
+    embedded: Boolean = false,
 ) {
     val colors = MixuTheme.colors
     val eInkPolicy = MixuTheme.einkPolicy
     val strokeWidth = if (eInkPolicy.isActive) 2.dp else 1.dp
-    val cornerRadius = if (eInkPolicy.isActive) 4.dp else 18.dp
+    val cornerRadius = MixuTheme.appearance.cardCornerRadius
 
     val safeChapterNum = (currentChapterIndex + 1).coerceAtLeast(1)
     val activeBookTitle = activeBook?.title ?: "三幕的杀意"
@@ -842,13 +843,15 @@ fun AiButlerCopilotDialog(
     // Bottom-Right Floating Mini-Window Surface
     Surface(
         modifier =
-            modifier
-                .width(388.dp)
-                .heightIn(min = 480.dp, max = 640.dp),
+            if (embedded) {
+                modifier.fillMaxSize()
+            } else {
+                modifier.width(388.dp).heightIn(min = 480.dp, max = 640.dp)
+            },
         shape = RoundedCornerShape(cornerRadius),
         color = colors.surface,
         border = BorderStroke(strokeWidth, colors.outlineVariant),
-        shadowElevation = if (eInkPolicy.isActive) 0.dp else 14.dp,
+        shadowElevation = if (eInkPolicy.isActive || embedded) 0.dp else 14.dp,
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(14.dp),
@@ -1328,9 +1331,9 @@ private fun CopilotMessageBubble(
                                     } else {
                                         Brush.horizontalGradient(
                                             listOf(
-                                                Color(0xFF6366F1),
-                                                Color(0xFF8B5CF6),
-                                                Color(0xFF06B6D4),
+                                                colors.copilotFabPrimary,
+                                                colors.copilotFabPrimary,
+                                                colors.copilotFabPrimary,
                                             ),
                                         )
                                     },

@@ -53,18 +53,18 @@ data class MixuColors(
 
 val LightMixuColors =
     MixuColors(
-        background = Color(0xFFFAF8F5),
+        background = Color(0xFFEFEBE1),
         surface = Color(0xFFFFFFFF),
-        surfaceVariant = Color(0xFFF0EDE6),
-        onBackground = Color(0xFF1C1B19),
-        onSurface = Color(0xFF1C1B19),
-        onSurfaceVariant = Color(0xFF4A4740),
-        primary = Color(0xFF1E3A8A),
+        surfaceVariant = Color(0xFFF2EDE2),
+        onBackground = Color(0xFF221F1B),
+        onSurface = Color(0xFF221F1B),
+        onSurfaceVariant = Color(0xFF5C564D),
+        primary = Color(0xFF2B4C7E),
         onPrimary = Color(0xFFFFFFFF),
-        primaryContainer = Color(0xFFDCE2F9),
-        onPrimaryContainer = Color(0xFF001944),
-        outline = Color(0xFF75726B),
-        outlineVariant = Color(0xFFD0CBC0),
+        primaryContainer = Color(0xFFDCE6F5),
+        onPrimaryContainer = Color(0xFF102A52),
+        outline = Color(0xFFC5BCA8),
+        outlineVariant = Color(0xFFDFD8C8),
         observed = Color(0xFF1B5E20),
         corroborated = Color(0xFF00695C),
         claimed = Color(0xFFE65100),
@@ -73,6 +73,7 @@ val LightMixuColors =
         retracted = Color(0xFF546E7A),
         unresolved = Color(0xFF5E35B1),
         isEInk = false,
+        readerPaperBackground = Color(0xFFFAF6ED),
     )
 
 val DarkMixuColors =

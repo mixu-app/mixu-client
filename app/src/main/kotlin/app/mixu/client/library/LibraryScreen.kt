@@ -16,10 +16,13 @@ import androidx.compose.foundation.gestures.ScrollableDefaults
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,8 +52,6 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,13 +66,19 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.mixu.client.R
 import app.mixu.client.theme.MixuTheme
+import app.mixu.client.ui.MixuBrandLogo
 import java.io.File
+
+private const val SEARCH_PILL_MAX_WIDTH_DP = 460
+private const val EINK_GRID_COLUMN_COUNT = 3
 
 private object CoverBitmapCache {
     private val cache = LruCache<String, ImageBitmap>(64)
@@ -158,170 +165,247 @@ fun KindleHomeScreen(
                 )
         }
 
-    val cardRadius = if (isEInk) 0.dp else 12.dp
-    val borderWidth = if (isEInk) 2.dp else 1.dp
-
+    var query by remember { mutableStateOf("") }
+    val visibleBooks =
+        books.filter {
+            query.isBlank() ||
+                it.title.contains(query, ignoreCase = true) ||
+                it.author.contains(query, ignoreCase = true) ||
+                it.collections.any { collection -> collection.contains(query, ignoreCase = true) }
+        }
+    val radius = MixuTheme.appearance.cardCornerRadius
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text =
-                            stringResource(R.string.app_name) +
-                                " · " +
-                                stringResource(R.string.nav_home),
-                        style = typography.titleLarge,
-                        color = colors.onSurface,
-                        fontWeight = FontWeight.Bold,
-                    )
-                },
-                actions = {
-                    OutlinedButton(
-                        onClick = onImportBook,
-                        modifier = Modifier.padding(end = 12.dp),
-                        shape = RoundedCornerShape(if (isEInk) 0.dp else 8.dp),
-                        border = BorderStroke(borderWidth, colors.outlineVariant),
-                    ) {
-                        Text(
-                            text = "+ " + stringResource(R.string.library_import_button),
-                            style = typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.primary,
-                        )
-                    }
-                },
-                colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = colors.surface,
-                    ),
-            )
+            Column(Modifier.background(colors.surface)) {
+                MixuPageHeader(stringResource(R.string.nav_home), onImportBook)
+                LibrarySearchBar(
+                    query = query,
+                    onQueryChange = { query = it },
+                    modifier =
+                        Modifier
+                            .padding(
+                                horizontal = 16.dp,
+                            ).widthIn(max = SEARCH_PILL_MAX_WIDTH_DP.dp)
+                            .padding(bottom = 12.dp),
+                )
+                HorizontalDivider(color = colors.outlineVariant)
+            }
         },
         containerColor = colors.background,
     ) { innerPadding ->
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .verticalScroll(scrollState)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            // 1. Continue Reading Hero Card (继续阅读)
-            if (lastReadBook != null) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(R.string.home_continue_reading_heading),
-                        style = typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.onSurface,
-                    )
+        BoxWithConstraints(Modifier.fillMaxSize().padding(innerPadding)) {
+            val collectionColumns =
+                if (isEInk) {
+                    EINK_GRID_COLUMN_COUNT
+                } else if (maxWidth >= 900.dp) {
+                    4
+                } else if (maxWidth >= 600.dp) {
+                    3
+                } else {
+                    2
+                }
+            val bookColumns =
+                if (isEInk) {
+                    EINK_GRID_COLUMN_COUNT
+                } else if (maxWidth >=
+                    600.dp
+                ) {
+                    4
+                } else {
+                    3
+                }
+            Column(
+                Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "您的收藏夹",
+                            style = typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { onSelectCollectionAndOpenLibrary(null) }) {
+                            Text("全部收藏夹 →", style = typography.labelMedium)
+                        }
+                    }
+                    if (collectionCounts.isEmpty()) {
+                        Text(
+                            "在图书馆中整理收藏夹，让喜爱的故事各归其位。",
+                            style = typography.bodyMedium,
+                            color = colors.onSurfaceVariant,
+                        )
+                    }
+                    collectionCounts.chunked(collectionColumns).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            row.forEach { (name, count) ->
+                                Card(
+                                    modifier =
+                                        Modifier.weight(1f).clickable {
+                                            onSelectCollectionAndOpenLibrary(name)
+                                        },
+                                    shape =
+                                        RoundedCornerShape(
+                                            MixuTheme.appearance.controlCornerRadius,
+                                        ),
+                                    border =
+                                        BorderStroke(
+                                            if (isEInk) 2.dp else 1.dp,
+                                            colors.outlineVariant,
+                                        ),
+                                    colors =
+                                        CardDefaults.cardColors(
+                                            containerColor = colors.surface,
+                                        ),
+                                ) {
+                                    Column(
+                                        Modifier.padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Text(
+                                            name,
+                                            style = typography.labelLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = colors.onSurface,
+                                        )
+                                        Text(
+                                            "$count 本作品",
+                                            style = typography.caption,
+                                            color = colors.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                            repeat(collectionColumns - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
+                if (lastReadBook != null && query.isBlank()) {
                     Card(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { onContinueReading(lastReadBook) },
-                        shape = RoundedCornerShape(cardRadius),
+                        shape = RoundedCornerShape(radius),
+                        border = BorderStroke(if (isEInk) 2.dp else 1.dp, colors.outlineVariant),
                         colors = CardDefaults.cardColors(containerColor = colors.surface),
-                        border = BorderStroke(borderWidth, colors.outlineVariant),
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(14.dp),
+                            Modifier.fillMaxWidth().padding(16.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             BookCoverThumbnail(
-                                book = lastReadBook,
+                                lastReadBook,
                                 isGrid = true,
                                 showBadge = false,
-                                modifier = Modifier.width(96.dp).height(138.dp),
+                                modifier =
+                                    Modifier
+                                        .width(
+                                            84.dp,
+                                        ).height(128.dp)
+                                        .clickable { onContinueReading(lastReadBook) },
                             )
                             Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(
+                                        "继续阅读",
+                                        style = typography.labelMedium,
+                                        color = colors.onPrimaryContainer,
+                                        modifier =
+                                            Modifier
+                                                .background(
+                                                    colors.primaryContainer,
+                                                    RoundedCornerShape(
+                                                        MixuTheme.appearance.pillCornerRadius,
+                                                    ),
+                                                ).padding(horizontal = 10.dp, vertical = 3.dp),
+                                    )
+                                    Text(
+                                        "${lastReadBook.progressPercent}%",
+                                        style = typography.labelMedium,
+                                        color = colors.onSurfaceVariant,
+                                    )
+                                }
                                 Text(
-                                    text = lastReadBook.title,
+                                    lastReadBook.title,
                                     style = typography.titleLarge,
                                     fontWeight = FontWeight.Bold,
-                                    color = colors.onSurface,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
+                                    color = colors.onSurface,
                                 )
                                 Text(
-                                    text = lastReadBook.author,
-                                    style = typography.bodyMedium,
+                                    lastReadBook.author,
+                                    style = typography.caption,
                                     color = colors.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                if (lastReadBook.tags.isNotEmpty()) {
-                                    Row(
-                                        modifier =
-                                            Modifier.horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        for (tag in lastReadBook.tags.take(4)) {
-                                            LibraryFilterChip(
-                                                label = "#$tag",
-                                                isSelected = false,
-                                                onClick = { onSelectTagAndOpenLibrary(tag) },
-                                                cornerRadius = if (isEInk) 0.dp else 6.dp,
-                                                borderWidth = borderWidth,
-                                                isEInk = isEInk,
-                                            )
-                                        }
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    lastReadBook.tags.take(3).forEach { tag ->
+                                        Text(
+                                            "#$tag",
+                                            style = typography.caption,
+                                            color = colors.onSurfaceVariant,
+                                            modifier =
+                                                Modifier
+                                                    .background(
+                                                        colors.surfaceVariant,
+                                                        RoundedCornerShape(
+                                                            MixuTheme.appearance.pillCornerRadius,
+                                                        ),
+                                                    ).clickable {
+                                                        onSelectTagAndOpenLibrary(
+                                                            tag,
+                                                        )
+                                                    }.padding(horizontal = 8.dp, vertical = 3.dp),
+                                        )
                                     }
                                 }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    DiscreteProgressBar(
-                                        progressPercent = lastReadBook.progressPercent,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Text(
-                                        text = "${lastReadBook.progressPercent}%",
-                                        style = typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = colors.onSurface,
-                                    )
-                                }
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Button(
-                                        onClick = { onContinueReading(lastReadBook) },
-                                        shape = RoundedCornerShape(if (isEInk) 0.dp else 8.dp),
-                                        colors =
-                                            ButtonDefaults.buttonColors(
-                                                containerColor = colors.primary,
-                                                contentColor = colors.onPrimary,
+                                        onClick = {
+                                            onContinueReading(lastReadBook)
+                                        },
+                                        shape =
+                                            RoundedCornerShape(
+                                                MixuTheme.appearance.pillCornerRadius,
+                                            ),
+                                        contentPadding =
+                                            PaddingValues(
+                                                horizontal = 12.dp,
+                                                vertical = 6.dp,
                                             ),
                                     ) {
-                                        Text(
-                                            text =
-                                                stringResource(
-                                                    R.string.home_continue_reading_btn,
-                                                ),
-                                            style = typography.labelMedium,
-                                            fontWeight = FontWeight.Bold,
-                                        )
+                                        Text("继续阅读", style = typography.labelMedium)
                                     }
                                     OutlinedButton(
-                                        onClick = { onOpenCaseBoard(lastReadBook) },
-                                        shape = RoundedCornerShape(if (isEInk) 0.dp else 8.dp),
-                                        border = BorderStroke(borderWidth, colors.primary),
+                                        onClick = {
+                                            onOpenCaseBoard(lastReadBook)
+                                        },
+                                        shape =
+                                            RoundedCornerShape(
+                                                MixuTheme.appearance.pillCornerRadius,
+                                            ),
+                                        contentPadding =
+                                            PaddingValues(
+                                                horizontal = 12.dp,
+                                                vertical = 6.dp,
+                                            ),
+                                        border = BorderStroke(1.dp, colors.outlineVariant),
                                     ) {
                                         Text(
-                                            text = stringResource(R.string.nav_case_board),
+                                            "图谱与伴读",
                                             style = typography.labelMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = colors.primary,
+                                            color = colors.onSurface,
                                         )
                                     }
                                 }
@@ -329,173 +413,106 @@ fun KindleHomeScreen(
                         }
                     }
                 }
-            }
-
-            // 2. Recent & Reading Now Horizontal Carousel (近期藏书与在读)
-            if (books.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = stringResource(R.string.home_recent_books_heading),
+                            "来自您的图书馆",
                             style = typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = colors.onSurface,
+                            modifier = Modifier.weight(1f),
                         )
-                        Text(
-                            text =
-                                "${books.size} · " +
-                                    stringResource(R.string.nav_library) +
-                                    " ›",
-                            style = typography.labelMedium,
-                            color = colors.primary,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier =
-                                Modifier.clickable {
-                                    onSelectCollectionAndOpenLibrary(null)
-                                },
-                        )
+                        TextButton(onClick = { onSelectCollectionAndOpenLibrary(null) }) {
+                            Text("全部图书 (${books.size}) →", style = typography.labelMedium)
+                        }
                     }
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        for (book in books.take(12)) {
-                            Card(
-                                modifier =
-                                    Modifier
-                                        .width(128.dp)
-                                        .height(216.dp)
-                                        .clickable { onContinueReading(book) },
-                                shape = RoundedCornerShape(cardRadius),
-                                colors = CardDefaults.cardColors(containerColor = colors.surface),
-                                border = BorderStroke(borderWidth, colors.outlineVariant),
-                            ) {
-                                Column(
-                                    modifier = Modifier.fillMaxSize().padding(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    BookCoverThumbnail(
-                                        book = book,
-                                        isGrid = true,
-                                        showBadge = false,
-                                        modifier = Modifier.fillMaxWidth().height(152.dp),
-                                    )
-                                    Text(
-                                        text = book.title,
-                                        style = typography.caption,
-                                        fontWeight = FontWeight.Bold,
-                                        color = colors.onSurface,
-                                        minLines = 1,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        text = book.author,
-                                        style = typography.caption,
-                                        color = colors.onSurfaceVariant,
-                                        minLines = 1,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
+                    visibleBooks
+                        .sortedByDescending { it.lastReadEpochMs }
+                        .chunked(
+                            bookColumns,
+                        ).forEach { row ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                row.forEach { book ->
+                                    Column(
+                                        Modifier.weight(1f).clickable { onContinueReading(book) },
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        BookCoverThumbnail(
+                                            book,
+                                            isGrid = true,
+                                            showBadge = false,
+                                            modifier =
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .aspectRatio(
+                                                        0.68f,
+                                                    ).clip(
+                                                        RoundedCornerShape(
+                                                            MixuTheme.appearance.coverCornerRadius,
+                                                        ),
+                                                    ),
+                                        )
+                                        Text(
+                                            book.title,
+                                            style = typography.labelLarge,
+                                            color = colors.onSurface,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        Text(
+                                            "${book.progressPercent}% · ${book.author}",
+                                            style = typography.caption,
+                                            color = colors.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
                                 }
+                                repeat(bookColumns - row.size) { Spacer(Modifier.weight(1f)) }
                             }
                         }
-                    }
-                }
-            }
-
-            // 3. Mystery Novel Tags Array Quick Filter (推理小说标签速筛)
-            if (tagCounts.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                    if (visibleBooks.isEmpty()) {
                         Text(
-                            text = stringResource(R.string.home_mystery_tags_heading),
-                            style = typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.onSurface,
+                            if (query.isBlank()) "书库为空，点击右上角 + 导入电子书。" else "没有找到匹配的图书。",
+                            style = typography.bodyMedium,
+                            color = colors.onSurfaceVariant,
                         )
-                        Text(
-                            text = stringResource(R.string.library_tags_sync_badge),
-                            style = typography.caption,
-                            color = colors.primary,
-                        )
-                    }
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        for ((tag, count) in tagCounts) {
-                            LibraryFilterChip(
-                                label = "#$tag ($count)",
-                                isSelected = false,
-                                onClick = { onSelectTagAndOpenLibrary(tag) },
-                                cornerRadius = if (isEInk) 0.dp else 8.dp,
-                                borderWidth = borderWidth,
-                                isEInk = isEInk,
-                            )
-                        }
                     }
                 }
-            }
-
-            // 4. Kindle Collections Quick Filter (收藏夹分类)
-            if (collectionCounts.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(R.string.home_collections_heading),
-                        style = typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.onSurface,
-                    )
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        val favCount = books.count { it.isFavorite }
-                        LibraryFilterChip(
-                            label =
-                                "★ " +
-                                    stringResource(R.string.library_collection_favorites) +
-                                    " ($favCount)",
-                            isSelected = false,
-                            onClick = {
-                                onSelectCollectionAndOpenLibrary(BookItem.FAVORITES_FILTER_KEY)
-                            },
-                            cornerRadius = if (isEInk) 0.dp else 8.dp,
-                            borderWidth = borderWidth,
-                            isEInk = isEInk,
-                        )
-                        for ((col, count) in collectionCounts) {
-                            LibraryFilterChip(
-                                label = "▤ $col ($count)",
-                                isSelected = false,
-                                onClick = { onSelectCollectionAndOpenLibrary(col) },
-                                cornerRadius = if (isEInk) 0.dp else 8.dp,
-                                borderWidth = borderWidth,
-                                isEInk = isEInk,
-                            )
-                        }
-                    }
-                }
+                Spacer(Modifier.height(24.dp))
             }
         }
+    }
+}
+
+/** Native page masthead shared by library surfaces. */
+@Composable
+private fun MixuPageHeader(
+    title: String,
+    onImport: () -> Unit,
+) {
+    val colors = MixuTheme.colors
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        MixuBrandLogo()
+        Text(
+            title,
+            color = colors.onSurface,
+            style = MixuTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
+        )
+        TextButton(
+            onClick = onImport,
+            modifier =
+                Modifier.semantics {
+                    contentDescription = "导入图书"
+                },
+        ) { Text("+", style = MixuTheme.typography.titleLarge) }
     }
 }
 
@@ -622,77 +639,10 @@ fun LibraryScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.library_title),
-                        style = typography.titleLarge,
-                        color = colors.onSurface,
-                        fontWeight = FontWeight.Bold,
-                    )
-                },
-                actions = {
-                    val borderStroke =
-                        BorderStroke(
-                            width =
-                                if (isEInk) {
-                                    dimensionResource(R.dimen.library_card_border_width_eink)
-                                } else {
-                                    dimensionResource(R.dimen.library_card_border_width)
-                                },
-                            color = if (isEInk) colors.outline else colors.outlineVariant,
-                        )
-                    val buttonShape =
-                        RoundedCornerShape(
-                            if (isEInk) {
-                                dimensionResource(R.dimen.library_button_corner_radius_eink)
-                            } else {
-                                dimensionResource(R.dimen.library_button_corner_radius)
-                            },
-                        )
-                    val buttonPadding =
-                        PaddingValues(
-                            horizontal = dimensionResource(R.dimen.library_control_spacing),
-                            vertical = dimensionResource(R.dimen.library_badge_padding_vertical),
-                        )
-                    OutlinedButton(
-                        onClick = onImportClick,
-                        border = borderStroke,
-                        shape = buttonShape,
-                        contentPadding = buttonPadding,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.library_import_button),
-                            style = typography.labelMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = colors.primary,
-                        )
-                    }
-                    Spacer(
-                        modifier =
-                            Modifier.width(
-                                dimensionResource(R.dimen.library_control_spacing),
-                            ),
-                    )
-                    OutlinedButton(
-                        onClick = onNavigateToSettings,
-                        border = borderStroke,
-                        shape = buttonShape,
-                        contentPadding = buttonPadding,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.library_switch_to_settings),
-                            style = typography.labelMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = colors.onSurface,
-                        )
-                    }
-                },
-                colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = colors.surface,
-                    ),
-            )
+            Column(Modifier.background(colors.surface)) {
+                MixuPageHeader(stringResource(R.string.nav_library), onImportClick)
+                HorizontalDivider(color = colors.outlineVariant)
+            }
         },
         containerColor = colors.background,
     ) { innerPadding ->
@@ -775,9 +725,16 @@ fun LibraryScreen(
                 uiState.layoutMode == LibraryLayoutMode.GRID -> {
                     LazyVerticalGrid(
                         columns =
-                            GridCells.Adaptive(
-                                minSize = dimensionResource(R.dimen.library_grid_min_cell_width),
-                            ),
+                            if (isEInk) {
+                                GridCells.Fixed(EINK_GRID_COLUMN_COUNT)
+                            } else {
+                                GridCells.Adaptive(
+                                    minSize =
+                                        dimensionResource(
+                                            R.dimen.library_grid_min_cell_width,
+                                        ),
+                                )
+                            },
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement =
                             Arrangement.spacedBy(
@@ -904,12 +861,7 @@ fun LibraryScreen(
                             color = colors.onSurfaceVariant,
                         )
 
-                        val chipRadius =
-                            if (isEInk) {
-                                dimensionResource(R.dimen.library_sort_chip_corner_radius_eink)
-                            } else {
-                                dimensionResource(R.dimen.library_sort_chip_corner_radius)
-                            }
+                        val chipRadius = MixuTheme.appearance.pillCornerRadius
                         val chipBorder =
                             if (isEInk) {
                                 dimensionResource(R.dimen.library_card_border_width_eink)
@@ -1084,7 +1036,12 @@ fun LibrarySearchBar(
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
-        modifier = modifier.fillMaxWidth(),
+        modifier =
+            Modifier
+                .widthIn(
+                    max = SEARCH_PILL_MAX_WIDTH_DP.dp,
+                ).then(modifier)
+                .fillMaxWidth(),
         placeholder = {
             Text(
                 text = stringResource(R.string.library_search_hint),
@@ -1092,6 +1049,7 @@ fun LibrarySearchBar(
                 color = colors.onSurfaceVariant,
             )
         },
+        leadingIcon = { Text("⌕", color = colors.onSurfaceVariant) },
         trailingIcon = {
             if (query.isNotEmpty()) {
                 TextButton(onClick = { onQueryChange("") }) {
@@ -1106,14 +1064,7 @@ fun LibrarySearchBar(
         },
         singleLine = true,
         textStyle = typography.bodyMedium.copy(color = colors.onSurface),
-        shape =
-            RoundedCornerShape(
-                if (isEInk) {
-                    dimensionResource(R.dimen.library_text_field_corner_radius_eink)
-                } else {
-                    dimensionResource(R.dimen.library_text_field_corner_radius)
-                },
-            ),
+        shape = RoundedCornerShape(MixuTheme.appearance.pillCornerRadius),
         colors =
             OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = colors.surface,
@@ -1140,12 +1091,7 @@ fun LibraryControlsRow(
     val einkPolicy = MixuTheme.einkPolicy
     val isEInk = einkPolicy.isActive || colors.isEInk
 
-    val chipCornerRadius =
-        if (isEInk) {
-            dimensionResource(R.dimen.library_sort_chip_corner_radius_eink)
-        } else {
-            dimensionResource(R.dimen.library_sort_chip_corner_radius)
-        }
+    val chipCornerRadius = MixuTheme.appearance.pillCornerRadius
     val chipBorderWidth =
         if (isEInk) {
             dimensionResource(R.dimen.library_card_border_width_eink)
@@ -1298,12 +1244,7 @@ private fun LibraryCollectionsBar(
 ) {
     val colors = MixuTheme.colors
     val typography = MixuTheme.typography
-    val chipCornerRadius =
-        if (isEInk) {
-            dimensionResource(R.dimen.library_sort_chip_corner_radius_eink)
-        } else {
-            dimensionResource(R.dimen.library_sort_chip_corner_radius)
-        }
+    val chipCornerRadius = MixuTheme.appearance.pillCornerRadius
     val chipBorderWidth =
         if (isEInk) {
             dimensionResource(R.dimen.library_card_border_width_eink)
@@ -1374,12 +1315,7 @@ private fun LibraryMysteryTagsBar(
 ) {
     val colors = MixuTheme.colors
     val typography = MixuTheme.typography
-    val chipCornerRadius =
-        if (isEInk) {
-            dimensionResource(R.dimen.library_sort_chip_corner_radius_eink)
-        } else {
-            dimensionResource(R.dimen.library_sort_chip_corner_radius)
-        }
+    val chipCornerRadius = MixuTheme.appearance.pillCornerRadius
     val chipBorderWidth =
         if (isEInk) {
             dimensionResource(R.dimen.library_card_border_width_eink)
@@ -1446,12 +1382,7 @@ fun LibraryBookGridCard(
         } else {
             dimensionResource(R.dimen.library_card_border_width)
         }
-    val cardCornerRadius =
-        if (isEInk) {
-            dimensionResource(R.dimen.library_card_corner_radius_eink)
-        } else {
-            dimensionResource(R.dimen.library_card_corner_radius)
-        }
+    val cardCornerRadius = MixuTheme.appearance.cardCornerRadius
     val shape = RoundedCornerShape(cardCornerRadius)
 
     Card(
@@ -1683,12 +1614,7 @@ fun LibraryBookListItem(
         } else {
             dimensionResource(R.dimen.library_card_border_width)
         }
-    val cardCornerRadius =
-        if (isEInk) {
-            dimensionResource(R.dimen.library_card_corner_radius_eink)
-        } else {
-            dimensionResource(R.dimen.library_card_corner_radius)
-        }
+    val cardCornerRadius = MixuTheme.appearance.cardCornerRadius
     val shape = RoundedCornerShape(cardCornerRadius)
 
     Card(
@@ -1872,12 +1798,7 @@ fun BookCoverThumbnail(
     val einkPolicy = MixuTheme.einkPolicy
     val isEInk = einkPolicy.isActive || colors.isEInk
 
-    val cornerRadius =
-        if (isEInk) {
-            dimensionResource(R.dimen.library_cover_corner_radius_eink)
-        } else {
-            dimensionResource(R.dimen.library_cover_corner_radius)
-        }
+    val cornerRadius = MixuTheme.appearance.coverCornerRadius
     val borderWidth =
         if (isEInk) {
             dimensionResource(R.dimen.library_cover_border_width_eink)

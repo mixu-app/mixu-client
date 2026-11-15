@@ -13,7 +13,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * Global & Library surface color overrides in an importable [MixuThemePack].
+ * Global & Library surface color and appearance overrides in an importable [MixuThemePack].
  * Any `null` field inherits from the theme pack's `baseMode`.
  */
 data class ThemeChromeTokens(
@@ -29,6 +29,12 @@ data class ThemeChromeTokens(
     val onPrimaryContainer: String? = null,
     val outline: String? = null,
     val outlineVariant: String? = null,
+    val fontFamily: String? = null,
+    val fontScaleMultiplier: Float? = null,
+    val cardCornerRadiusDp: Float? = null,
+    val controlCornerRadiusDp: Float? = null,
+    val pillCornerRadiusDp: Float? = null,
+    val coverCornerRadiusDp: Float? = null,
 )
 
 /**
@@ -111,6 +117,7 @@ data class MixuThemePack(
                 MixuThemeMode.NORD_DARK -> NordDarkMixuColors
                 MixuThemeMode.EINK -> EInkMixuColors
             }
+        if (base.isEInk) return EInkMixuColors
         val resolvedBackground = parseHexColorOrNull(chrome.background) ?: base.background
         val resolvedSurface = parseHexColorOrNull(chrome.surface) ?: base.surface
         val resolvedOnBackground = parseHexColorOrNull(chrome.onBackground) ?: base.onBackground
@@ -155,9 +162,23 @@ data class MixuThemePack(
                 parseHexColorOrNull(caseBoard.unresolved) ?: base.unresolved,
             isEInk = base.isEInk,
             readerPaperBackground =
-                parseHexColorOrNull(reader.paperBackground) ?: resolvedBackground,
+                parseHexColorOrNull(reader.paperBackground)
+                    ?: if (chrome.background ==
+                        null
+                    ) {
+                        base.readerPaperBackground
+                    } else {
+                        resolvedBackground
+                    },
             readerPageText =
-                parseHexColorOrNull(reader.pageText) ?: resolvedOnBackground,
+                parseHexColorOrNull(reader.pageText)
+                    ?: if (chrome.onBackground ==
+                        null
+                    ) {
+                        base.readerPageText
+                    } else {
+                        resolvedOnBackground
+                    },
             readerHeaderFooterText =
                 parseHexColorOrNull(reader.headerFooterText) ?: resolvedOnSurfaceVariant,
             readerBookmarkAccent =
@@ -201,6 +222,37 @@ data class MixuThemePack(
                     }
                     chrome.outline?.let { put("outline", JsonPrimitive(it)) }
                     chrome.outlineVariant?.let { put("outline_variant", JsonPrimitive(it)) }
+                    chrome.fontFamily?.let { put("font_family", JsonPrimitive(it)) }
+                    chrome.fontScaleMultiplier?.let {
+                        put(
+                            "font_scale_multiplier",
+                            JsonPrimitive(it),
+                        )
+                    }
+                    chrome.cardCornerRadiusDp?.let {
+                        put(
+                            "card_corner_radius_dp",
+                            JsonPrimitive(it),
+                        )
+                    }
+                    chrome.controlCornerRadiusDp?.let {
+                        put(
+                            "control_corner_radius_dp",
+                            JsonPrimitive(it),
+                        )
+                    }
+                    chrome.pillCornerRadiusDp?.let {
+                        put(
+                            "pill_corner_radius_dp",
+                            JsonPrimitive(it),
+                        )
+                    }
+                    chrome.coverCornerRadiusDp?.let {
+                        put(
+                            "cover_corner_radius_dp",
+                            JsonPrimitive(it),
+                        )
+                    }
                 },
             )
             put(
@@ -313,6 +365,12 @@ data class MixuThemePack(
                             onPrimaryContainer = chromeObj?.str("on_primary_container"),
                             outline = chromeObj?.str("outline"),
                             outlineVariant = chromeObj?.str("outline_variant"),
+                            fontFamily = chromeObj?.str("font_family"),
+                            fontScaleMultiplier = chromeObj?.flt("font_scale_multiplier"),
+                            cardCornerRadiusDp = chromeObj?.flt("card_corner_radius_dp"),
+                            controlCornerRadiusDp = chromeObj?.flt("control_corner_radius_dp"),
+                            pillCornerRadiusDp = chromeObj?.flt("pill_corner_radius_dp"),
+                            coverCornerRadiusDp = chromeObj?.flt("cover_corner_radius_dp"),
                         ),
                     reader =
                         ThemeReaderTokens(

@@ -397,4 +397,5 @@
     <string name="marketplace_publish_btn">0 推理点上传 · 每次被下载自动获赠 +1 推理点创作者分成</string>
     <string name="marketplace_published_badge">✓ 已发布至共享目录 · 累计创作者分成：+%1$d 推理点 (上限 40)</string>
     <string name="marketplace_simulate_royalty_btn">模拟其他读者下载 (+1 创作者分成)</string>
+    <string name="selection_explain_request">解释选文</string>
 </resources>

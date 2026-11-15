@@ -397,4 +397,5 @@
     <string name="marketplace_publish_btn">共有カタログに公開 (0 pt · DL毎に +1 pt 還元)</string>
     <string name="marketplace_published_badge">✓ 公開済 · クリエイター還元累計：+%1$d pt (上限 120)</string>
     <string name="marketplace_simulate_royalty_btn">他読者DLをシミュレート (+1 pt 還元)</string>
+    <string name="selection_explain_request">選択した文章を説明</string>
 </resources>

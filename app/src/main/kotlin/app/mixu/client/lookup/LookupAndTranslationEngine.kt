@@ -37,6 +37,7 @@ data class DictionaryLookupResult(
     val providerLabel: String,
     val isOfflineSource: Boolean,
     val latencyMs: Int,
+    val found: Boolean = true,
 )
 
 /**
@@ -267,8 +268,9 @@ object LookupAndTranslationEngine {
     }
 
     /**
-     * Performs a fast, free, unlimited on-device dictionary lookup according to [providerMode],
-     * routing any contextual disambiguation beyond local packs to self-hosted nodes or AI Copilot.
+     * Looks up a genuine entry in the built-in local lexicon. Legacy provider parameters
+     * remain for caller compatibility; this method performs no remote lookup. Missing entries
+     * have no invented pronunciation, grammatical class or contextual narrative commentary.
      */
     fun lookupWord(
         query: String,
@@ -276,70 +278,19 @@ object LookupAndTranslationEngine {
         selfHostedEnabled: Boolean = false,
         selfHostedUrl: String = "",
     ): DictionaryLookupResult {
-        val normalized = stemWord(query)
-        val entry = builtInLexicon[normalized]
-        val hasCustomServer =
-            providerMode != LookupProviderMode.OFFLINE_LOCAL &&
-                selfHostedEnabled &&
-                selfHostedUrl.isNotBlank()
-        val selfHostedLabel = "自建无状态 API (${selfHostedUrl.trim()})"
-        val localLabel =
-            if (providerMode == LookupProviderMode.OFFLINE_LOCAL) {
-                "本地离线词典包 (dict-en-zh-core · <1ms · 免费无限)"
-            } else {
-                "本地离线词典 (<1ms · 免费无限) · 语境精解走 AI 伴读"
-            }
-
-        if (entry != null) {
-            val definitionText =
-                if (hasCustomServer || providerMode == LookupProviderMode.HYBRID_AUTO) {
-                    "${entry.definitionZh}\n【推理词库补充】${entry.onlineNuanceZh}"
-                } else {
-                    entry.definitionZh
-                }
-            return DictionaryLookupResult(
-                query = query.trim(),
-                headword = entry.headword,
-                phonetic = entry.phonetic,
-                partOfSpeech = entry.partOfSpeech,
-                primaryDefinition = definitionText,
-                mysteryContextNote = entry.mysteryNoteZh,
-                providerLabel = if (hasCustomServer) selfHostedLabel else localLabel,
-                isOfflineSource = !hasCustomServer,
-                latencyMs = 1,
-            )
-        }
-
-        // Fallback when word is outside core mystery lexicon
-        val cleanQuery = query.trim().ifEmpty { "alibi" }
-        return if (hasCustomServer) {
-            DictionaryLookupResult(
-                query = cleanQuery,
-                headword = cleanQuery,
-                phonetic = "/${cleanQuery.lowercase()}/",
-                partOfSpeech = "context expr.",
-                primaryDefinition =
-                    "自建无状态节点词条解析：『$cleanQuery』可由自定义节点（${selfHostedUrl.trim()}）结合当前章节语境消歧。",
-                mysteryContextNote = "也可使用右下角 AI 管家伴读（1 推理点/次）在防剧透边界内解析该词与上下文线索。",
-                providerLabel = selfHostedLabel,
-                isOfflineSource = false,
-                latencyMs = 1,
-            )
-        } else {
-            DictionaryLookupResult(
-                query = cleanQuery,
-                headword = cleanQuery,
-                phonetic = "/${cleanQuery.lowercase()}/",
-                partOfSpeech = "n. / v.",
-                primaryDefinition =
-                    "离线词典基础匹配：『$cleanQuery』暂未命中内置核心推理词表（本地查词免费无限制）。",
-                mysteryContextNote =
-                    "如需结合当前章节语境解析生僻词或双关线索，请选中句段后点击「用 AI 管家语境译解（1 推理点）」。",
-                providerLabel = localLabel,
-                isOfflineSource = true,
-                latencyMs = 1,
-            )
-        }
+        val entry = builtInLexicon[stemWord(query)]
+        return DictionaryLookupResult(
+            query = query.trim(),
+            headword = entry?.headword ?: query.trim(),
+            phonetic = entry?.phonetic.orEmpty(),
+            partOfSpeech = entry?.partOfSpeech.orEmpty(),
+            primaryDefinition = entry?.definitionZh ?: "未找到词条",
+            mysteryContextNote = null,
+            providerLabel = "内置词典",
+            isOfflineSource = true,
+            latencyMs = 1,
+            found = entry != null,
+        )
     }
 
     /**

@@ -7,24 +7,23 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
+import android.view.View
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -32,8 +31,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -57,7 +64,6 @@ import app.mixu.client.eink.EInkDetector
 import app.mixu.client.importer.BookImportResult
 import app.mixu.client.importer.BookImportService
 import app.mixu.client.importer.SafBookPickerContract
-import app.mixu.client.library.BookCoverThumbnail
 import app.mixu.client.library.BookItem
 import app.mixu.client.library.KindleHomeScreen
 import app.mixu.client.library.LibraryScreen
@@ -69,10 +75,16 @@ import app.mixu.client.reader.ReaderSessionController
 import app.mixu.client.reader.ReadiumEpubNavigator
 import app.mixu.client.reader.parseReaderImageTokenOrNull
 import app.mixu.client.theme.MixuTheme
-import app.mixu.client.theme.createMixuTypography
-import app.mixu.client.ui.MixuIcons
+import app.mixu.client.theme.createMixuAppTypography
+import app.mixu.client.ui.MixuAdaptiveNavigation
+import app.mixu.client.ui.RetainedCompanionPage
 import app.mixu.client.ui.SettingsPreviewScreen
 import java.io.File
+
+private const val WIDE_NAVIGATION_MIN_WIDTH_DP = 840
+private const val COMPANION_PANEL_WIDTH_DP = 440
+private const val COMPACT_COMPANION_HEIGHT_FRACTION = 0.88f
+private const val LIGHT_SYSTEM_BAR_MIN_LUMINANCE = 0.5f
 
 /**
  * Top-level destination screens in the Mixu client shell.
@@ -259,18 +271,8 @@ class MainActivity :
                                 fullRefreshInterval = config.eInkFullRefreshInterval,
                             )
                         }
-                    val typography =
-                        remember(
-                            config.fontFamilyChoice,
-                            config.fontScaleMultiplier,
-                            config.lineHeightMultiplier,
-                        ) {
-                            createMixuTypography(
-                                fontFamily = config.fontFamilyChoice.toComposeFontFamily(),
-                                scaleMultiplier = config.fontScaleMultiplier,
-                                lineHeightMultiplier = config.lineHeightMultiplier,
-                            )
-                        }
+                    // Reading preferences apply to publication text, not application chrome.
+                    val typography = remember { createMixuAppTypography() }
 
                     val lastReadBook =
                         remember(libraryBooks, activeBookId) {
@@ -315,156 +317,210 @@ class MainActivity :
                         customThemePack = config.resolvedThemePack(),
                     ) {
                         val colors = MixuTheme.colors
-                        val strokeWidth = if (einkPolicy.isActive) 2.5.dp else 1.dp
+                        SideEffect { updateSystemBarPalette(colors.surface) }
+                        val isEInkUi = einkPolicy.isActive || colors.isEInk
+                        val companionIsExpanded =
+                            LocalConfiguration.current.screenWidthDp >= WIDE_NAVIGATION_MIN_WIDTH_DP
+
+                        @Composable
+                        fun activeCopilot(
+                            embedded: Boolean = false,
+                            modifier: Modifier = Modifier,
+                        ) {
+                            val activeNav = readerSession.activeNavigator
+                            val currentPage = activeNav?.currentPage
+                            val currentParagraphs =
+                                activeNav?.viewportState?.currentChapterParagraphs
+                                    ?: currentPage?.paragraphs.orEmpty()
+                            val fallbackImgToken =
+                                aiButlerImageToken
+                                    ?: currentParagraphs.firstNotNullOfOrNull {
+                                        parseReaderImageTokenOrNull(it)
+                                    }
+                            val currentVisibleTxt =
+                                currentParagraphs
+                                    .firstOrNull { parseReaderImageTokenOrNull(it) == null }
+                                    .orEmpty()
+
+                            AiButlerCopilotDialog(
+                                initialMode = aiButlerInitialMode,
+                                initialPrompt = aiButlerPendingPrompt,
+                                onConsumeInitialPrompt = {
+                                    aiButlerPendingPrompt = null
+                                },
+                                books = libraryBooks,
+                                activeBook = lastReadBook,
+                                currentChapterIndex = currentPage?.spineIndex ?: 0,
+                                currentChapterTitle = currentPage?.chapterTitle ?: "第 1 节",
+                                currentVisibleText = currentVisibleTxt,
+                                currentPageImageToken = fallbackImgToken,
+                                userSession = userSession,
+                                database = database,
+                                onLibraryMutated = {
+                                    libraryBooks = loadLibraryBooks()
+                                },
+                                onDismiss = {
+                                    aiButlerPendingPrompt = null
+                                    showAiButlerDialog = false
+                                },
+                                apiClient =
+                                    remember(
+                                        config.selfHostedApiEnabled,
+                                        config.selfHostedApiUrl,
+                                        config.selfHostedStatelessMode,
+                                    ) {
+                                        MixuApiClient.createProductionClient(config)
+                                    },
+                                embedded = embedded,
+                                modifier = modifier,
+                            )
+                        }
+
+                        @Composable
+                        fun activeCaseBoard() {
+                            var caseBoardRebuildTick by remember {
+                                mutableIntStateOf(
+                                    0,
+                                )
+                            }
+                            var isBuildingAiGraph by remember {
+                                mutableStateOf(
+                                    false,
+                                )
+                            }
+                            val currentSpineKey =
+                                readerSession.activeNavigator
+                                    ?.currentPage
+                                    ?.spineIndex ?: 0
+                            val currentHorizonKey =
+                                readerSession.navigationStateMachine
+                                    .knowledgeHorizon
+                            val activeController =
+                                remember(
+                                    activeBookId,
+                                    currentSpineKey,
+                                    currentHorizonKey,
+                                    caseBoardRebuildTick,
+                                ) {
+                                    buildCaseBoardController(activeBookId)
+                                }
+                            CaseBoardScreen(
+                                controller = activeController,
+                                embedded = true,
+                                onNavigateBack = {
+                                    if (readerSession.activeNavigator != null) {
+                                        currentDestination =
+                                            MainScreenDestination.READER
+                                    } else {
+                                        currentDestination =
+                                            MainScreenDestination.HOME
+                                    }
+                                },
+                                onNavigateToSettings = {
+                                    currentDestination =
+                                        MainScreenDestination.SETTINGS_PREVIEW
+                                },
+                                onJumpToOrdinal = { targetOrdinal ->
+                                    if (readerSession.activeNavigator != null) {
+                                        readerSession.navigateToChapter(
+                                            spineIndex = targetOrdinal,
+                                            confirmHorizonAdvance = true,
+                                        )
+                                        readerTick++
+                                        currentDestination =
+                                            MainScreenDestination.READER
+                                    }
+                                },
+                                onBuildAiGraph = {
+                                    val targetBookId = activeBookId
+                                    val asset =
+                                        targetBookId?.let {
+                                            database.getBookAssetForBook(it)
+                                        }
+                                    if (asset != null && !isBuildingAiGraph) {
+                                        isBuildingAiGraph = true
+                                        val client =
+                                            MixuApiClient
+                                                .createProductionClient(
+                                                    config,
+                                                )
+                                        val uid =
+                                            userSession.anonymousId.ifBlank {
+                                                "guest-reader"
+                                            }
+                                        val bookFile =
+                                            File(asset.localStoragePath)
+                                        Thread {
+                                            runCatching {
+                                                val pub =
+                                                    readerSession.activeNavigator
+                                                        ?.publication
+                                                        ?: EpubBookPublication.open(
+                                                            bookFile,
+                                                        )
+                                                packLoader
+                                                    .extractAndSaveCloudGraphPack(
+                                                        asset = asset,
+                                                        publication = pub,
+                                                        apiClient = client,
+                                                        userId = uid,
+                                                    )
+                                            }
+                                            Handler(
+                                                Looper.getMainLooper(),
+                                            ).post {
+                                                isBuildingAiGraph = false
+                                                caseBoardRebuildTick++
+                                            }
+                                        }.start()
+                                    }
+                                },
+                                isBuildingAiGraph = isBuildingAiGraph,
+                                initialGraphMode = config.graphDimensionMode,
+                            )
+                        }
+
+                        val useWideRail =
+                            LocalConfiguration.current.screenWidthDp >=
+                                WIDE_NAVIGATION_MIN_WIDTH_DP &&
+                                !isEInkUi &&
+                                currentDestination != MainScreenDestination.READER &&
+                                currentDestination != MainScreenDestination.CASE_BOARD
 
                         Scaffold(
+                            topBar = {
+                                if (isEInkUi &&
+                                    currentDestination != MainScreenDestination.READER &&
+                                    currentDestination != MainScreenDestination.CASE_BOARD
+                                ) {
+                                    MixuAdaptiveNavigation(
+                                        current = currentDestination,
+                                        onSelect = { destination ->
+                                            libraryBooks = loadLibraryBooks()
+                                            currentDestination = destination
+                                        },
+                                        lastReadBook = null,
+                                        onContinue = openBookInReader,
+                                        compact = true,
+                                    )
+                                }
+                            },
                             bottomBar = {
-                                val showBottomNav =
-                                    currentDestination != MainScreenDestination.READER ||
-                                        !config.immersiveReaderMode
-                                if (showBottomNav) {
-                                    Box(
-                                        modifier =
-                                            Modifier
-                                                .fillMaxWidth()
-                                                .height(86.dp),
-                                    ) {
-                                        val navItemColors =
-                                            NavigationBarItemDefaults.colors(
-                                                selectedIconColor = colors.primary,
-                                                selectedTextColor = colors.primary,
-                                                indicatorColor = colors.primaryContainer,
-                                                unselectedIconColor = colors.onSurfaceVariant,
-                                                unselectedTextColor = colors.onSurfaceVariant,
-                                            )
-                                        NavigationBar(
-                                            containerColor = colors.surface,
-                                            contentColor = colors.primary,
-                                            modifier =
-                                                Modifier
-                                                    .align(Alignment.BottomCenter)
-                                                    .fillMaxWidth()
-                                                    .height(64.dp)
-                                                    .border(
-                                                        BorderStroke(
-                                                            strokeWidth,
-                                                            colors.outlineVariant,
-                                                        ),
-                                                    ),
-                                        ) {
-                                            if (lastReadBook != null) {
-                                                // Reserve slot for protruding Kindle cover
-                                                Spacer(modifier = Modifier.width(82.dp))
-                                            }
-
-                                            // Tab 1: Home (`主页` — Default)
-                                            NavigationBarItem(
-                                                selected =
-                                                    currentDestination ==
-                                                        MainScreenDestination.HOME,
-                                                onClick = {
-                                                    libraryBooks = loadLibraryBooks()
-                                                    currentDestination =
-                                                        MainScreenDestination.HOME
-                                                },
-                                                icon = {
-                                                    Icon(
-                                                        imageVector = MixuIcons.Reader,
-                                                        contentDescription = null,
-                                                    )
-                                                },
-                                                label = {
-                                                    Text(stringResource(R.string.nav_home))
-                                                },
-                                                colors = navItemColors,
-                                            )
-
-                                            // Tab 2: Library (`图书馆`)
-                                            NavigationBarItem(
-                                                selected =
-                                                    currentDestination ==
-                                                        MainScreenDestination.LIBRARY,
-                                                onClick = {
-                                                    libraryBooks = loadLibraryBooks()
-                                                    currentDestination =
-                                                        MainScreenDestination.LIBRARY
-                                                },
-                                                icon = {
-                                                    Icon(
-                                                        imageVector = MixuIcons.Library,
-                                                        contentDescription = null,
-                                                    )
-                                                },
-                                                label = {
-                                                    Text(
-                                                        stringResource(R.string.nav_library),
-                                                    )
-                                                },
-                                                colors = navItemColors,
-                                            )
-
-                                            // Tab 3: More (`更多`)
-                                            NavigationBarItem(
-                                                selected =
-                                                    currentDestination ==
-                                                        MainScreenDestination.SETTINGS_PREVIEW,
-                                                onClick = {
-                                                    currentDestination =
-                                                        MainScreenDestination.SETTINGS_PREVIEW
-                                                },
-                                                icon = {
-                                                    Icon(
-                                                        imageVector = MixuIcons.Settings,
-                                                        contentDescription = null,
-                                                    )
-                                                },
-                                                label = {
-                                                    Text(stringResource(R.string.nav_more))
-                                                },
-                                                colors = navItemColors,
-                                            )
-                                        }
-
-                                        // Bottom-Left Protruding Book Cover Only (Kindle App Style)
-                                        if (lastReadBook != null) {
-                                            val isReaderActive =
-                                                currentDestination == MainScreenDestination.READER
-                                            Surface(
-                                                modifier =
-                                                    Modifier
-                                                        .align(Alignment.BottomStart)
-                                                        .padding(start = 18.dp, bottom = 6.dp)
-                                                        .width(54.dp)
-                                                        .height(76.dp)
-                                                        .clickable {
-                                                            openBookInReader(lastReadBook)
-                                                        },
-                                                shape = RoundedCornerShape(6.dp),
-                                                shadowElevation =
-                                                    if (einkPolicy.isActive) {
-                                                        0.dp
-                                                    } else {
-                                                        6.dp
-                                                    },
-                                                border =
-                                                    BorderStroke(
-                                                        if (isReaderActive) 2.dp else 1.dp,
-                                                        if (isReaderActive) {
-                                                            colors.primary
-                                                        } else {
-                                                            colors.outlineVariant
-                                                        },
-                                                    ),
-                                            ) {
-                                                BookCoverThumbnail(
-                                                    book = lastReadBook,
-                                                    isGrid = false,
-                                                    showBadge = false,
-                                                    modifier = Modifier.fillMaxSize(),
-                                                )
-                                            }
-                                        }
-                                    }
+                                if (!useWideRail &&
+                                    !isEInkUi &&
+                                    currentDestination != MainScreenDestination.READER &&
+                                    currentDestination != MainScreenDestination.CASE_BOARD
+                                ) {
+                                    MixuAdaptiveNavigation(
+                                        current = currentDestination,
+                                        onSelect = { destination ->
+                                            libraryBooks = loadLibraryBooks()
+                                            currentDestination = destination
+                                        },
+                                        lastReadBook = lastReadBook,
+                                        onContinue = openBookInReader,
+                                        compact = isEInkUi,
+                                    )
                                 }
                             },
                         ) { innerPadding ->
@@ -474,333 +530,327 @@ class MainActivity :
                                         .fillMaxSize()
                                         .padding(innerPadding),
                             ) {
-                                when (currentDestination) {
-                                    MainScreenDestination.HOME -> {
-                                        KindleHomeScreen(
-                                            books = libraryBooks,
-                                            activeBookId = activeBookId,
-                                            onContinueReading = openBookInReader,
-                                            onOpenCaseBoard = { book ->
-                                                activeBookId = book.id
-                                                if (database.getBookAssetForBook(book.id) != null) {
-                                                    runCatching {
-                                                        readerSession.openBook(book.id)
-                                                        readerTick++
+                                if (useWideRail) {
+                                    MixuAdaptiveNavigation(
+                                        current = currentDestination,
+                                        onSelect = { destination ->
+                                            libraryBooks = loadLibraryBooks()
+                                            currentDestination = destination
+                                        },
+                                        lastReadBook = lastReadBook,
+                                        onContinue = openBookInReader,
+                                        vertical = true,
+                                    )
+                                }
+                                Box(
+                                    Modifier.fillMaxSize().padding(
+                                        start = if (useWideRail) 224.dp else 0.dp,
+                                    ),
+                                ) {
+                                    when (currentDestination) {
+                                        MainScreenDestination.HOME -> {
+                                            KindleHomeScreen(
+                                                books = libraryBooks,
+                                                activeBookId = activeBookId,
+                                                onContinueReading = openBookInReader,
+                                                onOpenCaseBoard = { book ->
+                                                    activeBookId = book.id
+                                                    if (database.getBookAssetForBook(book.id) !=
+                                                        null
+                                                    ) {
+                                                        runCatching {
+                                                            readerSession.openBook(book.id)
+                                                            readerTick++
+                                                        }
                                                     }
-                                                }
-                                                currentDestination =
-                                                    MainScreenDestination.CASE_BOARD
-                                            },
-                                            onSelectTagAndOpenLibrary = { tag ->
-                                                libraryFilterTag = tag
-                                                libraryFilterCollection = null
-                                                currentDestination = MainScreenDestination.LIBRARY
-                                            },
-                                            onSelectCollectionAndOpenLibrary = { col ->
-                                                libraryFilterCollection = col
-                                                libraryFilterTag = null
-                                                currentDestination = MainScreenDestination.LIBRARY
-                                            },
-                                            onImportBook = triggerImportBooks,
-                                        )
-                                    }
-                                    MainScreenDestination.LIBRARY -> {
-                                        LibraryScreen(
-                                            initialBooks = libraryBooks,
-                                            initialSelectedCollection = libraryFilterCollection,
-                                            initialSelectedTag = libraryFilterTag,
-                                            onImportBook = triggerImportBooks,
-                                            onNavigateToSettings = {
-                                                currentDestination =
-                                                    MainScreenDestination.SETTINGS_PREVIEW
-                                            },
-                                            onBookClick = openBookInReader,
-                                            onToggleFavorite = { book ->
-                                                database.setBookFavorite(book.id, !book.isFavorite)
-                                                libraryBooks = loadLibraryBooks()
-                                            },
-                                            onUpdateCollections = { book, nextCols ->
-                                                database.setBookCollections(book.id, nextCols)
-                                                libraryBooks = loadLibraryBooks()
-                                            },
-                                            onUpdateTags = { book, nextTags ->
-                                                database.setBookTags(book.id, nextTags)
-                                                libraryBooks = loadLibraryBooks()
-                                            },
-                                        )
-                                    }
-                                    MainScreenDestination.READER -> {
-                                        val activeNav =
-                                            remember(activeBookId, readerTick) {
-                                                readerSession.activeNavigator
-                                                    ?: createFallbackDemoNavigator(config)
-                                            }
-                                        val viewportState =
-                                            remember(activeNav, readerTick, config) {
-                                                activeNav.viewportState
-                                            }
-                                        val currentBookFav =
-                                            remember(libraryBooks, activeBookId) {
-                                                libraryBooks
-                                                    .firstOrNull { it.id == activeBookId }
-                                                    ?.isFavorite ?: false
-                                            }
-
-                                        ReaderScreen(
-                                            viewportState = viewportState,
-                                            onPreviousPage = {
-                                                if (readerSession.activeNavigator != null) {
-                                                    readerSession.previousPage()
-                                                } else {
-                                                    activeNav.previousPage()
-                                                }
-                                                readerTick++
-                                            },
-                                            onNextPage = {
-                                                if (readerSession.activeNavigator != null) {
-                                                    readerSession.nextPage()
-                                                } else {
-                                                    activeNav.nextPage()
-                                                }
-                                                readerTick++
-                                            },
-                                            onSelectChapter = { spineIdx ->
-                                                if (readerSession.activeNavigator != null) {
-                                                    readerSession.navigateToChapter(
-                                                        spineIndex = spineIdx,
-                                                        confirmHorizonAdvance = true,
-                                                    )
-                                                } else {
-                                                    activeNav.navigateToChapter(spineIdx)
-                                                }
-                                                readerTick++
-                                            },
-                                            onAdjustFontSize = { newFontSizeSp ->
-                                                val clamped = newFontSizeSp.coerceIn(10f, 48f)
-                                                config = config.copy(fontSizeSp = clamped)
-                                                if (readerSession.activeNavigator != null) {
-                                                    readerSession.setFontSizeSp(clamped)
-                                                } else {
-                                                    activeNav.updateDisplayConfig(config)
-                                                }
-                                                readerTick++
-                                            },
-                                            onAddBookmark = {
-                                                if (readerSession.activeNavigator != null) {
-                                                    readerSession.addBookmarkAtCurrentPosition()
-                                                    readerTick++
-                                                }
-                                            },
-                                            onOpenCaseBoard = {
-                                                currentDestination =
-                                                    MainScreenDestination.CASE_BOARD
-                                            },
-                                            onNavigateBack = {
-                                                libraryBooks = loadLibraryBooks()
-                                                currentDestination = MainScreenDestination.HOME
-                                            },
-                                            onUpdateConfig = { updated ->
-                                                config = updated
-                                                if (readerSession.activeNavigator != null) {
-                                                    readerSession.updateDisplayConfig(updated)
-                                                } else {
-                                                    database.saveReaderSettings(updated)
-                                                    activeNav.updateDisplayConfig(updated)
-                                                }
-                                                readerTick++
-                                            },
-                                            isBookFavorite = currentBookFav,
-                                            onToggleBookFavorite = {
-                                                val targetId = activeBookId
-                                                if (targetId != null) {
-                                                    database.setBookFavorite(
-                                                        targetId,
-                                                        !currentBookFav,
-                                                    )
-                                                    libraryBooks = loadLibraryBooks()
-                                                }
-                                            },
-                                            onOpenAiButler = { currentImgToken ->
-                                                aiButlerInitialMode =
-                                                    CopilotSessionMode.BOOK_COPILOT
-                                                aiButlerImageToken = currentImgToken
-                                                aiButlerPendingPrompt = null
-                                                showAiButlerDialog = true
-                                            },
-                                            onAskCopilotTranslate = { prompt ->
-                                                aiButlerInitialMode =
-                                                    CopilotSessionMode.BOOK_COPILOT
-                                                aiButlerImageToken = null
-                                                aiButlerPendingPrompt = prompt
-                                                showAiButlerDialog = true
-                                            },
-                                            hardwareKeyTurnSignal = hardwareKeyTurnSignal,
-                                            hardwareKeyTurnDirection = hardwareKeyTurnDirection,
-                                        )
-                                    }
-                                    MainScreenDestination.CASE_BOARD -> {
-                                        var caseBoardRebuildTick by remember {
-                                            mutableIntStateOf(
-                                                0,
+                                                    currentDestination =
+                                                        MainScreenDestination.CASE_BOARD
+                                                },
+                                                onSelectTagAndOpenLibrary = { tag ->
+                                                    libraryFilterTag = tag
+                                                    libraryFilterCollection = null
+                                                    currentDestination =
+                                                        MainScreenDestination.LIBRARY
+                                                },
+                                                onSelectCollectionAndOpenLibrary = { col ->
+                                                    libraryFilterCollection = col
+                                                    libraryFilterTag = null
+                                                    currentDestination =
+                                                        MainScreenDestination.LIBRARY
+                                                },
+                                                onImportBook = triggerImportBooks,
                                             )
                                         }
-                                        var isBuildingAiGraph by remember { mutableStateOf(false) }
-                                        val currentSpineKey =
-                                            readerSession.activeNavigator
-                                                ?.currentPage
-                                                ?.spineIndex ?: 0
-                                        val currentHorizonKey =
-                                            readerSession.navigationStateMachine.knowledgeHorizon
-                                        val activeController =
-                                            remember(
-                                                activeBookId,
-                                                currentSpineKey,
-                                                currentHorizonKey,
-                                                caseBoardRebuildTick,
-                                            ) {
-                                                buildCaseBoardController(activeBookId)
-                                            }
-                                        CaseBoardScreen(
-                                            controller = activeController,
-                                            onNavigateBack = {
-                                                if (readerSession.activeNavigator != null) {
+                                        MainScreenDestination.LIBRARY -> {
+                                            LibraryScreen(
+                                                initialBooks = libraryBooks,
+                                                initialSelectedCollection = libraryFilterCollection,
+                                                initialSelectedTag = libraryFilterTag,
+                                                onImportBook = triggerImportBooks,
+                                                onNavigateToSettings = {
                                                     currentDestination =
-                                                        MainScreenDestination.READER
-                                                } else {
-                                                    currentDestination =
-                                                        MainScreenDestination.HOME
-                                                }
-                                            },
-                                            onNavigateToSettings = {
-                                                currentDestination =
-                                                    MainScreenDestination.SETTINGS_PREVIEW
-                                            },
-                                            onJumpToOrdinal = { targetOrdinal ->
-                                                if (readerSession.activeNavigator != null) {
-                                                    readerSession.navigateToChapter(
-                                                        spineIndex = targetOrdinal,
-                                                        confirmHorizonAdvance = true,
+                                                        MainScreenDestination.SETTINGS_PREVIEW
+                                                },
+                                                onBookClick = openBookInReader,
+                                                onToggleFavorite = { book ->
+                                                    database.setBookFavorite(
+                                                        book.id,
+                                                        !book.isFavorite,
                                                     )
-                                                    readerTick++
-                                                    currentDestination =
-                                                        MainScreenDestination.READER
+                                                    libraryBooks = loadLibraryBooks()
+                                                },
+                                                onUpdateCollections = { book, nextCols ->
+                                                    database.setBookCollections(book.id, nextCols)
+                                                    libraryBooks = loadLibraryBooks()
+                                                },
+                                                onUpdateTags = { book, nextTags ->
+                                                    database.setBookTags(book.id, nextTags)
+                                                    libraryBooks = loadLibraryBooks()
+                                                },
+                                            )
+                                        }
+                                        MainScreenDestination.READER,
+                                        MainScreenDestination.CASE_BOARD,
+                                        -> {
+                                            val activeNav =
+                                                remember(activeBookId, readerTick) {
+                                                    readerSession.activeNavigator
+                                                        ?: createFallbackDemoNavigator(config)
                                                 }
-                                            },
-                                            onBuildAiGraph = {
-                                                val targetBookId = activeBookId
-                                                val asset =
-                                                    targetBookId?.let {
-                                                        database.getBookAssetForBook(it)
+                                            val viewportState =
+                                                remember(activeNav, readerTick, config) {
+                                                    activeNav.viewportState
+                                                }
+                                            val currentBookFav =
+                                                remember(libraryBooks, activeBookId) {
+                                                    libraryBooks
+                                                        .firstOrNull { it.id == activeBookId }
+                                                        ?.isFavorite ?: false
+                                                }
+
+                                            ReaderScreen(
+                                                modifier =
+                                                    Modifier.padding(
+                                                        end =
+                                                            if (currentDestination ==
+                                                                MainScreenDestination.CASE_BOARD &&
+                                                                companionIsExpanded
+                                                            ) {
+                                                                COMPANION_PANEL_WIDTH_DP.dp
+                                                            } else {
+                                                                0.dp
+                                                            },
+                                                    ),
+                                                viewportState = viewportState,
+                                                onPreviousPage = {
+                                                    if (readerSession.activeNavigator != null) {
+                                                        readerSession.previousPage()
+                                                    } else {
+                                                        activeNav.previousPage()
                                                     }
-                                                if (asset != null && !isBuildingAiGraph) {
-                                                    isBuildingAiGraph = true
-                                                    val client =
-                                                        MixuApiClient.createProductionClient(
-                                                            config,
+                                                    readerTick++
+                                                },
+                                                onNextPage = {
+                                                    if (readerSession.activeNavigator != null) {
+                                                        readerSession.nextPage()
+                                                    } else {
+                                                        activeNav.nextPage()
+                                                    }
+                                                    readerTick++
+                                                },
+                                                onSelectChapter = { spineIdx ->
+                                                    if (readerSession.activeNavigator != null) {
+                                                        readerSession.navigateToChapter(
+                                                            spineIndex = spineIdx,
+                                                            confirmHorizonAdvance = true,
                                                         )
-                                                    val uid =
-                                                        userSession.anonymousId.ifBlank {
-                                                            "guest-reader"
-                                                        }
-                                                    Thread {
-                                                        runCatching {
-                                                            val pub =
-                                                                readerSession.activeNavigator
-                                                                    ?.publication
-                                                                    ?: EpubBookPublication.open(
-                                                                        File(
-                                                                            asset.localStoragePath,
-                                                                        ),
-                                                                    )
-                                                            packLoader.extractAndSaveCloudGraphPack(
-                                                                asset = asset,
-                                                                publication = pub,
-                                                                apiClient = client,
-                                                                userId = uid,
-                                                            )
-                                                        }
-                                                        Handler(Looper.getMainLooper()).post {
-                                                            isBuildingAiGraph = false
-                                                            caseBoardRebuildTick++
-                                                        }
-                                                    }.start()
-                                                }
-                                            },
-                                            isBuildingAiGraph = isBuildingAiGraph,
-                                            initialGraphMode = config.graphDimensionMode,
-                                        )
-                                    }
-                                    MainScreenDestination.SETTINGS_PREVIEW -> {
-                                        SettingsPreviewScreen(
-                                            config = config,
-                                            onConfigChange = { updated ->
-                                                config = updated
-                                                readerSession.updateDisplayConfig(updated)
-                                                readerTick++
-                                            },
-                                            userSession = userSession,
-                                            onSessionChange = { nextSession ->
-                                                userSession = nextSession
-                                            },
-                                            onNavigateBack = {
-                                                currentDestination = MainScreenDestination.HOME
-                                            },
-                                        )
+                                                    } else {
+                                                        activeNav.navigateToChapter(spineIdx)
+                                                    }
+                                                    readerTick++
+                                                },
+                                                onAdjustFontSize = { newFontSizeSp ->
+                                                    val clamped = newFontSizeSp.coerceIn(10f, 48f)
+                                                    config = config.copy(fontSizeSp = clamped)
+                                                    if (readerSession.activeNavigator != null) {
+                                                        readerSession.setFontSizeSp(clamped)
+                                                    } else {
+                                                        activeNav.updateDisplayConfig(config)
+                                                    }
+                                                    readerTick++
+                                                },
+                                                onAddBookmark = {
+                                                    if (readerSession.activeNavigator != null) {
+                                                        readerSession.addBookmarkAtCurrentPosition()
+                                                        readerTick++
+                                                    }
+                                                },
+                                                onOpenCaseBoard = {
+                                                    currentDestination =
+                                                        MainScreenDestination.CASE_BOARD
+                                                },
+                                                onNavigateBack = {
+                                                    libraryBooks = loadLibraryBooks()
+                                                    currentDestination = MainScreenDestination.HOME
+                                                },
+                                                onUpdateConfig = { updated ->
+                                                    config = updated
+                                                    if (readerSession.activeNavigator != null) {
+                                                        readerSession.updateDisplayConfig(updated)
+                                                    } else {
+                                                        database.saveReaderSettings(updated)
+                                                        activeNav.updateDisplayConfig(updated)
+                                                    }
+                                                    readerTick++
+                                                },
+                                                isBookFavorite = currentBookFav,
+                                                onToggleBookFavorite = {
+                                                    val targetId = activeBookId
+                                                    if (targetId != null) {
+                                                        database.setBookFavorite(
+                                                            targetId,
+                                                            !currentBookFav,
+                                                        )
+                                                        libraryBooks = loadLibraryBooks()
+                                                    }
+                                                },
+                                                onOpenAiButler = { currentImgToken ->
+                                                    aiButlerInitialMode =
+                                                        CopilotSessionMode.BOOK_COPILOT
+                                                    aiButlerImageToken = currentImgToken
+                                                    aiButlerPendingPrompt = null
+                                                    showAiButlerDialog = true
+                                                    currentDestination =
+                                                        MainScreenDestination.CASE_BOARD
+                                                },
+                                                onAskCopilotTranslate = { prompt ->
+                                                    aiButlerInitialMode =
+                                                        CopilotSessionMode.BOOK_COPILOT
+                                                    aiButlerImageToken = null
+                                                    aiButlerPendingPrompt = prompt
+                                                    showAiButlerDialog = true
+                                                    currentDestination =
+                                                        MainScreenDestination.CASE_BOARD
+                                                },
+                                                hardwareKeyTurnSignal = hardwareKeyTurnSignal,
+                                                hardwareKeyTurnDirection = hardwareKeyTurnDirection,
+                                            )
+                                        }
+                                        MainScreenDestination.SETTINGS_PREVIEW -> {
+                                            SettingsPreviewScreen(
+                                                config = config,
+                                                onConfigChange = { updated ->
+                                                    config = updated
+                                                    readerSession.updateDisplayConfig(updated)
+                                                    readerTick++
+                                                },
+                                                userSession = userSession,
+                                                onSessionChange = { nextSession ->
+                                                    userSession = nextSession
+                                                },
+                                                onNavigateBack = {
+                                                    currentDestination = MainScreenDestination.HOME
+                                                },
+                                            )
+                                        }
                                     }
                                 }
-
-                                // Floating AI Agent Orb or Bottom-Right Mini-Window
-                                if (showAiButlerDialog) {
-                                    val activeNav = readerSession.activeNavigator
-                                    val currentPage = activeNav?.currentPage
-                                    val currentParagraphs =
-                                        activeNav?.viewportState?.currentChapterParagraphs
-                                            ?: currentPage?.paragraphs.orEmpty()
-                                    val fallbackImgToken =
-                                        aiButlerImageToken
-                                            ?: currentParagraphs.firstNotNullOfOrNull {
-                                                parseReaderImageTokenOrNull(it)
-                                            }
-                                    val currentVisibleTxt =
-                                        currentParagraphs
-                                            .firstOrNull { parseReaderImageTokenOrNull(it) == null }
-                                            .orEmpty()
-
-                                    AiButlerCopilotDialog(
-                                        initialMode = aiButlerInitialMode,
-                                        initialPrompt = aiButlerPendingPrompt,
-                                        onConsumeInitialPrompt = {
-                                            aiButlerPendingPrompt = null
-                                        },
-                                        books = libraryBooks,
-                                        activeBook = lastReadBook,
-                                        currentChapterIndex = currentPage?.spineIndex ?: 0,
-                                        currentChapterTitle = currentPage?.chapterTitle ?: "第 1 节",
-                                        currentVisibleText = currentVisibleTxt,
-                                        currentPageImageToken = fallbackImgToken,
-                                        userSession = userSession,
-                                        database = database,
-                                        onLibraryMutated = {
-                                            libraryBooks = loadLibraryBooks()
-                                        },
-                                        onDismiss = {
-                                            aiButlerPendingPrompt = null
-                                            showAiButlerDialog = false
-                                        },
-                                        apiClient =
-                                            remember(
-                                                config.selfHostedApiEnabled,
-                                                config.selfHostedApiUrl,
-                                                config.selfHostedStatelessMode,
+                                if (currentDestination == MainScreenDestination.CASE_BOARD) {
+                                    val expandedCompanion =
+                                        LocalConfiguration.current.screenWidthDp >=
+                                            WIDE_NAVIGATION_MIN_WIDTH_DP
+                                    Surface(
+                                        modifier =
+                                            Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .then(
+                                                    if (expandedCompanion) {
+                                                        Modifier
+                                                            .width(
+                                                                COMPANION_PANEL_WIDTH_DP.dp,
+                                                            ).fillMaxHeight()
+                                                    } else {
+                                                        Modifier.fillMaxWidth().fillMaxHeight(
+                                                            COMPACT_COMPANION_HEIGHT_FRACTION,
+                                                        )
+                                                    },
+                                                ),
+                                        shape =
+                                            RoundedCornerShape(
+                                                topStart = MixuTheme.appearance.cardCornerRadius,
+                                                topEnd = MixuTheme.appearance.cardCornerRadius,
+                                            ),
+                                        color = colors.surface,
+                                        border = BorderStroke(1.dp, colors.outlineVariant),
+                                    ) {
+                                        Column {
+                                            Row(
+                                                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
                                             ) {
-                                                MixuApiClient.createProductionClient(config)
-                                            },
+                                                Text(
+                                                    "图谱与伴读",
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                TextButton(
+                                                    onClick = { showAiButlerDialog = false },
+                                                    modifier =
+                                                        Modifier.semantics {
+                                                            role = Role.Tab
+                                                            selected = !showAiButlerDialog
+                                                        },
+                                                ) {
+                                                    Text("知识图谱", color = colors.primary)
+                                                }
+                                                TextButton(
+                                                    modifier =
+                                                        Modifier.semantics {
+                                                            role = Role.Tab
+                                                            selected = showAiButlerDialog
+                                                        },
+                                                    onClick = {
+                                                        aiButlerInitialMode =
+                                                            CopilotSessionMode.BOOK_COPILOT
+                                                        aiButlerPendingPrompt = null
+                                                        showAiButlerDialog = true
+                                                    },
+                                                ) { Text("Copilot") }
+                                                TextButton(onClick = {
+                                                    showAiButlerDialog = false
+                                                    currentDestination =
+                                                        MainScreenDestination.READER
+                                                }) { Text("收起") }
+                                            }
+                                            Box(Modifier.weight(1f)) {
+                                                RetainedCompanionPage(
+                                                    visible = !showAiButlerDialog,
+                                                ) {
+                                                    activeCaseBoard()
+                                                }
+                                                RetainedCompanionPage(
+                                                    visible = showAiButlerDialog,
+                                                ) {
+                                                    activeCopilot(embedded = true)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                // Floating AI Agent Orb or Bottom-Right Mini-Window
+                                if (showAiButlerDialog &&
+                                    currentDestination != MainScreenDestination.CASE_BOARD
+                                ) {
+                                    activeCopilot(
                                         modifier =
                                             Modifier
                                                 .align(Alignment.BottomEnd)
                                                 .padding(end = 18.dp, bottom = 12.dp),
                                     )
-                                } else if (currentDestination != MainScreenDestination.READER) {
+                                } else if (currentDestination != MainScreenDestination.READER &&
+                                    currentDestination != MainScreenDestination.CASE_BOARD &&
+                                    !isEInkUi
+                                ) {
                                     MixuAiButlerFab(
                                         onClick = {
                                             aiButlerInitialMode =
@@ -1010,4 +1060,23 @@ class MainActivity :
     companion object {
         private const val REQUEST_CODE_OPEN_EPUB = 1001
     }
+}
+
+/**
+ * Preserve the existing inset-based window on Android 8+ (minSdk 26).
+ * These compatibility APIs also cover devices without platform WindowInsetsController;
+ * the suppression is limited to this legacy window adapter, not UI code or the build.
+ */
+@Suppress("DEPRECATION")
+private fun Activity.updateSystemBarPalette(surface: Color) {
+    window.statusBarColor = surface.toArgb()
+    window.navigationBarColor = surface.toArgb()
+    val lightBarFlags =
+        View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+    window.decorView.systemUiVisibility =
+        if (surface.luminance() >= LIGHT_SYSTEM_BAR_MIN_LUMINANCE) {
+            window.decorView.systemUiVisibility or lightBarFlags
+        } else {
+            window.decorView.systemUiVisibility and lightBarFlags.inv()
+        }
 }

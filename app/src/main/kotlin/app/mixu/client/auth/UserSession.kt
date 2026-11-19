@@ -18,9 +18,10 @@ data class UserSession(
     val isGuest: Boolean = true,
     val anonymousId: String = UUID.randomUUID().toString(),
     val displayName: String = DEFAULT_DISPLAY_NAME,
+    val credential: VerifiedCredential? = null,
 ) {
     val isAuthenticated: Boolean
-        get() = !isGuest
+        get() = !isGuest && credential?.validFor(credential.endpoint) == true
 
     fun toMap(): Map<String, String> =
         mapOf(
@@ -55,15 +56,18 @@ data class UserSession(
         fun createAuthenticated(
             userId: String,
             displayName: String,
+            credential: VerifiedCredential,
         ): UserSession =
             UserSession(
                 isGuest = false,
                 anonymousId = userId,
                 displayName = displayName,
+                credential = credential,
             )
 
         fun fromMap(map: Map<String, String>): UserSession {
-            val isGuest = map[KEY_IS_GUEST]?.toBooleanStrictOrNull() ?: DEFAULT.isGuest
+            // Identity maps never restore authentication without secure credentials.
+            val isGuest = true
             val anonymousId =
                 map[KEY_ANONYMOUS_ID]?.takeIf { it.isNotBlank() } ?: DEFAULT.anonymousId
             val displayName =

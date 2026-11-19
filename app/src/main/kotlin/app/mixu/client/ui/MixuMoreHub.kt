@@ -68,7 +68,7 @@ fun MixuMoreHub(
         HubSection(
             "账号与云端",
             listOf(
-                Triple("account", "账号、推理点与存储", "登录、签到、奖励与会员额度"),
+                Triple("account", "账号、推理点与存储", "登录、推理点与云空间等级"),
                 Triple("services", "云端服务", "连接方式与个人服务配置"),
             ),
             onSelectSection,

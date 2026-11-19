@@ -305,11 +305,11 @@
     <string name="library_tags_section_title">推理小说标签数组 (作家 / 密室杀人 / 暴风雪山庄等)</string>
     <string name="library_tags_new_hint">输入自定义标签 (如：密室杀人、暴风雪山庄、作家名)…</string>
     <string name="library_tags_sync_badge">☁ 标签数组已同步</string>
-    <string name="more_account_signin_btn">登录 / 云同步</string>
-    <string name="more_account_signed_in_badge">云端同步已开启</string>
-    <string name="more_account_signin_dialog_title">账号登录与云端/自建同步</string>
-    <string name="more_account_email_label">账号邮箱或自建服务标识</string>
-    <string name="more_account_signin_confirm">开启云同步</string>
+    <string name="more_account_signin_btn">登录 / 注册</string>
+    <string name="more_account_signed_in_badge">已登录</string>
+    <string name="more_account_signin_dialog_title">邮箱登录</string>
+    <string name="more_account_email_label">邮箱地址</string>
+    <string name="more_account_signin_confirm">登录</string>
     <string name="more_account_switch_guest">切换回离线访客模式</string>
 
     <!-- EPUB Image & AI Diagram Inspector + Case Board Canonical Filters (CTX-0030) -->
@@ -398,4 +398,5 @@
     <string name="marketplace_published_badge">✓ 已发布至共享目录 · 累计创作者分成：+%1$d 推理点 (上限 40)</string>
     <string name="marketplace_simulate_royalty_btn">模拟其他读者下载 (+1 创作者分成)</string>
     <string name="selection_explain_request">解释选文</string>
+    <string name="more_account_email_verification_hint">使用邮箱验证码登录。首次验证会创建账号，无需设置密码。</string>
 </resources>

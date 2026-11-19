@@ -6,7 +6,6 @@ package app.mixu.client.ui
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -47,30 +46,29 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.mixu.client.R
+import app.mixu.client.auth.RequestOwner
 import app.mixu.client.auth.UserSession
+import app.mixu.client.auth.VerifiedCredential
 import app.mixu.client.billing.ClientCreditWallet
-import app.mixu.client.billing.ClientStorageStatus
-import app.mixu.client.billing.StorageQuotaState
-import app.mixu.client.billing.SubscriptionPlan
-import app.mixu.client.billing.TopUpPack
 import app.mixu.client.config.DistributionChannel
 import app.mixu.client.config.FontFamilyChoice
 import app.mixu.client.config.GraphPhysicsMode
@@ -81,11 +79,17 @@ import app.mixu.client.config.ReaderDisplayConfig
 import app.mixu.client.config.ReaderPreset
 import app.mixu.client.config.ReadingLayoutMode
 import app.mixu.client.eink.EInkMode
+import app.mixu.client.network.AccountQuotaRequests
+import app.mixu.client.network.AccountStorageQuota
 import app.mixu.client.network.MixuApiClient
 import app.mixu.client.theme.MixuTheme
 import app.mixu.client.theme.MixuThemeMode
 import app.mixu.graph.EpistemicStatus
-import java.time.LocalDate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import kotlin.math.roundToInt
 
 private const val REPO_URL_MIXU = "https://github.com/mixu-app/mixu"
@@ -93,12 +97,6 @@ private const val REPO_URL_CLIENT = "https://github.com/mixu-app/mixu-client"
 private const val REPO_URL_ENGINE = "https://github.com/mixu-app/mixu-graph"
 private const val REPO_URL_RESEARCH = "https://github.com/mixu-app/mixu-research"
 private const val REPO_URL_ISSUES = "https://github.com/mixu-app/mixu-client/issues"
-
-private enum class EInkQrRewardPurpose {
-    CREDIT_WALLET,
-    DOWNLOAD_BOOST,
-    CHECKIN_MAKEUP,
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,8 +107,16 @@ fun SettingsPreviewScreen(
     userSession: UserSession = UserSession.DEFAULT,
     onSessionChange: (UserSession) -> Unit = {},
     apiClient: MixuApiClient =
-        remember(config.selfHostedApiEnabled, config.selfHostedApiUrl) {
-            MixuApiClient.createProductionClient(config)
+        remember(config, userSession) {
+            MixuApiClient.createProductionClient(
+                config,
+                credentialProvider = { userSession.credential },
+            )
+        },
+    authenticationClient: MixuApiClient = remember { MixuApiClient.createProductionClient() },
+    accountClient: MixuApiClient =
+        remember(userSession) {
+            MixuApiClient.createProductionClient(credentialProvider = { userSession.credential })
         },
     onNavigateBack: (() -> Unit)? = null,
 ) {
@@ -134,14 +140,64 @@ fun SettingsPreviewScreen(
     var signedInAccount by remember(userSession) {
         mutableStateOf(if (userSession.isAuthenticated) userSession.displayName else null)
     }
-    var accountDraft by remember { mutableStateOf("reader@mixuread.com") }
+    var accountDraft by remember { mutableStateOf("") }
     var otpDraft by remember { mutableStateOf("") }
     var authStatusMessage by remember { mutableStateOf<String?>(null) }
     var isSendingOtp by remember { mutableStateOf(false) }
-    var wallet by remember { mutableStateOf(ClientCreditWallet()) }
-    var storageState by remember { mutableStateOf(StorageQuotaState()) }
-    var activeQrPurpose by remember { mutableStateOf<EInkQrRewardPurpose?>(null) }
-    val todayDayKey = remember { LocalDate.now().toString() }
+    var isVerifyingOtp by remember { mutableStateOf(false) }
+    var authAttempt by remember { mutableStateOf(0) }
+    val requestOwner = remember { RequestOwner() }
+    val walletOwner = remember { RequestOwner() }
+    val quotaOwner = remember(userSession.credential) { AccountQuotaRequests() }
+    val quotaScope = rememberCoroutineScope()
+    DisposableEffect(requestOwner, walletOwner) {
+        onDispose {
+            requestOwner.close()
+            walletOwner.close()
+        }
+    }
+    DisposableEffect(quotaOwner) { onDispose { quotaOwner.close() } }
+    val latestCredential by rememberUpdatedState(userSession.credential)
+    var accountWallet by remember(
+        userSession.credential,
+    ) { mutableStateOf<ClientCreditWallet?>(null) }
+    var walletLoading by remember(userSession.credential) { mutableStateOf(false) }
+    var walletRefresh by remember { mutableStateOf(0) }
+    LaunchedEffect(userSession.credential, accountClient, walletRefresh) {
+        val credential = userSession.credential
+        if (!userSession.isAuthenticated || credential == null) return@LaunchedEffect
+        val request = walletOwner.beginRequest()
+        walletLoading = true
+        val result =
+            withContext(Dispatchers.IO) {
+                accountClient.fetchAuthenticatedWallet(userSession.anonymousId, credential)
+            }
+        if (walletOwner.accepts(request, credential, latestCredential)) {
+            accountWallet = result
+            walletLoading = false
+        }
+    }
+    var accountQuota by remember(
+        userSession.credential,
+    ) { mutableStateOf<AccountStorageQuota?>(null) }
+    var quotaLoading by remember(userSession.credential) { mutableStateOf(false) }
+    var quotaRefresh by remember { mutableStateOf(0) }
+    var checkInBusy by remember(userSession.credential) { mutableStateOf(false) }
+    var checkInMessage by remember(userSession.credential) { mutableStateOf<String?>(null) }
+    LaunchedEffect(userSession.credential, accountClient, quotaRefresh) {
+        val credential = userSession.credential
+        if (!userSession.isAuthenticated || credential == null) return@LaunchedEffect
+        val request = quotaOwner.beginRead() ?: return@LaunchedEffect
+        quotaLoading = true
+        val result =
+            withContext(Dispatchers.IO) {
+                accountClient.fetchAuthenticatedStorageQuota(userSession.anonymousId, credential)
+            }
+        if (quotaOwner.accepts(request, credential, latestCredential)) {
+            accountQuota = result
+            quotaLoading = false
+        }
+    }
     val isEInkActive = einkPolicy.isActive || config.eInkMode == EInkMode.FORCE_ON
 
     val flingBehavior =
@@ -257,9 +313,7 @@ fun SettingsPreviewScreen(
                             Text(
                                 text =
                                     if (signedInAccount != null) {
-                                        stringResource(R.string.more_account_signed_in_badge) +
-                                            " · " +
-                                            stringResource(R.string.library_tags_sync_badge)
+                                        stringResource(R.string.more_account_signed_in_badge)
                                     } else {
                                         stringResource(R.string.account_guest_badge) +
                                             " · " +
@@ -294,377 +348,106 @@ fun SettingsPreviewScreen(
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
                             Text(
-                                text = stringResource(R.string.wallet_title, wallet.totalCredits),
-                                style = typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = colors.onSurface,
-                            )
-                            Text(
                                 text =
-                                    stringResource(
-                                        R.string.wallet_buckets_summary,
-                                        wallet.promoCredits,
-                                        wallet.subCredits,
-                                        wallet.paidCredits,
-                                    ),
-                                style = typography.caption,
-                                color = colors.onSurfaceVariant,
-                            )
-                        }
-                        CompactSegmentPill(
-                            label =
-                                if (isEInkActive) {
-                                    stringResource(R.string.wallet_ad_reward_eink_btn)
-                                } else {
-                                    stringResource(R.string.wallet_ad_reward_btn)
-                                },
-                            isSelected = false,
-                            onClick = {
-                                if (isEInkActive) {
-                                    activeQrPurpose = EInkQrRewardPurpose.CREDIT_WALLET
-                                } else {
-                                    wallet = wallet.claimRewardedAd()
-                                }
-                            },
-                        )
-                    }
-
-                    SettingsDivider()
-
-                    // 5-Level Cloud Storage Quota, Base+Subscription Meter & 7-Day Grace Period (ADR-030)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(
-                            modifier = Modifier.weight(1f).padding(end = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Box(
-                                    modifier =
-                                        Modifier
-                                            .background(
-                                                color = colors.primaryContainer,
-                                                shape =
-                                                    RoundedCornerShape(
-                                                        if (einkPolicy.isActive) 0.dp else 6.dp,
-                                                    ),
-                                            ).padding(horizontal = 6.dp, vertical = 2.dp),
-                                ) {
-                                    Text(
-                                        text =
+                                    when {
+                                        !userSession.isAuthenticated -> "登录后查看推理点"
+                                        walletLoading -> "正在读取余额…"
+                                        accountWallet == null -> "余额暂时不可用"
+                                        else ->
                                             stringResource(
-                                                R.string.storage_level_badge,
-                                                storageState.storageLevel.level,
-                                            ),
-                                        style = typography.caption,
-                                        fontWeight = FontWeight.Bold,
-                                        color = colors.onPrimaryContainer,
-                                    )
-                                }
-                                Text(
-                                    text =
+                                                R.string.wallet_title,
+                                                accountWallet!!.totalCredits,
+                                            )
+                                    },
+                                style = typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.onSurface,
+                            )
+                            Text(
+                                text =
+                                    accountWallet?.let { remote ->
                                         stringResource(
-                                            R.string.storage_quota_label,
-                                            storageState.usedMb,
-                                            storageState.quotaMb,
-                                        ),
-                                    style = typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = colors.onSurface,
-                                )
-                            }
-                            Text(
-                                text =
-                                    stringResource(
-                                        R.string.storage_space_breakdown,
-                                        storageState.baseQuotaMb,
-                                        storageState.subscriptionBonusMb,
-                                        storageState.maxFileSizeMb,
-                                    ),
-                                style = typography.caption,
-                                color = colors.onSurfaceVariant,
-                            )
-                            Text(
-                                text =
-                                    if (storageState.status == ClientStorageStatus.GRACE_PERIOD) {
-                                        stringResource(R.string.storage_status_grace_desc)
-                                    } else {
-                                        stringResource(R.string.storage_status_active_desc)
-                                    },
-                                style = typography.caption,
-                                color =
-                                    if (storageState.status == ClientStorageStatus.GRACE_PERIOD) {
-                                        colors.claimed
-                                    } else {
-                                        colors.onSurfaceVariant
-                                    },
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            CompactSegmentPill(
-                                label = stringResource(R.string.storage_status_toggle_active),
-                                isSelected = storageState.status == ClientStorageStatus.ACTIVE,
-                                onClick = {
-                                    storageState =
-                                        storageState.copy(status = ClientStorageStatus.ACTIVE)
-                                },
-                            )
-                            CompactSegmentPill(
-                                label = stringResource(R.string.storage_status_toggle_grace),
-                                isSelected =
-                                    storageState.status == ClientStorageStatus.GRACE_PERIOD,
-                                onClick = {
-                                    storageState =
-                                        storageState.copy(
-                                            status = ClientStorageStatus.GRACE_PERIOD,
+                                            R.string.wallet_buckets_summary,
+                                            remote.promoCredits,
+                                            remote.subCredits,
+                                            remote.paidCredits,
                                         )
-                                },
-                            )
-                        }
-                    }
-
-                    SettingsDivider()
-
-                    // Daily & Monthly Download Egress Meter + Ad-Boosted Quota (+50 MB x6/day)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(
-                            modifier = Modifier.weight(1f).padding(end = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            Text(
-                                text =
-                                    stringResource(
-                                        R.string.storage_egress_daily_label,
-                                        storageState.dailyDownloadUsedMb,
-                                        storageState.dailyDownloadQuotaMb,
-                                        storageState.dailyDownloadAdBoostMb,
-                                    ),
-                                style = typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = colors.onSurface,
-                            )
-                            Text(
-                                text =
-                                    stringResource(
-                                        R.string.storage_egress_monthly_label,
-                                        storageState.monthlyDownloadUsedMb,
-                                        storageState.monthlyDownloadCapMb,
-                                        storageState.dailyAdBoostsUsed,
-                                        storageState.dailyAdBoostsCap,
-                                    ),
+                                    } ?: "",
                                 style = typography.caption,
                                 color = colors.onSurfaceVariant,
                             )
-                        }
-                        CompactSegmentPill(
-                            label =
-                                if (isEInkActive) {
-                                    stringResource(R.string.storage_egress_boost_eink_btn)
-                                } else {
-                                    stringResource(R.string.storage_egress_boost_btn)
-                                },
-                            isSelected = false,
-                            onClick = {
-                                if (isEInkActive) {
-                                    activeQrPurpose = EInkQrRewardPurpose.DOWNLOAD_BOOST
-                                } else {
-                                    storageState = storageState.applyDownloadAdBoost()
+                            if (userSession.isAuthenticated) {
+                                TextButton(
+                                    onClick = { walletRefresh++ },
+                                    enabled = !walletLoading,
+                                ) {
+                                    Text("刷新余额")
                                 }
-                            },
-                        )
-                    }
-
-                    SettingsDivider()
-
-                    // Check-In & Rewarded-Ad Makeup (<= 5/month, past 7 days)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(
-                            modifier = Modifier.weight(1f).padding(end = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            Text(
-                                text =
-                                    stringResource(
-                                        R.string.storage_checkin_label,
-                                        storageState.checkinDays,
-                                        storageState.checkinStreak,
-                                    ),
-                                style = typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = colors.onSurface,
-                            )
-                            Text(
-                                text =
-                                    stringResource(
-                                        R.string.storage_checkin_metrics_desc,
-                                        storageState.readingMinutes,
-                                        storageState.chaptersRead,
-                                        storageState.graphDownloads,
-                                        storageState.aiQueries,
-                                        storageState.completedGraphBuilds,
-                                        storageState.monthlyMakeupUsed,
-                                        storageState.monthlyMakeupCap,
-                                    ),
-                                style = typography.caption,
-                                color = colors.onSurfaceVariant,
-                            )
+                            }
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            CompactSegmentPill(
-                                label =
-                                    if (storageState.checkedInToday) {
-                                        stringResource(R.string.storage_checked_in_btn)
-                                    } else {
-                                        stringResource(R.string.storage_checkin_btn)
-                                    },
-                                isSelected = storageState.checkedInToday,
-                                onClick = {
-                                    storageState = storageState.recordCheckIn(todayDayKey)
-                                },
-                            )
-                            CompactSegmentPill(
-                                label =
-                                    if (isEInkActive) {
-                                        stringResource(R.string.storage_makeup_eink_btn)
-                                    } else {
-                                        stringResource(R.string.storage_makeup_btn)
-                                    },
-                                isSelected = false,
-                                onClick = {
-                                    val targetMissedDay =
-                                        (1L..StorageQuotaState.MAX_MAKEUP_LOOKBACK_DAYS)
-                                            .map { LocalDate.now().minusDays(it).toString() }
-                                            .firstOrNull {
-                                                storageState.canMakeupCheckIn(it, todayDayKey)
+                    }
+                    SettingsDivider()
+                    AccountStoragePanel(
+                        authenticated = userSession.isAuthenticated,
+                        snapshot = accountQuota,
+                        loading = quotaLoading,
+                        checkInBusy = checkInBusy,
+                        checkInMessage = checkInMessage,
+                        onRefresh = { quotaRefresh++ },
+                        onCheckIn = {
+                            val credential = userSession.credential
+                            val request =
+                                quotaOwner.beginCheckIn(
+                                    credential,
+                                    accountQuota?.checkedInToday,
+                                )
+                            if (request != null) {
+                                checkInBusy = true
+                                quotaLoading = false
+                                checkInMessage = null
+                                quotaScope.launch {
+                                    try {
+                                        val result =
+                                            withContext(Dispatchers.IO) {
+                                                accountClient.checkInAuthenticatedStorage(
+                                                    userSession.anonymousId,
+                                                    credential,
+                                                )
                                             }
-                                    if (isEInkActive) {
-                                        activeQrPurpose = EInkQrRewardPurpose.CHECKIN_MAKEUP
-                                    } else if (targetMissedDay != null) {
-                                        storageState =
-                                            storageState.makeupCheckInWithAd(
-                                                targetDayKey = targetMissedDay,
-                                                nowDayKey = todayDayKey,
+                                        coroutineContext.ensureActive()
+                                        if (quotaOwner.accepts(
+                                                request,
+                                                credential,
+                                                latestCredential,
                                             )
-                                    }
-                                },
-                            )
-                        }
-                    }
-
-                    SettingsDivider()
-
-                    // Monthly Cloud Storage + 推理点 Subscription Plans (Free 100MB / Plus ¥12 / Pro ¥24)
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = stringResource(R.string.subscription_plan_heading),
-                            style = typography.labelMedium,
-                            color = colors.onSurfaceVariant,
-                        )
-                        Row(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            CompactSegmentPill(
-                                label = stringResource(R.string.subscription_plan_free),
-                                isSelected = storageState.activePlan == SubscriptionPlan.FREE,
-                                onClick = {
-                                    storageState =
-                                        storageState.applySubscriptionPlan(SubscriptionPlan.FREE)
-                                },
-                            )
-                            CompactSegmentPill(
-                                label = stringResource(R.string.subscription_plan_plus),
-                                isSelected =
-                                    storageState.activePlan == SubscriptionPlan.PLUS_MONTHLY,
-                                onClick = {
-                                    if (storageState.activePlan != SubscriptionPlan.PLUS_MONTHLY) {
-                                        wallet =
-                                            wallet.activateSubscriptionPlan(
-                                                SubscriptionPlan.PLUS_MONTHLY,
+                                        ) {
+                                            if (result == null) {
+                                                checkInMessage = "签到未成功，请重试"
+                                            } else {
+                                                accountQuota = result.quota
+                                                checkInMessage =
+                                                    when {
+                                                        result.alreadyCheckedIn -> "今日已签到"
+                                                        result.newlyLeveledUp -> "签到成功，等级已更新"
+                                                        else -> "签到成功"
+                                                    }
+                                            }
+                                        }
+                                    } finally {
+                                        if (quotaOwner.accepts(
+                                                request,
+                                                credential,
+                                                latestCredential,
                                             )
+                                        ) {
+                                            checkInBusy = false
+                                        }
+                                        quotaOwner.finishCheckIn(request)
                                     }
-                                    storageState =
-                                        storageState.applySubscriptionPlan(
-                                            SubscriptionPlan.PLUS_MONTHLY,
-                                        )
-                                },
-                            )
-                            CompactSegmentPill(
-                                label = stringResource(R.string.subscription_plan_pro),
-                                isSelected =
-                                    storageState.activePlan == SubscriptionPlan.PRO_MONTHLY,
-                                onClick = {
-                                    if (storageState.activePlan != SubscriptionPlan.PRO_MONTHLY) {
-                                        wallet =
-                                            wallet.activateSubscriptionPlan(
-                                                SubscriptionPlan.PRO_MONTHLY,
-                                            )
-                                    }
-                                    storageState =
-                                        storageState.applySubscriptionPlan(
-                                            SubscriptionPlan.PRO_MONTHLY,
-                                        )
-                                },
-                            )
-                        }
-                    }
-
-                    SettingsDivider()
-
-                    // Direct Permanent 推理点 Top-Up Packs (¥6=80 / ¥18=300 / ¥45=900)
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = stringResource(R.string.topup_pack_heading),
-                            style = typography.labelMedium,
-                            color = colors.onSurfaceVariant,
-                        )
-                        Row(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            CompactSegmentPill(
-                                label = stringResource(R.string.topup_pack_6),
-                                isSelected = false,
-                                onClick = {
-                                    wallet = wallet.purchaseTopUpPack(TopUpPack.PACK_6_CNY)
-                                },
-                            )
-                            CompactSegmentPill(
-                                label = stringResource(R.string.topup_pack_18),
-                                isSelected = false,
-                                onClick = {
-                                    wallet = wallet.purchaseTopUpPack(TopUpPack.PACK_18_CNY)
-                                },
-                            )
-                            CompactSegmentPill(
-                                label = stringResource(R.string.topup_pack_45),
-                                isSelected = false,
-                                onClick = {
-                                    wallet = wallet.purchaseTopUpPack(TopUpPack.PACK_45_CNY)
-                                },
-                            )
-                        }
-                    }
+                                }
+                            }
+                        },
+                    )
                 }
 
                 // =========================================================================
@@ -1491,7 +1274,13 @@ fun SettingsPreviewScreen(
 
     if (showSignInDialog) {
         AlertDialog(
-            onDismissRequest = { showSignInDialog = false },
+            onDismissRequest = {
+                authAttempt++
+                isVerifyingOtp = false
+                otpDraft = ""
+                authStatusMessage = null
+                showSignInDialog = false
+            },
             title = {
                 Text(
                     text = stringResource(R.string.more_account_signin_dialog_title),
@@ -1502,12 +1291,13 @@ fun SettingsPreviewScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = stringResource(R.string.library_collections_sync_hint),
+                        text = stringResource(R.string.more_account_email_verification_hint),
                         style = typography.caption,
                         color = colors.onSurfaceVariant,
                     )
                     OutlinedTextField(
                         value = accountDraft,
+                        enabled = !isVerifyingOtp,
                         onValueChange = { accountDraft = it },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
@@ -1525,12 +1315,13 @@ fun SettingsPreviewScreen(
                     ) {
                         OutlinedTextField(
                             value = otpDraft,
+                            enabled = !isVerifyingOtp,
                             onValueChange = { otpDraft = it.filter { ch -> ch.isDigit() }.take(6) },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
                             label = {
                                 Text(
-                                    text = "6 位邮箱验证码 (OTP)",
+                                    text = "邮箱验证码",
                                     style = typography.caption,
                                 )
                             },
@@ -1538,18 +1329,23 @@ fun SettingsPreviewScreen(
                         OutlinedButton(
                             onClick = {
                                 val targetEmail = accountDraft.trim()
-                                if (targetEmail.isNotBlank() && !isSendingOtp) {
+                                if (targetEmail.isNotBlank() && !isSendingOtp && !isVerifyingOtp) {
                                     isSendingOtp = true
                                     authStatusMessage = "正在请求云端发送验证码…"
                                     Thread {
-                                        val res = apiClient.sendEmailOtp(targetEmail)
+                                        val res = authenticationClient.sendEmailOtp(targetEmail)
                                         Handler(Looper.getMainLooper()).post {
                                             isSendingOtp = false
+                                            if (!showSignInDialog ||
+                                                targetEmail != accountDraft.trim()
+                                            ) {
+                                                return@post
+                                            }
                                             authStatusMessage =
                                                 if (!res.offlineFallback) {
-                                                    "✓ 验证码已发送至 $targetEmail（发件人 no-reply@mail.mixuread.com）"
+                                                    "验证码已发送，请检查邮箱"
                                                 } else {
-                                                    "当前处于离线模式，可直接点击下方确认切换本地账号"
+                                                    "验证码发送失败，请稍后重试。您仍可离线阅读。"
                                                 }
                                         }
                                     }.start()
@@ -1575,6 +1371,8 @@ fun SettingsPreviewScreen(
             dismissButton = {
                 TextButton(
                     onClick = {
+                        authAttempt++
+                        isVerifyingOtp = false
                         signedInAccount = null
                         onSessionChange(UserSession.DEFAULT)
                         showSignInDialog = false
@@ -1588,195 +1386,57 @@ fun SettingsPreviewScreen(
                     onClick = {
                         val trimmedEmail = accountDraft.trim()
                         val trimmedOtp = otpDraft.trim()
-                        if (trimmedEmail.isNotEmpty() && trimmedOtp.length == 6) {
-                            authStatusMessage = "正在校验邮箱验证码…"
+                        if (isVerifyingOtp) return@TextButton
+                        if (trimmedEmail.isBlank() || !trimmedOtp.matches(Regex("[0-9]{6}"))) {
+                            authStatusMessage = "请输入邮箱和 6 位验证码"
+                        } else {
+                            isVerifyingOtp = true
+                            authAttempt++
+                            val attempt = authAttempt
+                            authStatusMessage = "正在验证…"
                             Thread {
-                                val verified = apiClient.verifyEmailOtp(trimmedEmail, trimmedOtp)
-                                val fetchedWallet =
-                                    if (verified != null) {
-                                        apiClient.fetchWallet(verified.userId)
-                                    } else {
-                                        null
-                                    }
+                                val verified =
+                                    authenticationClient.verifyEmailOtp(
+                                        trimmedEmail,
+                                        trimmedOtp,
+                                    )
                                 Handler(Looper.getMainLooper()).post {
-                                    if (verified != null) {
-                                        signedInAccount = verified.email
-                                        onSessionChange(
-                                            UserSession.createAuthenticated(
-                                                userId = verified.userId,
-                                                displayName = verified.email,
-                                            ),
-                                        )
-                                        if (fetchedWallet != null) {
-                                            wallet = fetchedWallet
-                                        }
-                                        authStatusMessage = null
-                                        showSignInDialog = false
+                                    if (!requestOwner.isActive() ||
+                                        attempt != authAttempt ||
+                                        !showSignInDialog
+                                    ) {
+                                        return@post
+                                    }
+                                    isVerifyingOtp = false
+                                    if (verified == null) {
+                                        authStatusMessage = "验证失败，请检查验证码或重新获取"
                                     } else {
-                                        authStatusMessage = "验证码无效或已过期，请重新获取"
+                                        val session =
+                                            UserSession.createAuthenticated(
+                                                verified.userId,
+                                                verified.displayName,
+                                                VerifiedCredential(
+                                                    verified.accessToken,
+                                                    verified.endpoint,
+                                                    verified.expiresAtEpochMillis,
+                                                ),
+                                            )
+                                        runCatching { onSessionChange(session) }
+                                            .onSuccess {
+                                                signedInAccount = verified.displayName
+                                                otpDraft = ""
+                                                authStatusMessage = null
+                                                showSignInDialog = false
+                                            }.onFailure {
+                                                authStatusMessage = "无法安全保存登录状态，请重试"
+                                            }
                                     }
                                 }
                             }.start()
-                        } else if (trimmedEmail.isNotEmpty()) {
-                            signedInAccount = trimmedEmail
-                            onSessionChange(
-                                UserSession.createAuthenticated(
-                                    userId = trimmedEmail,
-                                    displayName = trimmedEmail,
-                                ),
-                            )
-                            showSignInDialog = false
-                        } else {
-                            showSignInDialog = false
                         }
                     },
                 ) {
                     Text(stringResource(R.string.more_account_signin_confirm))
-                }
-            },
-        )
-    }
-
-    val qrPurpose = activeQrPurpose
-    if (qrPurpose != null) {
-        val uid = signedInAccount ?: userSession.anonymousId
-        val nextMissedDay =
-            (1L..StorageQuotaState.MAX_MAKEUP_LOOKBACK_DAYS)
-                .map { LocalDate.now().minusDays(it).toString() }
-                .firstOrNull { storageState.canMakeupCheckIn(it, todayDayKey) }
-        val qrPayload =
-            remember(uid, qrPurpose, nextMissedDay) {
-                when (qrPurpose) {
-                    EInkQrRewardPurpose.CREDIT_WALLET ->
-                        wallet.generateEInkQrChallengePayload(anonymousOrUserId = uid)
-                    EInkQrRewardPurpose.DOWNLOAD_BOOST ->
-                        "mixu://ad-reward/qr?uid=$uid&purpose=download-boost&boost_mb=50"
-                    EInkQrRewardPurpose.CHECKIN_MAKEUP ->
-                        "mixu://ad-reward/qr?uid=$uid&purpose=checkin-makeup&day=${nextMissedDay.orEmpty()}"
-                }
-            }
-        val qrMatrix = remember(qrPayload) { wallet.generateQrMatrix(qrPayload) }
-
-        AlertDialog(
-            onDismissRequest = { activeQrPurpose = null },
-            title = {
-                Text(
-                    text =
-                        when (qrPurpose) {
-                            EInkQrRewardPurpose.CREDIT_WALLET ->
-                                stringResource(R.string.wallet_eink_qr_dialog_title)
-                            EInkQrRewardPurpose.DOWNLOAD_BOOST ->
-                                stringResource(R.string.storage_eink_boost_qr_title)
-                            EInkQrRewardPurpose.CHECKIN_MAKEUP ->
-                                stringResource(R.string.storage_eink_makeup_qr_title)
-                        },
-                    style = typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .size(168.dp)
-                                .background(Color.White)
-                                .border(2.dp, Color.Black)
-                                .padding(10.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val dim = qrMatrix.size.coerceAtLeast(1)
-                            val cellW = size.width / dim
-                            val cellH = size.height / dim
-                            for (r in 0 until dim) {
-                                for (c in 0 until dim) {
-                                    if (qrMatrix[r][c]) {
-                                        drawRect(
-                                            color = Color.Black,
-                                            topLeft = Offset(c * cellW, r * cellH),
-                                            size = Size(cellW + 0.5f, cellH + 0.5f),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Text(
-                        text = qrPayload,
-                        style = typography.caption.copy(fontFamily = FontFamily.Monospace),
-                        color = colors.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text =
-                            when (qrPurpose) {
-                                EInkQrRewardPurpose.CREDIT_WALLET ->
-                                    stringResource(
-                                        R.string.wallet_eink_qr_dialog_desc,
-                                        wallet.dailyAdCreditsClaimed,
-                                    )
-                                EInkQrRewardPurpose.DOWNLOAD_BOOST ->
-                                    stringResource(
-                                        R.string.storage_eink_boost_qr_desc,
-                                        storageState.dailyAdBoostsUsed,
-                                        storageState.dailyAdBoostsCap,
-                                    )
-                                EInkQrRewardPurpose.CHECKIN_MAKEUP ->
-                                    stringResource(
-                                        R.string.storage_eink_makeup_qr_desc,
-                                        storageState.monthlyMakeupUsed,
-                                        storageState.monthlyMakeupCap,
-                                    )
-                            },
-                        style = typography.caption,
-                        color = colors.onSurface,
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { activeQrPurpose = null }) {
-                    Text(stringResource(R.string.caseboard_hypothesis_cancel))
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        when (qrPurpose) {
-                            EInkQrRewardPurpose.CREDIT_WALLET -> {
-                                wallet = wallet.claimRewardedAd()
-                            }
-                            EInkQrRewardPurpose.DOWNLOAD_BOOST -> {
-                                storageState = storageState.applyDownloadAdBoost()
-                            }
-                            EInkQrRewardPurpose.CHECKIN_MAKEUP -> {
-                                if (nextMissedDay != null) {
-                                    storageState =
-                                        storageState.makeupCheckInWithAd(
-                                            targetDayKey = nextMissedDay,
-                                            nowDayKey = todayDayKey,
-                                        )
-                                }
-                            }
-                        }
-                        activeQrPurpose = null
-                    },
-                ) {
-                    Text(
-                        when (qrPurpose) {
-                            EInkQrRewardPurpose.CREDIT_WALLET ->
-                                stringResource(R.string.wallet_eink_qr_confirm_btn)
-                            EInkQrRewardPurpose.DOWNLOAD_BOOST ->
-                                stringResource(R.string.storage_eink_boost_qr_confirm_btn)
-                            EInkQrRewardPurpose.CHECKIN_MAKEUP ->
-                                stringResource(R.string.storage_eink_makeup_qr_confirm_btn)
-                        },
-                    )
                 }
             },
         )

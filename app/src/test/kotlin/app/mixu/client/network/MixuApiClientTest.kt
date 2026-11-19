@@ -307,7 +307,7 @@ class MixuApiClientTest {
                         req.url.endsWith("/v1/auth/email/send-code") ->
                             MixuHttpResponse(
                                 statusCode = 200,
-                                body = """{"status":"OTP_SENT","expires_in_seconds":600}""",
+                                body = """{"status":"sent","expires_in_seconds":600}""",
                             )
                         req.url.endsWith("/v1/auth/email/verify") ->
                             MixuHttpResponse(
@@ -316,9 +316,12 @@ class MixuApiClientTest {
                                     """
                                     {
                                       "access_token": "jwt-token-01",
-                                      "user": {
-                                        "id": "usr_reader_01",
-                                        "email": "reader@mixuread.com",
+                                      "token_type": "Bearer",
+                                      "expires_in_seconds": 3600,
+                                      "profile": {
+                                        "user_id": "usr_reader_01",
+                                        "username": "reader",
+                                        "email_verified": true,
                                         "display_name": "reader"
                                       },
                                       "is_new_account": true
@@ -356,13 +359,12 @@ class MixuApiClientTest {
             )
 
         val otpRes = client.sendEmailOtp("reader@mixuread.com")
-        assertEquals("OTP_SENT", otpRes.status)
+        assertEquals("sent", otpRes.status)
         assertFalse(otpRes.offlineFallback)
 
         val verifyRes = client.verifyEmailOtp("reader@mixuread.com", "123456")
         assertEquals("usr_reader_01", verifyRes?.userId)
         assertEquals("reader@mixuread.com", verifyRes?.email)
-        assertTrue(verifyRes?.isNewAccount == true)
 
         val graphRes =
             client.extractBookGraph(

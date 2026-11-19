@@ -12,8 +12,8 @@ android {
 
     defaultConfig {
         applicationId = "app.mixu.client"
-        versionCode = 3
-        versionName = "0.0.3"
+        versionCode = 4
+        versionName = "0.0.4"
     }
 
     val keystorePath = System.getenv("MIXU_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }

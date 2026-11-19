@@ -305,11 +305,11 @@
     <string name="library_tags_section_title">ミステリ小説タグ配列（作家・密室・クローズドサークル等）</string>
     <string name="library_tags_new_hint">新しいタグを入力（例：密室殺人、館、作家名）…</string>
     <string name="library_tags_sync_badge">☁ タグ配列同期済</string>
-    <string name="more_account_signin_btn">ログイン / 同期</string>
-    <string name="more_account_signed_in_badge">クラウド同期有効</string>
-    <string name="more_account_signin_dialog_title">アカウントログインとクラウド同期</string>
-    <string name="more_account_email_label">メールアドレスまたは自前サーバーID</string>
-    <string name="more_account_signin_confirm">同期を有効化</string>
+    <string name="more_account_signin_btn">ログイン / 登録</string>
+    <string name="more_account_signed_in_badge">ログイン済み</string>
+    <string name="more_account_signin_dialog_title">メールでログイン</string>
+    <string name="more_account_email_label">メールアドレス</string>
+    <string name="more_account_signin_confirm">ログイン</string>
     <string name="more_account_switch_guest">オフラインゲストに戻す</string>
 
     <!-- EPUB Image & AI Diagram Inspector + Case Board Canonical Filters (CTX-0030) -->
@@ -398,4 +398,5 @@
     <string name="marketplace_published_badge">✓ 公開済 · クリエイター還元累計：+%1$d pt (上限 120)</string>
     <string name="marketplace_simulate_royalty_btn">他読者DLをシミュレート (+1 pt 還元)</string>
     <string name="selection_explain_request">選択した文章を説明</string>
+    <string name="more_account_email_verification_hint">メールに届く確認コードでログインします。初回の確認時にアカウントを作成します。パスワードは不要です。</string>
 </resources>

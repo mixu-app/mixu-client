@@ -23,6 +23,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -43,6 +45,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.setViewTreeLifecycleOwner
@@ -50,7 +53,9 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import app.mixu.client.auth.UserSession
+import app.mixu.client.auth.AndroidCredentialStorage
+import app.mixu.client.auth.VerifiedCredential
+import app.mixu.client.auth.VerifiedSessionRepository
 import app.mixu.client.caseboard.BookGraphPackLoader
 import app.mixu.client.caseboard.CaseBoardController
 import app.mixu.client.caseboard.CaseBoardScreen
@@ -79,6 +84,7 @@ import app.mixu.client.theme.createMixuAppTypography
 import app.mixu.client.ui.MixuAdaptiveNavigation
 import app.mixu.client.ui.RetainedCompanionPage
 import app.mixu.client.ui.SettingsPreviewScreen
+import kotlinx.coroutines.delay
 import java.io.File
 
 private const val WIDE_NAVIGATION_MIN_WIDTH_DP = 840
@@ -184,7 +190,45 @@ class MainActivity :
                         mutableStateOf(startDestination)
                     }
                     var config by remember { mutableStateOf(database.loadReaderSettings()) }
-                    var userSession by remember { mutableStateOf(UserSession.DEFAULT) }
+                    val sessionRepository =
+                        remember {
+                            VerifiedSessionRepository(
+                                AndroidCredentialStorage(this@MainActivity),
+                            )
+                        }
+                    var userSession by remember {
+                        mutableStateOf(
+                            sessionRepository.restore(MixuApiClient.DEFAULT_PRODUCTION_BASE_URL),
+                        )
+                    }
+                    val rejectAuth: (VerifiedCredential) -> Unit = { rejected ->
+                        Handler(Looper.getMainLooper()).post {
+                            userSession = sessionRepository.reject(userSession, rejected)
+                        }
+                    }
+                    DisposableEffect(sessionRepository) {
+                        val observer =
+                            LifecycleEventObserver { _, event ->
+                                if (event == Lifecycle.Event.ON_RESUME) {
+                                    userSession = sessionRepository.expire(userSession)
+                                }
+                            }
+                        lifecycleRegistry.addObserver(observer)
+                        onDispose {
+                            lifecycleRegistry.removeObserver(observer)
+                            sessionRepository.close()
+                        }
+                    }
+                    LaunchedEffect(userSession.credential) {
+                        val credential = userSession.credential ?: return@LaunchedEffect
+                        delay(
+                            (credential.expiresAtEpochMillis - System.currentTimeMillis())
+                                .coerceAtLeast(
+                                    0L,
+                                ),
+                        )
+                        userSession = sessionRepository.expire(userSession)
+                    }
                     var libraryBooks by remember { mutableStateOf(loadLibraryBooks()) }
                     var activeBookId by remember { mutableStateOf(initialBookId) }
                     var libraryFilterTag by remember { mutableStateOf<String?>(null) }
@@ -368,8 +412,13 @@ class MainActivity :
                                         config.selfHostedApiEnabled,
                                         config.selfHostedApiUrl,
                                         config.selfHostedStatelessMode,
+                                        userSession,
                                     ) {
-                                        MixuApiClient.createProductionClient(config)
+                                        MixuApiClient.createProductionClient(
+                                            config,
+                                            credentialProvider = { userSession.credential },
+                                            onAuthenticationRejected = rejectAuth,
+                                        )
                                     },
                                 embedded = embedded,
                                 modifier = modifier,
@@ -443,6 +492,8 @@ class MainActivity :
                                             MixuApiClient
                                                 .createProductionClient(
                                                     config,
+                                                    credentialProvider = { userSession.credential },
+                                                    onAuthenticationRejected = rejectAuth,
                                                 )
                                         val uid =
                                             userSession.anonymousId.ifBlank {
@@ -745,7 +796,31 @@ class MainActivity :
                                                     readerTick++
                                                 },
                                                 userSession = userSession,
+                                                apiClient =
+                                                    remember(config, userSession) {
+                                                        MixuApiClient.createProductionClient(
+                                                            config,
+                                                            credentialProvider = {
+                                                                userSession.credential
+                                                            },
+                                                            onAuthenticationRejected = rejectAuth,
+                                                        )
+                                                    },
+                                                accountClient =
+                                                    remember(userSession) {
+                                                        MixuApiClient.createProductionClient(
+                                                            credentialProvider = {
+                                                                userSession.credential
+                                                            },
+                                                            onAuthenticationRejected = rejectAuth,
+                                                        )
+                                                    },
                                                 onSessionChange = { nextSession ->
+                                                    if (nextSession.isAuthenticated) {
+                                                        sessionRepository.save(nextSession)
+                                                    } else {
+                                                        sessionRepository.logout()
+                                                    }
                                                     userSession = nextSession
                                                 },
                                                 onNavigateBack = {

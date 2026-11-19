@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 package app.mixu.client.network
 
+import app.mixu.client.auth.VerifiedCredential
 import app.mixu.client.billing.ClientCreditWallet
 import app.mixu.client.billing.ClientStorageStatus
 import app.mixu.client.billing.EditionMatchTier
@@ -73,10 +74,14 @@ fun interface MixuHttpTransport {
 class JdkHttpTransport(
     private val connectTimeoutMs: Int = DEFAULT_CONNECT_TIMEOUT_MS,
     private val readTimeoutMs: Int = DEFAULT_READ_TIMEOUT_MS,
+    private val connectionFactory: (URI) -> HttpURLConnection = {
+        it.toURL().openConnection() as HttpURLConnection
+    },
 ) : MixuHttpTransport {
     override fun execute(request: MixuHttpRequest): MixuHttpResponse {
         val connection =
-            (URI.create(request.url).toURL().openConnection() as HttpURLConnection).apply {
+            connectionFactory(URI.create(request.url)).apply {
+                instanceFollowRedirects = false
                 requestMethod = request.method
                 connectTimeout = connectTimeoutMs
                 readTimeout = readTimeoutMs
@@ -215,9 +220,12 @@ data class EmailOtpVerifyResult(
     val userId: String,
     val email: String,
     val displayName: String,
-    val isNewAccount: Boolean,
+    val expiresAtEpochMillis: Long,
+    val endpoint: String,
     val offlineFallback: Boolean = false,
-)
+) {
+    override fun toString(): String = "EmailOtpVerifyResult([redacted])"
+}
 
 /**
  * Chapter digest sent to `POST /v1/ai/graph/extract` for cloud AI narrative graph construction.
@@ -363,6 +371,10 @@ class MixuApiClient(
     val baseUrl: String = DEFAULT_EMULATOR_LOOPBACK,
     val statelessSelfHostedMode: Boolean = false,
     private val transport: MixuHttpTransport = JdkHttpTransport(),
+    private val credentialProvider: () -> VerifiedCredential? = { null },
+    private val managedAuthentication: Boolean = false,
+    private val onAuthenticationRejected: (VerifiedCredential) -> Unit = {},
+    private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
     private val normalizedBaseUrl: String
     private val json: Json =
@@ -400,6 +412,90 @@ class MixuApiClient(
         }.getOrElse {
             ClientCreditWallet()
         }
+    }
+
+    /** Strict account hydration: unavailable or malformed data never becomes an invented balance. */
+    fun fetchAuthenticatedWallet(
+        userId: String,
+        initiatingCredential: VerifiedCredential?,
+    ): ClientCreditWallet? {
+        if (!managedAuthentication || userId.isBlank() || initiatingCredential == null) return null
+        val response =
+            executeSafely(
+                MixuHttpRequest(
+                    method = "GET",
+                    url = "$normalizedBaseUrl/v1/billing/wallet",
+                    headers = buildHeaders(userId, hasBody = false),
+                ),
+                initiatingCredential,
+            ) ?: return null
+        if (!response.isSuccess) return null
+        return runCatching {
+            val obj = json.parseToJsonElement(response.body).jsonObject
+            require(obj.authStringField("user_id") == userId)
+
+            fun amount(key: String): Long =
+                (obj[key] as? JsonPrimitive)
+                    ?.takeIf { !it.isString }
+                    ?.longOrNull
+                    ?.takeIf { it >= 0L }
+                    ?: error("Invalid account balance")
+            val promo = amount("promo_credits_minor")
+            val sub = amount("sub_credits_minor")
+            val paid = amount("paid_credits_minor")
+            val available = amount("available_balance_minor")
+            amount("reserved_balance_minor")
+            require(Math.addExact(Math.addExact(promo, sub), paid) == available)
+            require(available / MINOR_UNITS_PER_CREDIT <= Int.MAX_VALUE)
+            ClientCreditWallet(
+                promoCredits = (promo / MINOR_UNITS_PER_CREDIT).toInt(),
+                subCredits = (sub / MINOR_UNITS_PER_CREDIT).toInt(),
+                paidCredits = (paid / MINOR_UNITS_PER_CREDIT).toInt(),
+            )
+        }.getOrNull()
+    }
+
+    /** Read-only managed storage state; absent or invalid server data never becomes a local quota. */
+    fun fetchAuthenticatedStorageQuota(
+        userId: String,
+        initiatingCredential: VerifiedCredential?,
+    ): AccountStorageQuota? {
+        if (!managedAuthentication || userId.isBlank() || initiatingCredential == null) return null
+        val response =
+            executeSafely(
+                MixuHttpRequest(
+                    method = "GET",
+                    url = "$normalizedBaseUrl/v1/storage/quota",
+                    headers = buildHeaders(userId, hasBody = false),
+                ),
+                initiatingCredential,
+            ) ?: return null
+        if (!response.isSuccess) return null
+        return runCatching {
+            parseAccountStorageQuota(json.parseToJsonElement(response.body).jsonObject, userId)
+        }.getOrNull()
+    }
+
+    /** Explicit managed daily check-in; no client date or local fallback grant is supplied. */
+    fun checkInAuthenticatedStorage(
+        userId: String,
+        initiatingCredential: VerifiedCredential?,
+    ): AccountStorageCheckIn? {
+        if (!managedAuthentication || userId.isBlank() || initiatingCredential == null) return null
+        val response =
+            executeSafely(
+                MixuHttpRequest(
+                    method = "POST",
+                    url = "$normalizedBaseUrl/v1/storage/check-in",
+                    headers = buildHeaders(userId, hasBody = true),
+                    body = "{}",
+                ),
+                initiatingCredential,
+            ) ?: return null
+        if (!response.isSuccess) return null
+        return runCatching {
+            parseAccountStorageCheckIn(json.parseToJsonElement(response.body).jsonObject, userId)
+        }.getOrNull()
     }
 
     /**
@@ -707,8 +803,12 @@ class MixuApiClient(
             runCatching {
                 val obj = json.parseToJsonElement(response.body).jsonObject
                 return EmailOtpSendResult(
-                    status = obj.stringField("status") ?: "OTP_SENT",
-                    expiresInSeconds = obj.intField("expires_in_seconds") ?: 600,
+                    status =
+                        obj.stringField("status")?.takeIf { it == "sent" }
+                            ?: error("Invalid OTP status"),
+                    expiresInSeconds =
+                        obj.intField("expires_in_seconds")?.takeIf { it > 0 }
+                            ?: error("Invalid OTP expiry"),
                     offlineFallback = false,
                 )
             }
@@ -732,7 +832,7 @@ class MixuApiClient(
         val trimmedEmail = email.trim()
         val trimmedCode = code.trim()
         require(trimmedEmail.isNotBlank()) { "email must not be blank" }
-        require(trimmedCode.isNotBlank()) { "code must not be blank" }
+        if (!trimmedCode.matches(Regex("[0-9]{6}"))) return null
         val body =
             buildJsonObject {
                 put("email", JsonPrimitive(trimmedEmail))
@@ -751,13 +851,37 @@ class MixuApiClient(
         }
         return runCatching {
             val obj = json.parseToJsonElement(response.body).jsonObject
-            val userObj = obj["user"]?.jsonObject
+            val profile = obj["profile"]?.jsonObject ?: return null
+            val token = obj.authStringField("access_token") ?: return null
+            val userId =
+                profile.authStringField("user_id")?.takeIf { it.isNotBlank() } ?: return null
+            val username =
+                profile.authStringField("username")?.takeIf { it.isNotBlank() } ?: return null
+            if ((profile["email_verified"] as? JsonPrimitive)
+                    ?.takeIf {
+                        !it.isString
+                    }?.booleanOrNull !=
+                true ||
+                !obj.authStringField("token_type").equals("Bearer", ignoreCase = true)
+            ) {
+                return null
+            }
+            val ttl =
+                (obj["expires_in_seconds"] as? JsonPrimitive)
+                    ?.takeIf { !it.isString }
+                    ?.longOrNull
+                    ?.takeIf { it > 0 } ?: return null
+            val expiresAt = Math.addExact(nowMillis(), Math.multiplyExact(ttl, MILLIS_PER_SECOND))
+            val credential = VerifiedCredential(token, normalizedBaseUrl, expiresAt)
+            if (!credential.validFor(normalizedBaseUrl, nowMillis())) return null
             EmailOtpVerifyResult(
-                accessToken = obj.stringField("access_token") ?: "",
-                userId = userObj?.stringField("id") ?: trimmedEmail,
-                email = userObj?.stringField("email") ?: trimmedEmail,
-                displayName = userObj?.stringField("display_name") ?: trimmedEmail,
-                isNewAccount = obj.booleanField("is_new_account") ?: false,
+                accessToken = token,
+                userId = userId,
+                email = trimmedEmail,
+                displayName =
+                    profile.authStringField("display_name")?.takeIf { it.isNotBlank() } ?: username,
+                expiresAtEpochMillis = expiresAt,
+                endpoint = normalizedBaseUrl,
                 offlineFallback = false,
             )
         }.getOrNull()
@@ -1511,6 +1635,9 @@ class MixuApiClient(
         )
     }
 
+    private fun JsonObject.authStringField(key: String): String? =
+        (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+
     private fun JsonObject.stringField(key: String): String? =
         this[key]?.jsonPrimitive?.contentOrNull
 
@@ -1548,16 +1675,48 @@ class MixuApiClient(
             }
         }
 
-    private fun executeSafely(request: MixuHttpRequest): MixuHttpResponse? =
-        runCatching {
-            transport.execute(request)
-        }.getOrNull()
+    private fun executeSafely(
+        request: MixuHttpRequest,
+        initiatingCredential: VerifiedCredential? = null,
+    ): MixuHttpResponse? {
+        val isAuthRequest =
+            request.url == "$normalizedBaseUrl/v1/auth/email/send-code" ||
+                request.url == "$normalizedBaseUrl/v1/auth/email/verify"
+        val credential =
+            credentialProvider()?.takeIf {
+                !statelessSelfHostedMode && it.validFor(normalizedBaseUrl, nowMillis())
+            }
+        // Select the provider once: a queued account intent must never use its replacement's token.
+        if (initiatingCredential != null && credential !== initiatingCredential) return null
+        if (managedAuthentication && !isAuthRequest && credential == null) return null
+        val headers = request.headers.toMutableMap()
+        if (managedAuthentication) headers.remove(HEADER_USER_ID)
+        if (!isAuthRequest && credential != null) {
+            headers[HEADER_AUTHORIZATION] = "Bearer ${credential.accessToken}"
+        }
+        val response =
+            runCatching {
+                transport.execute(
+                    request.copy(headers = headers),
+                )
+            }.getOrNull()
+        if (managedAuthentication &&
+            !isAuthRequest &&
+            credential != null &&
+            response?.statusCode == 401
+        ) {
+            onAuthenticationRejected(credential)
+        }
+        return response
+    }
 
     companion object {
         const val DEFAULT_EMULATOR_LOOPBACK = "http://10.0.2.2:8080"
         const val DEFAULT_PRODUCTION_BASE_URL = "https://api.mixuread.com"
         const val DEFAULT_BUILD_COST_MINOR = 6_000L
         const val DEFAULT_OFFLINE_CHALLENGE_TTL_SECONDS = 300L
+        const val HEADER_AUTHORIZATION = "Authorization"
+        private const val MILLIS_PER_SECOND = 1000L
         const val HEADER_USER_ID = "X-Mixu-User-Id"
         const val HEADER_STATELESS_MODE = "X-Mixu-Stateless-Mode"
         private const val MAX_COPILOT_HISTORY_TURNS = 12
@@ -1579,6 +1738,9 @@ class MixuApiClient(
         fun createProductionClient(
             config: ReaderDisplayConfig? = null,
             channel: DistributionChannel = DistributionChannel.CURRENT,
+            credentialProvider: () -> VerifiedCredential? = { null },
+            onAuthenticationRejected: (VerifiedCredential) -> Unit = {},
+            transport: MixuHttpTransport? = null,
         ): MixuApiClient {
             val resolvedBaseUrl =
                 if (channel.allowsCustomServerEndpoint &&
@@ -1592,14 +1754,21 @@ class MixuApiClient(
                 } else {
                     DEFAULT_PRODUCTION_BASE_URL
                 }
+            val isCustomEndpoint =
+                channel.allowsCustomServerEndpoint &&
+                    config?.selfHostedApiEnabled == true &&
+                    config.selfHostedApiUrl.isNotBlank()
             return MixuApiClient(
                 baseUrl = resolvedBaseUrl,
+                managedAuthentication = !isCustomEndpoint,
+                onAuthenticationRejected = onAuthenticationRejected,
+                credentialProvider = if (isCustomEndpoint) ({ null }) else credentialProvider,
                 statelessSelfHostedMode =
                     channel.allowsCustomServerEndpoint &&
                         config?.selfHostedApiEnabled == true &&
                         config.selfHostedStatelessMode,
                 transport =
-                    JdkHttpTransport(
+                    transport ?: JdkHttpTransport(
                         connectTimeoutMs = PRODUCTION_CONNECT_TIMEOUT_MS,
                         readTimeoutMs = PRODUCTION_READ_TIMEOUT_MS,
                     ),

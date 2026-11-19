@@ -39,6 +39,12 @@ class StructuredLoggerTest {
             UserSession.createAuthenticated(
                 userId = "usr-8899",
                 displayName = "Alice",
+                credential =
+                    app.mixu.client.auth.VerifiedCredential(
+                        "test-only-credential",
+                        "https://auth.invalid",
+                        Long.MAX_VALUE,
+                    ),
             )
         assertFalse(authenticated.isGuest)
         assertTrue(authenticated.isAuthenticated)

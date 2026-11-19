@@ -463,7 +463,10 @@ fun AiButlerCopilotDialog(
     database: LocalLibraryDatabase,
     onLibraryMutated: () -> Unit,
     onDismiss: () -> Unit,
-    apiClient: MixuApiClient = remember { MixuApiClient.createProductionClient() },
+    apiClient: MixuApiClient =
+        remember(userSession) {
+            MixuApiClient.createProductionClient(credentialProvider = { userSession.credential })
+        },
     modifier: Modifier = Modifier,
     initialPrompt: String? = null,
     onConsumeInitialPrompt: () -> Unit = {},
